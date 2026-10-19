@@ -1,0 +1,9 @@
+{
+  "purpose": "Isolated comparison and explicit rollback only; never copied into the source-built portable package",
+  "package": "OpenCvSharp4.runtime.win.slim",
+  "version": "4.13.0.20260627",
+  "url": "https://api.nuget.org/v3-flatcontainer/opencvsharp4.runtime.win.slim/4.13.0.20260627/opencvsharp4.runtime.win.slim.4.13.0.20260627.nupkg",
+  "archiveSha256": "281551a6c032d1aab316db9c1817bcded5a85188b24b2efd12c02665e7233817",
+  "member": "runtimes/win-x64/native/OpenCvSharpExtern.dll",
+  "binarySha256": "1fa122bdb8e94175e7719fb8aa8f2ab211268a756f5d0c7a13c710ed79ae30cd"
+}

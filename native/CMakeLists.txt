@@ -6,6 +6,7 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded)
+set(OpenCV_STATIC ON)
 find_package(OpenCV 4.13 REQUIRED COMPONENTS core imgproc imgcodecs)
 # Keep upstream bindings unmodified; feature guards remove unsupported module bodies.
 file(GLOB binding_sources CONFIGURE_DEPENDS "${SCREENSHOT_OPENCVSHARP_SOURCE}/src/OpenCvSharpExtern/*.cpp")

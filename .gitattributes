@@ -1,12 +1,20 @@
 # Preserve exact upstream notice bytes used by native-license-sources.json.
-licenses/IPPICV-* -text
-licenses/Intel-ITT-* -text
-licenses/OpenCV-ITT-* -text
-licenses/OpenCV-OpenCL-* -text
-licenses/OpenCV-flatbuffers-* -text
-licenses/OpenCV-openexr-* -text
-licenses/OpenCV-openjpeg-* -text
-licenses/OpenCV-protobuf-* -text
-licenses/lib* -text
-licenses/zlib-* -text
-licenses/native-* -text
+licenses/IPPICV-* -text whitespace=cr-at-eol
+licenses/Intel-ITT-* -text whitespace=cr-at-eol
+licenses/OpenCV-ITT-* -text whitespace=cr-at-eol
+licenses/OpenCV-OpenCL-* -text whitespace=cr-at-eol
+licenses/OpenCV-flatbuffers-* -text whitespace=cr-at-eol
+licenses/OpenCV-openexr-* -text whitespace=cr-at-eol
+licenses/OpenCV-openjpeg-* -text whitespace=cr-at-eol
+licenses/OpenCV-protobuf-* -text whitespace=cr-at-eol
+licenses/lib* -text whitespace=cr-at-eol
+licenses/zlib-* -text whitespace=cr-at-eol
+licenses/native-* -text whitespace=cr-at-eol
+
+# Native provenance records hash the exact committed recipe bytes.
+native/** -text whitespace=cr-at-eol
+scripts/build-native.ps1 -text whitespace=cr-at-eol
+scripts/native-build-manifest.cjs -text whitespace=cr-at-eol
+
+licenses/Windows-SDK-* -text whitespace=cr-at-eol
+licenses/windows-sdk-* -text whitespace=cr-at-eol

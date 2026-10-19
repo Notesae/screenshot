@@ -70,6 +70,8 @@
     "TIFF",
     "WEBP",
     "protobuf",
-    "flatbuffers"
+    "flatbuffers",
+    "OPENCV_TRACE",
+    "Orbbec"
   ]
 }

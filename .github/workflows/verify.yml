@@ -2,10 +2,16 @@ name: Verify Windows framework
 on:
   push:
   pull_request:
+concurrency:
+  group: screenshot-verify-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
+  native:
+    uses: ./.github/workflows/native-rebuild.yml
   verify:
+    needs: native
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,12 +23,26 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: editor/package-lock.json
+      - uses: actions/download-artifact@v4
+        with:
+          name: Screenshot-native-source-evidence
+          path: artifacts/native-runtime/win-x64/
       - name: Prepare pinned local OCR models explicitly
         shell: pwsh
         run: ./scripts/prepare-ocr-models.ps1
       - name: Build and automated checks with synthetic OCR inference
         shell: pwsh
         run: ./scripts/verify.ps1 -WithOcrIntegration
+      - name: Compare source and vendor native runtime on synthetic CPU OCR
+        shell: pwsh
+        run: ./scripts/native-quality.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Screenshot-native-quality-evidence
+          path: artifacts/qa/native-rebuild/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Synthetic headless editor regressions
         shell: pwsh
         run: |

@@ -30,6 +30,7 @@ $env:VSLANG='1033'
 $env:SOURCE_DATE_EPOCH='1782518400'
 $cl=(Get-Command cl.exe -ErrorAction Stop).Source
 $sourceDirectories=@{}
+$sourceInputs=[Collections.Generic.List[object]]::new()
 foreach($source in $lock.sources){
     $archive=Join-Path $downloads ($source.name+'-'+$source.commit+'.zip')
     if(-not(Test-Path -LiteralPath $archive)){
@@ -61,11 +62,31 @@ foreach($source in $lock.sources){
         }finally{$zip.Dispose()}
         [IO.File]::WriteAllText($marker,$source.sha256)
     }elseif((Get-Content -LiteralPath $marker -Raw).Trim() -ne $source.sha256){throw 'Source extraction marker mismatch.'}
+    # Revalidate every extracted input, including reused caches; zlib only renames zconf.h during configure.
+    $zip=[IO.Compression.ZipFile]::OpenRead($archive)
+    try{
+        $archiveRoot=$zip.Entries[0].FullName.Split('/')[0]+'/'
+        $expectedFiles=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        $inputRecords=[Collections.Generic.List[object]]::new()
+        foreach($entry in $zip.Entries){
+            if($entry.FullName.EndsWith('/')){continue}
+            $relative=$entry.FullName.Substring($archiveRoot.Length)
+            $file=Join-Path $destination $relative
+            if($source.name -eq 'zlib' -and $relative -eq 'zconf.h' -and -not(Test-Path -LiteralPath $file)){$file+='.included'}
+            $entryStream=$entry.Open();try{$expected=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($entryStream)).ToLowerInvariant()}finally{$entryStream.Dispose()}
+            if(-not(Test-Path -LiteralPath $file) -or (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ine $expected){throw "Extracted source differs: $($source.name)/$relative"}
+            [void]$expectedFiles.Add([IO.Path]::GetFullPath($file));$inputRecords.Add(@{file=$relative;sha256=$expected})
+        }
+        foreach($file in Get-ChildItem -LiteralPath $destination -File -Recurse){if($file.FullName -ne $marker -and -not $expectedFiles.Contains($file.FullName)){throw "Unexpected source input: $($file.FullName)"}}
+        $sourceInputs.Add(@{name=$source.name;commit=$source.commit;archiveSha256=$source.sha256;files=$inputRecords})
+    }finally{$zip.Dispose()}
     $sourceDirectories[$source.name]=$destination
 }
+[IO.File]::WriteAllText((Join-Path $evidence 'source-inputs.json'),($sourceInputs|ConvertTo-Json -Depth 6))
 function CMakeRun([string]$Name,[string[]]$Arguments){
     $log=Join-Path $evidence ($Name+'.log')
-    & $cmake @Arguments 2>&1|Tee-Object -FilePath $log
+    $normalizedArguments=@($Arguments|ForEach-Object {$_.Replace('\','/')})
+    & $cmake @normalizedArguments 2>&1|Tee-Object -FilePath $log
     if($LASTEXITCODE){throw "Native build failed: $Name (see $log)"}
 }
 $common=@('-G','Ninja','-DCMAKE_BUILD_TYPE=Release','-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded','-DCMAKE_POLICY_DEFAULT_CMP0091=NEW','-DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF','-DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF')
@@ -83,12 +104,15 @@ CMakeRun 'png-build' @('--build',$pngBuild,'--target','png_static','--parallel',
 Copy-Item -LiteralPath (Join-Path $sourceDirectories.libpng 'png.h'),(Join-Path $sourceDirectories.libpng 'pngconf.h'),(Join-Path $pngBuild 'pnglibconf.h') -Destination $include
 $pngLibrary=Join-Path $lib 'libpng16_static.lib';Copy-Item -LiteralPath (Join-Path $pngBuild 'libpng16_static.lib') -Destination $pngLibrary
 $cvBuild=Join-Path $work 'opencv';$cvInstall=Join-Path $prefix 'opencv'
-$options=@('-DBUILD_LIST=core,imgproc,imgcodecs','-DBUILD_SHARED_LIBS=OFF','-DBUILD_WITH_STATIC_CRT=ON','-DBUILD_TESTS=OFF','-DBUILD_PERF_TESTS=OFF','-DBUILD_EXAMPLES=OFF','-DBUILD_opencv_apps=OFF','-DBUILD_JAVA=OFF','-DBUILD_opencv_python2=OFF','-DBUILD_opencv_python3=OFF','-DBUILD_opencv_world=OFF','-DWITH_IPP=OFF','-DWITH_ITT=OFF','-DWITH_OPENCL=OFF','-DWITH_EIGEN=OFF','-DWITH_TBB=OFF','-DWITH_OPENMP=OFF','-DWITH_FFMPEG=OFF','-DWITH_GSTREAMER=OFF','-DWITH_MSMF=OFF','-DWITH_DSHOW=OFF','-DWITH_WIN32UI=OFF','-DWITH_DIRECTX=OFF','-DWITH_QUIRC=OFF','-DWITH_PROTOBUF=OFF','-DWITH_PNG=ON','-DBUILD_PNG=OFF','-DBUILD_ZLIB=OFF','-DWITH_JPEG=OFF','-DWITH_TIFF=OFF','-DWITH_WEBP=OFF','-DWITH_OPENJPEG=OFF','-DWITH_OPENEXR=OFF','-DWITH_JASPER=OFF','-DWITH_AVIF=OFF','-DWITH_GDAL=OFF','-DWITH_GDCM=OFF','-DWITH_IMGCODEC_HDR=OFF','-DWITH_IMGCODEC_SUNRASTER=OFF','-DWITH_IMGCODEC_PXM=OFF','-DWITH_IMGCODEC_PFM=OFF','-DWITH_IMGCODEC_GIF=OFF','-DWITH_IMGCODEC_BMP=OFF','-DCPU_BASELINE=SSE2','-DCPU_DISPATCH=SSE4_1,SSE4_2,AVX,FP16,AVX2',"-DPNG_LIBRARY=$pngLibrary","-DPNG_PNG_INCLUDE_DIR=$include","-DCMAKE_INSTALL_PREFIX=$cvInstall")
+$options=@("-DOPENCV_DOWNLOAD_PATH=$(Join-Path $work 'opencv-downloads')",'-DBUILD_LIST=core,imgproc,imgcodecs','-DBUILD_SHARED_LIBS=OFF','-DBUILD_WITH_STATIC_CRT=ON','-DBUILD_TESTS=OFF','-DBUILD_PERF_TESTS=OFF','-DBUILD_EXAMPLES=OFF','-DBUILD_opencv_apps=OFF','-DBUILD_opencv_gapi=OFF','-DWITH_ADE=OFF','-DBUILD_JAVA=OFF','-DBUILD_opencv_python2=OFF','-DBUILD_opencv_python3=OFF','-DBUILD_opencv_world=OFF','-DWITH_IPP=OFF','-DBUILD_IPP_IW=OFF','-DWITH_ITT=OFF','-DCV_TRACE=OFF','-DWITH_FLATBUFFERS=OFF','-DWITH_OBSENSOR=OFF','-DWITH_OPENCL=OFF','-DWITH_EIGEN=OFF','-DWITH_TBB=OFF','-DWITH_OPENMP=OFF','-DWITH_FFMPEG=OFF','-DWITH_GSTREAMER=OFF','-DWITH_MSMF=OFF','-DWITH_DSHOW=OFF','-DWITH_WIN32UI=OFF','-DWITH_DIRECTX=OFF','-DWITH_QUIRC=OFF','-DWITH_PROTOBUF=OFF','-DWITH_PNG=ON','-DBUILD_PNG=OFF','-DBUILD_ZLIB=OFF','-DWITH_JPEG=OFF','-DWITH_TIFF=OFF','-DWITH_WEBP=OFF','-DWITH_OPENJPEG=OFF','-DWITH_OPENEXR=OFF','-DWITH_JASPER=OFF','-DWITH_AVIF=OFF','-DWITH_GDAL=OFF','-DWITH_GDCM=OFF','-DWITH_IMGCODEC_HDR=OFF','-DWITH_IMGCODEC_SUNRASTER=OFF','-DWITH_IMGCODEC_PXM=OFF','-DWITH_IMGCODEC_PFM=OFF','-DWITH_IMGCODEC_GIF=OFF','-DWITH_IMGCODEC_BMP=OFF','-DCPU_BASELINE=SSE2','-DCPU_DISPATCH=SSE4_1,SSE4_2,AVX,FP16,AVX2',"-DPNG_LIBRARY=$pngLibrary","-DPNG_PNG_INCLUDE_DIR=$include","-DCMAKE_INSTALL_PREFIX=$cvInstall")
 CMakeRun 'opencv-configure' (@('-S',$sourceDirectories.opencv,'-B',$cvBuild)+$common+$dependencyOptions+$options)
 CMakeRun 'opencv-build' @('--build',$cvBuild,'--target','opencv_imgcodecs','--parallel',"$Parallel")
 CMakeRun 'opencv-stage' @('--install',$cvBuild,'--config','Release')
+$cvConfigs=@(Get-ChildItem -LiteralPath $cvInstall -Filter OpenCVConfig.cmake -File -Recurse|Where-Object {$_.Directory.Name -eq 'staticlib'})
+if($cvConfigs.Count -ne 1){throw 'Expected exactly one staged static OpenCV configuration.'}
+$cvConfig=$cvConfigs[0].Directory.FullName
 $wrapperBuild=Join-Path $work 'wrapper'
-CMakeRun 'wrapper-configure' (@('-S',(Join-Path $taskRoot 'native'),'-B',$wrapperBuild)+$common+$dependencyOptions+@("-DOpenCV_DIR=$cvInstall","-DSCREENSHOT_OPENCVSHARP_SOURCE=$($sourceDirectories.opencvsharp)","-DPNG_LIBRARY=$pngLibrary","-DPNG_PNG_INCLUDE_DIR=$include"))
+CMakeRun 'wrapper-configure' (@('-S',(Join-Path $taskRoot 'native'),'-B',$wrapperBuild)+$common+$dependencyOptions+@("-DOpenCV_DIR=$cvConfig","-DSCREENSHOT_OPENCVSHARP_SOURCE=$($sourceDirectories.opencvsharp)","-DPNG_LIBRARY=$pngLibrary","-DPNG_PNG_INCLUDE_DIR=$include"))
 CMakeRun 'wrapper-build' @('--build',$wrapperBuild,'--target','OpenCvSharpExtern','--parallel',"$Parallel")
 Copy-Item -LiteralPath (Join-Path $wrapperBuild 'OpenCvSharpExtern.dll') -Destination $Output
 Copy-Item -LiteralPath (Join-Path $wrapperBuild 'OpenCvSharpExtern.map') -Destination $evidence

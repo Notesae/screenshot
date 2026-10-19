@@ -1,11 +1,5 @@
 name: Rebuild minimal OCR native runtime
 on:
-  push:
-    paths:
-      - 'native/**'
-      - 'scripts/build-native.ps1'
-      - 'scripts/native-build-manifest.cjs'
-      - '.github/workflows/native-rebuild.yml'
   workflow_call:
 permissions:
   contents: read
@@ -17,12 +11,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Verify preinstalled native build tools
+      - name: Prepare pinned portable native build tools
         shell: pwsh
         run: |
-          Get-Command cmake.exe,ninja.exe -ErrorAction Stop | Select-Object Name,Source
-          cmake --version
-          ninja --version
+          ./scripts/prepare-native-tools.ps1
+          (Get-Command cmake.exe).Source | Split-Path | Out-File -FilePath $env:GITHUB_PATH -Append
+          (Get-Command ninja.exe).Source | Split-Path | Out-File -FilePath $env:GITHUB_PATH -Append
       - name: Build pinned minimal OpenCV and OpenCvSharp
         shell: pwsh
         run: ./scripts/build-native.ps1

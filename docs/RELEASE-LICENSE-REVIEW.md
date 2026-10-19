@@ -24,3 +24,13 @@
 PE审查覆盖包内全部dll/exe，包括卫星程序集，按哈希匹配来源；原先缺少归属的Windows SDK.NET/WinRT目标框架文件已补入框架pack。四个外部Visual C++ DLL前置条件原诊断未覆盖，现按实际直接导入列出，目标机器只读检查文件和版本，不复制用户系统DLL或自动安装。
 
 确实未关闭：1）上游vendor DLL没有给出逐对象静态链接SBOM/完整版权归属映射，当前是保守构建闭包；2）Intel IPP Simplified EULA的实际再分发条件需审核，原文已取得而不是缺文件；3）Windows SDK标准条款与选中文件再分发清单映射未完成，原用户SDK许可决定仍有效；4）stackback0.0.2是开发工具链，缺完整许可正文，上游发布提交无该文件，未臆造。WebView2/ONNX/.NET附带告知是upstream bundle，不把所有可选组件都宣称实际加载。不能给出全量法律许可通过结论。
+
+## 0.4.2 源码配置复核
+
+本节更新前述版本的未完成项；旧包保持原样。当前自建 DLL 可追溯到四份固定官方源码归档。保留根许可证、COPYRIGHT、所选源码子树完整许可注释、源文件摘要、CMake缓存、MSVC工具链与实际逐对象链接map，平台静态CRT/Windows库另列。SoftFloat/fdlibm、OpenCV旧BSD注释未被Apache根许可覆盖掉。此证据不声称不同MSVC/SDK可生成相同字节。
+
+通过显式禁用IPP/IW移除当前源码配置对其再分发条款的依赖，旧 vendor 回退仍保留原限制。PNG仅使用固定libpng1.6.55+zlib1.3.1。其他图像编解码、ITT/tracing、OpenCL、FlatBuffers、摄像头、contrib/DNN等关闭；以真实缓存、构建信息和链接记录交叉检查。
+
+Windows SDK所选两文件已在[官方REDIST](https://learn.microsoft.com/en-us/legal/windows-sdk/redist) NET8.0小节逐名核实。官方[SDK LICENSE](https://download.microsoft.com/download/0/F/F/0FF2B061-47DD-4F55-89B6-FD1D8C44F14D/sdk_license.rtf)和REDIST原文随包携带并校验摘要。文件映射缺口关闭；产品/分发方/最终用户条款、公开发布所需其他条件没有自动完成。原用户对SDK使用的批准保持有效，未接受任何新协议。
+
+剩余：stackback0.0.2开发工具的许可正文缺失；公开分发条款决定、WebView2/ONNX/.NET整体人工复核、干净机器验收、安装器/签名/更新/卸载/字体/ARM64。没有联系供应商、购买证书、发布新Release或使用真实AI/桌面输入。

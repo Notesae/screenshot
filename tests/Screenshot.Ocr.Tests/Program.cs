@@ -10,7 +10,17 @@ using Screenshot.Ocr;
 using CvPoint = OpenCvSharp.Point;
 using DrawingColor = System.Drawing.Color;
 
-if(args.Length==2&&args[0]=="--build-info"){try{await File.WriteAllTextAsync(Path.GetFullPath(args[1]),Cv2.GetBuildInformation());return 0;}catch(Exception error){Console.Error.WriteLine("FAIL native build metadata: "+error.GetType().Name);return 1;}}
+// A fresh process proves metadata/status does not eagerly load the CPU native library.
+if(args.Length==1&&args[0]=="--native-status"){
+    using var service=new LocalOcrService(Path.Combine(AppContext.BaseDirectory,"absent-models-status"));
+    var status=service.GetStatus();using var current=Process.GetCurrentProcess();
+    if(status.Available||current.Modules.Cast<ProcessModule>().Any(m=>m.ModuleName.Equals("OpenCvSharpExtern.dll",StringComparison.OrdinalIgnoreCase))){Console.Error.WriteLine("FAIL native status eagerly loaded native runtime");return 1;}
+    Console.WriteLine("PASS status query leaves native OCR runtime unloaded");return 0;
+}
+
+if(args.Length>0&&args[0]=="--native-quality")return await NativeOcrQuality.Run(args);
+
+if(args.Length==2&&args[0]=="--build-info"){try{using var decoded=PngInput.DecodeToBgr(SyntheticPng("Hello","OCR 123"));await File.WriteAllTextAsync(Path.GetFullPath(args[1]),Cv2.GetBuildInformation());return 0;}catch(Exception error){Console.Error.WriteLine("FAIL native build metadata: "+error);return 1;}}
 
 // 只使用内存生成的 PNG 和固定模型；不调用任何窗口、桌面或剪贴板接口。
 var modelDirectory = Path.GetFullPath(args.FirstOrDefault(a => !a.StartsWith("--")) ?? "models/pp-ocrv5-mobile");
@@ -20,6 +30,19 @@ void Check(bool condition, string message) { if (!condition) throw new Exception
 void Near(double actual, double expected, double tolerance = .0001) => Check(Math.Abs(actual - expected) <= tolerance, $"Expected {expected}, got {actual}");
 async Task Error(Func<Task> work, string code) { try { await work(); } catch (LocalOcrException e) { Check(e.Code == code, $"Expected {code}, got {e.Code}"); return; } throw new Exception("Expected " + code); }
 void Test(string name, Action action) => tests.Add((name, () => { action(); return Task.CompletedTask; }));
+
+// Source profile must load its audited DLL through the normal production resolver, not only the benchmark override.
+var sourceManifest=Path.Combine(AppContext.BaseDirectory,"native-provenance","native-build.json");
+if(File.Exists(sourceManifest))Test("Source native runtime matches audited binary and minimal feature profile",()=>{
+    using var decoded=PngInput.DecodeToBgr(SyntheticPng("Hello","OCR 123"));
+    using var manifest=JsonDocument.Parse(File.ReadAllText(sourceManifest));var expected=manifest.RootElement.GetProperty("binary").GetProperty("sha256").GetString();var info=Cv2.GetBuildInformation();
+    using var current=Process.GetCurrentProcess();var native=current.Modules.Cast<ProcessModule>().Single(m=>m.ModuleName.Equals("OpenCvSharpExtern.dll",StringComparison.OrdinalIgnoreCase));
+    Check(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(native.FileName))).Equals(expected,StringComparison.OrdinalIgnoreCase),"Production resolver loaded a different native DLL");
+    var modules=System.Text.RegularExpressions.Regex.Match(info,@"To be built:\s*([^\r\n]+)").Groups[1].Value.Split(' ',StringSplitOptions.RemoveEmptyEntries).Order().ToArray();
+    Check(modules.SequenceEqual(new[]{"core","imgcodecs","imgproc"}),"Unexpected OpenCV module closure");
+    Check(!System.Text.RegularExpressions.Regex.IsMatch(info,@"Intel IPP(?: IW)?:\s+(?!NO\b)"),"IPP/IW remains enabled");
+    Check(!System.Text.RegularExpressions.Regex.IsMatch(info,@"OpenCL:\s+YES|Trace:\s+YES"),"Unexpected OpenCL/tracing support");
+});
 
 // 缺模型状态必须可查询，不能自动下载或泄漏用户图片内容。
 tests.Add(("Missing models are explicit and never downloaded", async () => {

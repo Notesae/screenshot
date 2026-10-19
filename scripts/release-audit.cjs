@@ -17,7 +17,7 @@ function add(name,version,ecosystem,license,dir,extraFile){
     const target=path.join(output,relative);fs.mkdirSync(path.dirname(target),{recursive:true});fs.copyFileSync(source,target);notices.push(relative.replaceAll('\\','/'));
   }
   // 已提交的上游许可归属适用于同一包族，记录为现有共享文本，避免误报为缺失。
-  const shared=ecosystem==='nuget' ? name.startsWith('Microsoft.Data.Sqlite')?['Microsoft.Data.Sqlite-LICENSE.txt']:name.startsWith('OpenCvSharp4')?['OpenCvSharp-LICENSE.txt','OpenCV-LICENSE.txt']:name.startsWith('SQLitePCLRaw')?['SQLitePCLRaw-LICENSE.txt','SQLitePCLRaw-NOTICE.txt']:[]:[];
+  const shared=ecosystem==='nuget' ? name==='Microsoft.Windows.SDK.NET.Ref'?['Windows-SDK-LICENSE.rtf','Windows-SDK-REDIST.md']:name.startsWith('Microsoft.Data.Sqlite')?['Microsoft.Data.Sqlite-LICENSE.txt']:name.startsWith('OpenCvSharp4')?['OpenCvSharp-LICENSE.txt','OpenCV-LICENSE.txt']:name.startsWith('SQLitePCLRaw')?['SQLitePCLRaw-LICENSE.txt','SQLitePCLRaw-NOTICE.txt']:[]:[];
   if(ecosystem==='npm' && name==='saxes' && version==='6.0.0')shared.push('saxes-6.0.0-LICENSE.txt');
   for(const file of shared)if(fs.existsSync(path.join(output,'licenses',file)))notices.push('licenses/'+file);
   if(ecosystem==='npm') {
@@ -38,7 +38,8 @@ for(const [relative,entry]of Object.entries(lock.packages)){
   const p=read(file),license=typeof p.license==='string'?p.license:p.license?.type||entry.license;
   add(p.name,p.version,'npm',license,dir);
 }
-const assets=read(path.join(root,'artifacts/publish-build/obj/Screenshot.App/project.assets.json'));
+const sourceProfile=fs.existsSync(path.join(output,'native-provenance/native-build.json'));
+const assets=read(process.argv[3]||path.join(root,sourceProfile?'artifacts/publish-build-source/obj/Screenshot.App/project.assets.json':'artifacts/publish-build-vendor/obj/Screenshot.App/project.assets.json'));
 for(const [id,library]of Object.entries(assets.libraries)){
   if(library.type!=='package')continue;const split=id.lastIndexOf('/'),name=id.slice(0,split),version=id.slice(split+1);
   const base=Object.keys(assets.packageFolders).map(folder=>path.join(folder,library.path)).find(dir=>fs.existsSync(dir));
@@ -54,13 +55,16 @@ for(const [name,version,license]of [['Microsoft.NETCore.App.Runtime.win-x64','10
   if(!base)throw new Error('Pinned framework package unavailable: '+name);
   add(name,version,'nuget',license,base);
 }
+const sourceBuild=sourceProfile?require('./verify-native-runtime.cjs').verify(path.join(output,'native-provenance'),true,output):null;
 const native=require('./native-audit.cjs').inventory(output,assets);
 if(!native.binaries.length||native.unownedBinaries.length)throw new Error('Unmapped package PE files: '+native.unownedBinaries.join(','));
-const nativeComponents=read(path.join(output,'licenses/native-components.json'));
+const nativeComponents=read(path.join(output,sourceProfile?'licenses/native-components.json':'licenses/vendor-native-components-0.4.1.json'));
 const opencv=native.binaries.find(b=>path.basename(b.file).toLowerCase()==='opencvsharpextern.dll');
-if(!opencv||opencv.sha256!==nativeComponents.runtime.expectedOpenCvSharpSlimSha256)throw new Error('Pinned OpenCV slim binary mismatch');
-for(const name of nativeComponents.excludedFromNewPackage)if(fs.existsSync(path.join(output,name)))throw new Error('Unused native plugin remains: '+name);
+if(!opencv||opencv.sha256!==(sourceBuild?sourceBuild.binary.sha256:nativeComponents.runtime.expectedOpenCvSharpSlimSha256))throw new Error('Pinned OpenCV native binary mismatch');
+for(const name of ['opencv_videoio_ffmpeg4130_64.dll'])if(fs.existsSync(path.join(output,name)))throw new Error('Unused native plugin remains: '+name);
+if(sourceBuild)for(const c of sourceBuild.components)components.push({type:'library','bom-ref':'native-source:'+c.name+'@'+c.version+'#'+c.commit,name:c.name,version:c.version,purl:'pkg:github/'+c.repository.split('github.com/')[1]+'@'+c.commit,hashes:[{alg:'SHA-256',content:c.sourceArchiveSha256}],licenses:[{license:{name:c.license}}],properties:[{name:'screenshot:native-profile',value:'core,imgproc,imgcodecs; IPP/IW disabled'}]});
 for(const source of read(path.join(output,'licenses/native-license-sources.json')).sources)if(hash(path.join(output,'licenses',source.file))!==source.sha256)throw new Error('Native notice checksum mismatch: '+source.file);
+for(const source of read(path.join(output,'licenses/windows-sdk-license-sources.json')).sources)if(hash(path.join(output,'licenses',source.file))!==source.sha256)throw new Error('SDK license checksum mismatch: '+source.file);
 fs.writeFileSync(path.join(output,'native-dependencies.json'),JSON.stringify(native,null,2)+'\n');
 
 const manifest=read(path.join(output,'models/pp-ocrv5-mobile/manifest.json'));
@@ -68,13 +72,13 @@ for(const file of manifest.files){const target=path.join(output,'models/pp-ocrv5
 const bom={bomFormat:'CycloneDX',specVersion:'1.6',serialNumber:'urn:uuid:'+crypto.randomUUID(),version:1,metadata:{timestamp:new Date().toISOString(),component:{type:'application',name:'Screenshot',version:read(path.join(root,'editor/package.json')).version}},components};
 fs.writeFileSync(path.join(output,'sbom.cdx.json'),JSON.stringify(bom,null,2)+'\n');
 fs.writeFileSync(path.join(output,'dependency-inventory.json'),JSON.stringify({scope:'Installed locked npm development/runtime packages and restored NuGet dependency closure; includes build-only components conservatively.',packages:inventory,licenseReviewGaps:gaps},null,2)+'\n');
-const required=['native-dependencies.json','diagnose-portable.ps1','Screenshot.exe','Screenshot.runtimeconfig.json','web/index.html','THIRD-PARTY-NOTICES.md','models/pp-ocrv5-mobile/NOTICE.md','models/pp-ocrv5-mobile/LICENSE-PaddleOCR.txt','models/pp-ocrv5-mobile/LICENSE-RapidOCR.txt','dependency-licenses/nuget/Microsoft.NETCore.App.Runtime.win-x64-10.0.13/LICENSE.TXT','dependency-licenses/nuget/Microsoft.NETCore.App.Runtime.win-x64-10.0.13/THIRD-PARTY-NOTICES.TXT','dependency-licenses/nuget/Microsoft.WindowsDesktop.App.Runtime.win-x64-10.0.13/LICENSE'];
+const required=[...(sourceBuild?['native-provenance/native-build.json','native-provenance/evidence/OpenCvSharpExtern.map','native-provenance/licenses/opencv-COPYRIGHT.txt']:[]),'native-dependencies.json','diagnose-portable.ps1','Screenshot.exe','Screenshot.runtimeconfig.json','web/index.html','THIRD-PARTY-NOTICES.md','models/pp-ocrv5-mobile/NOTICE.md','models/pp-ocrv5-mobile/LICENSE-PaddleOCR.txt','models/pp-ocrv5-mobile/LICENSE-RapidOCR.txt','dependency-licenses/nuget/Microsoft.NETCore.App.Runtime.win-x64-10.0.13/LICENSE.TXT','dependency-licenses/nuget/Microsoft.NETCore.App.Runtime.win-x64-10.0.13/THIRD-PARTY-NOTICES.TXT','dependency-licenses/nuget/Microsoft.WindowsDesktop.App.Runtime.win-x64-10.0.13/LICENSE'];
 for(const file of required)if(!fs.existsSync(path.join(output,file)))throw new Error('Missing release file: '+file);
 const runtime=read(path.join(output,'Screenshot.runtimeconfig.json'));
 const frameworks=runtime.runtimeOptions.includedFrameworks||[];
 if(!frameworks.some(f=>f.name==='Microsoft.NETCore.App'&&f.version==='10.0.13')||!frameworks.some(f=>f.name==='Microsoft.WindowsDesktop.App'&&f.version==='10.0.13'))throw new Error('Pinned self-contained runtime mismatch.');
 const files=[];function walk(dir){for(const entry of fs.readdirSync(dir,{withFileTypes:true})){const absolute=path.join(dir,entry.name);if(entry.isSymbolicLink())throw new Error('Package contains a link.');if(entry.isDirectory())walk(absolute);else files.push(absolute);}}walk(output);
 for(const file of files)if(/^(providers\.json|\.env.*)$/i.test(path.basename(file))||/\.(pfx|p12|pem|screenshot\.json|png|jpe?g|webp)$/i.test(file))throw new Error('Unexpected private/configuration/image file in package.');
-const sums=files.filter(f=>path.basename(f)!=='SHA256SUMS.txt').sort().map(f=>hash(f)+'  '+path.relative(output,f).replaceAll('\\','/')).join('\n')+'\n';
+const sums=files.filter(f=>f!==path.join(output,'SHA256SUMS.txt')).sort().map(f=>hash(f)+'  '+path.relative(output,f).replaceAll('\\','/')).join('\n')+'\n';
 fs.writeFileSync(path.join(output,'SHA256SUMS.txt'),sums);
-console.log(JSON.stringify({files:files.length,components:components.length,licenseReviewGaps:gaps,manualNativeReviewGaps:nativeComponents.manualReviewGaps,nativeBinaries:native.binaries.length,modelsVerified:manifest.files.length,runtime:'10.0.13',staticPackageCheck:'passed'},null,2));
+console.log(JSON.stringify({files:files.filter(f=>f!==path.join(output,'SHA256SUMS.txt')).length+1,components:components.length,licenseReviewGaps:gaps,manualNativeReviewGaps:nativeComponents.manualReviewGaps,nativeBinaries:native.binaries.length,modelsVerified:manifest.files.length,runtime:'10.0.13',staticPackageCheck:'passed'},null,2));

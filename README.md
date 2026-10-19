@@ -8,12 +8,15 @@ Esc 按编辑上下文先退出文字/选中对象或关闭属性面板，最后
 
 ## 开发
 
-本次验证目标为 Windows 11 x64。开发需要 .NET 10 SDK、Node.js 22 和 Microsoft Edge WebView2 Runtime；其他系统版本需单独兼容验证。
+本次验证目标为 Windows 11 x64。开发需要 .NET 10 SDK、Node.js 22、MSVC x64/Windows SDK、CMake/Ninja 和 Microsoft Edge WebView2 Runtime；其他系统版本需单独兼容验证。
 
 ```powershell
+./scripts/build-native.ps1
 ./scripts/verify.ps1
-./artifacts/verify/bin/Screenshot.App/release/Screenshot.exe
+./artifacts/verify-source/bin/Screenshot.App/release/Screenshot.exe
 ```
+
+原生 OCR 源码、固定工具、构建证据与显式 Vendor 回退说明见 [native/README.md](native/README.md)。未准备源码运行时会明确失败，不自动安装工具或回退。源码与 Vendor 使用独立构建目录。
 
 编辑器可独立开发：
 
@@ -72,7 +75,7 @@ OCR 会先应用实色遮盖，再缩放；旋转遮盖保守扩大，重排坐�
 
 发布目录附带 `sbom.cdx.json`、依赖许可文本、清单与 `SHA256SUMS.txt`；清单记录尚需许可复核的缺口，不把自动盘点等同于全量许可审计。运行 `./scripts/diagnose-portable.ps1` 只检查文件、模型哈希与WebView2安装信息，不启动产品。
 
-窗口吸附、当前/指定屏幕选择交互、自定义热键、原位拖放导入及完整资源/现实样本评估仍待后续切片。安装器、签名、更新与卸载策略、额外字体、ARM64 和干净机器验收未决。用户已暂停桌面交互测试，真实捕获、透明合成、混合DPI、系统热键/剪贴板、中文IME、服务商端到端均不声明通过。
+窗口吸附、显示器选择、热键与拖放已有0.4.0实现和后台测试，真实桌面与完整现实样本评估仍待验收。安装器、签名、更新与卸载策略、额外字体、ARM64 和干净机器验收未决。用户已暂停桌面交互测试，真实捕获、透明合成、混合DPI、系统热键/剪贴板、中文IME、服务商端到端均不声明通过。
 
 ## 0.4.0 后续工程切片
 
@@ -87,3 +90,7 @@ OCR 会先应用实色遮盖，再缩放；旋转遮盖保守扩大，重排坐�
 大图存储改为流式元数据/图像分离，减少Base64复制与恢复转义缓冲；无标注导出跳过额外画布并及时释放私有像素缓冲。合成大图指标与四阶段子进程中断恢复见docs/QUALITY-0.4.1.md。原生OCR采用同版本官方精简运行时，实际CPU推理验证通过，固定模型不变。
 
 便携目录附diagnose-portable.ps1，静态检查WebView2、模型及实际原生导入所需的外部Visual C++等文件；不自动安装、不启动截图软件。文件存在不能代替干净机器运行验证。本批未发布新Release，0.3.0/0.4.0产物保留。
+
+## 0.4.2 原生源码切片
+
+本地OCR默认使用固定官方源码构建的最小运行时，保留真实链接map、来源摘要与源码内附许可，关闭IPP/IW等可选组件。三轮同输入CPU模型对比的文字/几何/像素一致，本机合成耗时与内存观察见[构建与验证报告](docs/NATIVE-0.4.2.md)。旧包保留，Vendor仅为显式隔离回退。本轮没有发布新Release，也没有恢复真实桌面测试。

@@ -5,10 +5,23 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PlatformTarget>x64</PlatformTarget>
+    <ScreenshotNativeRuntime Condition="'$(ScreenshotNativeRuntime)' == ''">Source</ScreenshotNativeRuntime>
+    <ScreenshotNativeRoot Condition="'$(ScreenshotNativeRoot)' == ''">$(MSBuildThisFileDirectory)../../artifacts/native-runtime/win-x64</ScreenshotNativeRoot>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(ScreenshotNativeRuntime)' == 'Source'">
+    <DefineConstants>$(DefineConstants);SCREENSHOT_SOURCE_NATIVE</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.31.0" />
     <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260627" />
-    <PackageReference Include="OpenCvSharp4.runtime.win.slim" Version="4.13.0.20260627" />
+    <PackageReference Include="OpenCvSharp4.runtime.win.slim" Version="4.13.0.20260627" Condition="'$(ScreenshotNativeRuntime)' == 'Vendor'" />
   </ItemGroup>
+  <ItemGroup Condition="'$(ScreenshotNativeRuntime)' == 'Source'">
+    <Content Include="$(ScreenshotNativeRoot)/OpenCvSharpExtern.dll"><Link>OpenCvSharpExtern.dll</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
+    <Content Include="$(ScreenshotNativeRoot)/**/*" Exclude="$(ScreenshotNativeRoot)/OpenCvSharpExtern.dll"><Link>native-provenance/%(RecursiveDir)%(Filename)%(Extension)</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
+  </ItemGroup>
+  <Target Name="ValidateScreenshotNativeProfile" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(ScreenshotNativeRuntime)' != 'Source' and '$(ScreenshotNativeRuntime)' != 'Vendor'" Text="ScreenshotNativeRuntime must be Source or Vendor." />
+    <Error Condition="'$(ScreenshotNativeRuntime)' == 'Source' and !Exists('$(ScreenshotNativeRoot)/native-build.json')" Text="Verified source-built native runtime missing. Run scripts/build-native.ps1 with existing tools or download this commit's native CI artifact." />
+  </Target>
 </Project>

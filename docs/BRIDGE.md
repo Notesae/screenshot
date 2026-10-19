@@ -104,3 +104,7 @@ Bridge and project schemas remain unchanged. Recovery codec strips image.dataUrl
 Portable diagnostics now consume native-dependencies.json and recheck external direct DLL requirements on the target host (including Visual C++ runtime); build-machine availability flags are not reused as target facts. Diagnostics do not load DLLs or install prerequisites.
 
 Windows中断写入后观测到的SQLite IOERR_TRUNCATE（1546）仅对Load/List/Usage等幂等读取有限重开两次，额外等待共不超过75ms且可取消；写入、缺失资产、权限错误和损坏错误不自动重试，失败仍明确报告，不删除数据库/WAL/SHM。该异常的具体环境成因尚未确定；有旧版对照偶发通过/失败，不能宣称已证明某一底层原因。
+
+## 0.4.2 native source profile
+
+Bridge and project schemas are unchanged. CPU OCR uses the same fixed models and algorithms with a traceable minimal source-built OpenCvSharp native library. Production PNG decoding verifies the normal lazy loading path in tests; benchmarks select explicit native handles only inside an isolated Vendor-profile test executable. No desktop or provider inputs are added.

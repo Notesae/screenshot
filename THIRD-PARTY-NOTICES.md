@@ -40,3 +40,11 @@ This software is based in part on the work of the Independent JPEG Group.
 This product includes software developed by the University of California, Berkeley.
 
 自包含.NET、SDK目标框架、WebView2 SDK、ONNX及SQLite包告知继续携带；WebView2 Runtime和Visual C++ Runtime为外部环境要求，程序不自动安装。IPP原始EULA随包保留，不表示已替用户接受新条款或完成再分发审查。
+
+## 0.4.2 源码原生配置
+
+源码配置取代旧 vendor DLL，只编译 core/imgproc/imgcodecs，关闭 IPP/IW、ITT/tracing、OpenCL、DNN、摄像头与其他图像编解码库。native-provenance 附固定来源、源码文件摘要、构建配置、链接 map/逐对象归属、实际根许可证和 COPYRIGHT；opencv-binding-source-notices.txt 保守收集所选源码子树中的完整许可注释，包含 SoftFloat/fdlibm 与旧 BSD 告知。四个源码归档不代表仅有四种许可义务。MSVC/Windows 平台库单列，不作为 OpenCV 开源组件归属。
+
+旧版18份告知与 vendor 清单保留作历史/回退材料，不代表全部进入当前 DLL。本次没有改变已发布0.3.0或已交付0.4.0/0.4.1包。
+
+Windows SDK 官方 LICENSE 和 REDIST 原文、URL及摘要在 licenses/Windows-SDK-* 和 windows-sdk-license-sources.json。官方 NET8.0 小节明确列出 Microsoft.Windows.SDK.NET.dll、WinRT.Runtime.dll，解决所选文件清单映射；产品/分发方/最终用户条款仍需独立决定，本次未接受新协议，也未给出全量法律许可通过结论。stackback0.0.2仅用于开发工具链，缺完整上游许可正文的记录继续保留。

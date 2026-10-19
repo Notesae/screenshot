@@ -1,0 +1,23 @@
+{
+  "package": "Microsoft.Windows.SDK.NET.Ref",
+  "version": "10.0.19041.57",
+  "files": [
+    "lib/net8.0/Microsoft.Windows.SDK.NET.dll",
+    "lib/net8.0/WinRT.Runtime.dll"
+  ],
+  "sources": [
+    {
+      "file": "Windows-SDK-LICENSE.rtf",
+      "url": "https://download.microsoft.com/download/0/F/F/0FF2B061-47DD-4F55-89B6-FD1D8C44F14D/sdk_license.rtf",
+      "sha256": "dd07eb178e00c6bba4148457fc00ff77cd4887eb521d504186fe59c9ec8bbe62",
+      "bytes": 246945
+    },
+    {
+      "file": "Windows-SDK-REDIST.md",
+      "url": "https://learn.microsoft.com/en-us/legal/windows-sdk/redist?accept=text/markdown",
+      "sha256": "ff4dc82936ef9e8449927a3d06ee1fca801933c1464ceee60fa14003eb656dd0",
+      "bytes": 19214
+    }
+  ],
+  "scope": "Official REDIST identifies these unchanged files. Existing SDK license decision remains; product/distributor/end-user distribution conditions are not automatically accepted or completed."
+}
