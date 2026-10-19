@@ -24,3 +24,7 @@ WebView2/
 *.pfx
 *.p12
 *.pem
+*.onnx
+*.onnx.data
+models/.downloads/
+models/**/.downloads/
