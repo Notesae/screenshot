@@ -8,7 +8,7 @@ if(!fs.existsSync(path.join(output,'Screenshot.exe')))throw new Error('Portable 
 const gaps=[],components=[],seen=new Set(),inventory=[];
 function add(name,version,ecosystem,license,dir,extraFile){
   const ref=`${ecosystem}:${name}@${version}`;if(seen.has(ref))return;seen.add(ref);
-  const files=fs.existsSync(dir)?fs.readdirSync(dir).filter(n=>/^(licen[cs]e|copying|notice|thirdpartynotices)([._-].*)?$/i.test(n)&&fs.statSync(path.join(dir,n)).isFile()):[];
+  const files=fs.existsSync(dir)?fs.readdirSync(dir).filter(n=>/^(licen[cs]e|copying|notice|third[-_]?party[-_]?notices)([._-].*)?$/i.test(n)&&fs.statSync(path.join(dir,n)).isFile()):[];
   if(extraFile){const file=path.resolve(dir,extraFile);if(file.startsWith(path.resolve(dir)+path.sep)&&fs.existsSync(file)&&fs.statSync(file).isFile())files.push(path.relative(dir,file));}
   const notices=[];
   for(const file of new Set(files)){
@@ -59,7 +59,7 @@ for(const file of manifest.files){const target=path.join(output,'models/pp-ocrv5
 const bom={bomFormat:'CycloneDX',specVersion:'1.6',serialNumber:'urn:uuid:'+crypto.randomUUID(),version:1,metadata:{timestamp:new Date().toISOString(),component:{type:'application',name:'Screenshot',version:read(path.join(root,'editor/package.json')).version}},components};
 fs.writeFileSync(path.join(output,'sbom.cdx.json'),JSON.stringify(bom,null,2)+'\n');
 fs.writeFileSync(path.join(output,'dependency-inventory.json'),JSON.stringify({scope:'Installed locked npm development/runtime packages and restored NuGet dependency closure; includes build-only components conservatively.',packages:inventory,licenseReviewGaps:gaps},null,2)+'\n');
-const required=['Screenshot.exe','Screenshot.runtimeconfig.json','web/index.html','THIRD-PARTY-NOTICES.md','models/pp-ocrv5-mobile/NOTICE.md','models/pp-ocrv5-mobile/LICENSE-PaddleOCR.txt','models/pp-ocrv5-mobile/LICENSE-RapidOCR.txt'];
+const required=['Screenshot.exe','Screenshot.runtimeconfig.json','web/index.html','THIRD-PARTY-NOTICES.md','models/pp-ocrv5-mobile/NOTICE.md','models/pp-ocrv5-mobile/LICENSE-PaddleOCR.txt','models/pp-ocrv5-mobile/LICENSE-RapidOCR.txt','dependency-licenses/nuget/Microsoft.NETCore.App.Runtime.win-x64-10.0.13/LICENSE.TXT','dependency-licenses/nuget/Microsoft.NETCore.App.Runtime.win-x64-10.0.13/THIRD-PARTY-NOTICES.TXT','dependency-licenses/nuget/Microsoft.WindowsDesktop.App.Runtime.win-x64-10.0.13/LICENSE'];
 for(const file of required)if(!fs.existsSync(path.join(output,file)))throw new Error('Missing release file: '+file);
 const runtime=read(path.join(output,'Screenshot.runtimeconfig.json'));
 const frameworks=runtime.runtimeOptions.includedFrameworks||[];
