@@ -4,6 +4,7 @@ export type PublicProvider = { id: string; name: string; kind: string; model: st
 export type Settings = { providers: PublicProvider[]; defaultProviderId?: string };
 // 捕获 ID 用来拒绝旧界面排队的呈现切换，不属于可保存的项目内容。
 export type PresentationResult = { presentation: 'overlay' | 'workbench' | 'hidden'; accepted?: boolean; captureId?: string | null };
+export class NativeError extends Error { constructor(message:string,public code:string){super(message);} }
 type Send = (message: { id: string; method: string; payload: object }) => void;
 type Pending = { resolve: (value: unknown) => void; reject: (reason: Error) => void; timer: ReturnType<typeof setTimeout> };
 
@@ -32,11 +33,11 @@ export class NativeBridge {
     if (!message || typeof message !== 'object' || !('id' in message) || typeof message.id !== 'string') return;
     const pending = this.pending.get(message.id);
     if (!pending) return;
-    const reply = message as { id: string; ok?: boolean; result?: unknown; error?: { message?: string } };
+    const reply = message as { id: string; ok?: boolean; result?: unknown; error?: { message?: string; code?: string } };
     clearTimeout(pending.timer);
     this.pending.delete(message.id);
     if (reply.ok === true) pending.resolve(reply.result);
-    else pending.reject(new Error(reply.error?.message || '桌面应用未能完成操作。'));
+    else pending.reject(new NativeError(reply.error?.message || '桌面应用未能完成操作。',reply.error?.code || 'operation_failed'));
   }
   // 关闭时拒绝全部未完成请求，避免调用方停留在忙状态。
   dispose() {

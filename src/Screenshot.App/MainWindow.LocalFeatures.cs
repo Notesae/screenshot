@@ -11,6 +11,7 @@ namespace Screenshot.App;
 // 本地推理与恢复数据仅在原生进程访问；路径不由桥载荷指定。
 public partial class MainWindow
 {
+    private readonly InferenceTasks _inferenceTasks = new();
     private string _captureBackend = CaptureRequest.DefaultBackend;
     private readonly LocalOcrService _localOcr = new(Path.Combine(AppContext.BaseDirectory, "models", "pp-ocrv5-mobile"));
     private readonly Lazy<SnapshotStore> _recovery = new(() => new SnapshotStore(Path.Combine(
@@ -26,9 +27,9 @@ public partial class MainWindow
     }
 
     // 解码也在后台执行，拒绝外链与超大数据，不调用 WPF 解码或保存输入图片。
-    private async Task<OcrDocument> RecognizeLocalAsync(string dataUrl)
+    private async Task<OcrDocument> RecognizeLocalAsync(string dataUrl, CancellationToken taskToken)
     {
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token, taskToken);
         _ocrCancellation = cancellation;
         try
         {
@@ -44,6 +45,13 @@ public partial class MainWindow
             return await _localOcr.RecognizeAsync(png, cancellation.Token);
         }
         finally { if (ReferenceEquals(_ocrCancellation, cancellation)) _ocrCancellation = null; }
+    }
+
+    private async Task<object?> RunInferenceAsync(JsonElement payload, Func<CancellationToken,Task<object?>> work)
+    {
+        var taskId = OptionalString(payload,"taskId") ?? Guid.NewGuid().ToString("N");
+        using var lease = _inferenceTasks.Begin(taskId,_lifetime.Token);
+        return await work(lease.Token);
     }
 
     // 保存文档快照使用独立事务队列，不占用文件对话框或 AI 操作的门控。

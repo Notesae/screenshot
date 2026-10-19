@@ -23,6 +23,18 @@ jobs:
       - name: Build and automated checks with synthetic OCR inference
         shell: pwsh
         run: ./scripts/verify.ps1 -WithOcrIntegration
+      - name: Synthetic headless editor regressions
+        shell: pwsh
+        run: |
+          npm install --prefix artifacts/headless-tools --no-save --ignore-scripts --package-lock=false playwright@1.62.1
+          $env:PLAYWRIGHT_MODULE = (Resolve-Path artifacts/headless-tools/node_modules/playwright).Path
+          node editor/scripts/headless-overlay.cjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Screenshot-headless-evidence
+          path: editor/output/
+          if-no-files-found: error
+          retention-days: 14
       - name: Publish portable Windows x64 directory
         shell: pwsh
         run: ./scripts/publish.ps1 -SkipRestore

@@ -15,12 +15,13 @@ export function loadImage(dataUrl: string): Promise<HTMLImageElement> {
   });
 }
 /** 生成预览与导出共用的底图，原样模式无装饰，美化与重排在此合成。 */
-export async function renderBase(doc: ProjectDocument): Promise<HTMLCanvasElement> {
+export async function renderBase(doc: ProjectDocument, scale = 1): Promise<HTMLCanvasElement> {
+  if (typeof document.fonts !== 'undefined') await document.fonts.ready;
   const { image, editor } = doc;
   const size = outputSize(image, editor);
   const canvas = document.createElement('canvas');
-  canvas.width = size.width; canvas.height = size.height;
-  const ctx = canvas.getContext('2d')!;
+  canvas.width = Math.ceil(size.width * scale); canvas.height = Math.ceil(size.height * scale);
+  const ctx = canvas.getContext('2d')!; ctx.scale(scale, scale);
   if (editor.mode === 'reflow') {
     ctx.fillStyle = '#faf5eb'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#b4432c'; ctx.fillRect(48, 48, 36, 4);
@@ -30,7 +31,7 @@ export async function renderBase(doc: ProjectDocument): Promise<HTMLCanvasElemen
     for (const section of layout.sections) {
       if (section.label) { ctx.font = '600 14px ' + FONT; ctx.fillStyle = '#b4432c'; ctx.fillText(section.label, section.x, section.y - 30); }
       ctx.font = editor.fontSize + 'px ' + FONT; ctx.fillStyle = '#302d27';
-      section.lines.forEach((line, index) => ctx.fillText(line, section.x, section.y + index * layout.lineHeight));
+      section.lines.forEach((line, index) => ctx.fillText(line, section.x, section.y + section.offsets[index]));
     }
     return canvas;
   }
@@ -45,9 +46,18 @@ export async function renderBase(doc: ProjectDocument): Promise<HTMLCanvasElemen
     if (editor.shadow) { ctx.shadowColor = '#30271c55'; ctx.shadowBlur = Math.min(padding * .5, 32); ctx.shadowOffsetY = Math.min(padding * .2, 12); }
     ctx.fillStyle = '#faf5eb'; ctx.beginPath(); ctx.roundRect(padding, padding, content.width, content.height, Math.min(editor.radius, content.width / 2, content.height / 2)); ctx.fill();
     ctx.restore();
+    ctx.save();
     ctx.beginPath(); ctx.roundRect(padding, padding, content.width, content.height, Math.min(editor.radius, content.width / 2, content.height / 2)); ctx.clip();
   }
   ctx.drawImage(source, content.crop.x, content.crop.y, content.crop.width, content.crop.height, padding, padding, content.width, content.height);
+  if (editor.mode === 'beauty') {
+    ctx.restore();
+    if (editor.borderWidth) {
+      const half = Math.min(editor.borderWidth, content.width, content.height) / 2;
+      ctx.lineWidth = half * 2; ctx.strokeStyle = editor.borderColor;
+      ctx.beginPath(); ctx.roundRect(padding + half, padding + half, content.width - half * 2, content.height - half * 2, Math.max(0,Math.min(editor.radius, content.width / 2, content.height / 2)-half)); ctx.stroke();
+    }
+  }
   return canvas;
 }
 

@@ -62,75 +62,92 @@ public sealed class GdiCaptureBackend : ICaptureBackend
     }
 }
 
-// 在冻结图上呈现原生选区，使用物理像素坐标以保留多屏负坐标。
+// 在冻结图上调整选区；确认前不释放底图，也不再采集桌面。
 internal sealed class RegionOverlay : Form
 {
     private readonly Bitmap _frozen;
     private readonly Rectangle _desktop;
-    private readonly PixelRect _allowedSelection;
-    private Point? _start;
-    private Point _end;
+    private readonly RegionSelection _model;
+    private Point _pointer;
+    private bool _magnifier=true;
     public PixelRect Selection { get; private set; }
-    // 关闭自动缩放，令窗口客户区与冻结图片保持相同的像素尺寸。
-    public RegionOverlay(Bitmap frozen, Rectangle desktop, PixelRect? allowedSelection = null)
+    public RegionOverlay(Bitmap frozen,Rectangle desktop,PixelRect? allowedSelection=null)
     {
-        _frozen = frozen; _desktop = desktop;
-        _allowedSelection = allowedSelection ?? new(desktop.X, desktop.Y, desktop.Width, desktop.Height);
-        AutoScaleMode = AutoScaleMode.None; FormBorderStyle = FormBorderStyle.None;
-        StartPosition = FormStartPosition.Manual; Bounds = desktop;
-        TopMost = true; ShowInTaskbar = false; DoubleBuffered = true; KeyPreview = true;
-        Cursor = Cursors.Cross;
-        Text = "Screenshot 区域选择";
+        _frozen=frozen;_desktop=desktop;_model=new(allowedSelection ?? new(desktop.X,desktop.Y,desktop.Width,desktop.Height));
+        AutoScaleMode=AutoScaleMode.None;FormBorderStyle=FormBorderStyle.None;StartPosition=FormStartPosition.Manual;Bounds=desktop;
+        TopMost=true;ShowInTaskbar=false;DoubleBuffered=true;KeyPreview=true;Cursor=Cursors.Cross;Text="Screenshot 区域选择";
     }
-    protected override void OnShown(EventArgs e) { base.OnShown(e); Bounds = _desktop; Activate(); }
-    // 左键开始拖动并捕获鼠标，右键直接取消。
+    protected override void OnShown(EventArgs e) { base.OnShown(e);Bounds=_desktop;Activate(); }
     protected override void OnMouseDown(MouseEventArgs e)
     {
         base.OnMouseDown(e);
-        if (e.Button == MouseButtons.Right) { DialogResult = DialogResult.Cancel; Close(); return; }
-        if (e.Button != MouseButtons.Left) return;
-        _start = e.Location; _end = e.Location; Capture = true; Invalidate();
+        if(e.Button==MouseButtons.Right){CancelSelection();return;}
+        if(e.Button!=MouseButtons.Left)return;
+        _model.Begin(e.X+_desktop.X,e.Y+_desktop.Y);_pointer=e.Location;Capture=true;Invalidate();
     }
-    protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); if (_start is not null) { _end = e.Location; Invalidate(); } }
-    // 将客户区拖动坐标还原为虚拟桌面坐标，并忽略过小的误点击。
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);_pointer=e.Location;_model.Update(e.X+_desktop.X,e.Y+_desktop.Y);
+        Cursor=_model.HitTest(e.X+_desktop.X,e.Y+_desktop.Y) switch {
+            SelectionHandle.Move=>Cursors.SizeAll,
+            SelectionHandle.Left or SelectionHandle.Right=>Cursors.SizeWE,
+            SelectionHandle.Top or SelectionHandle.Bottom=>Cursors.SizeNS,
+            SelectionHandle.TopLeft or SelectionHandle.BottomRight=>Cursors.SizeNWSE,
+            SelectionHandle.TopRight or SelectionHandle.BottomLeft=>Cursors.SizeNESW,
+            _=>Cursors.Cross };
+        Invalidate();
+    }
+    // 松开后保留边界，允许再次拖动；Enter/双击才确认，Esc/右键取消。
     protected override void OnMouseUp(MouseEventArgs e)
     {
-        base.OnMouseUp(e); if (_start is null || e.Button != MouseButtons.Left) return;
-        _end = e.Location; Capture = false;
-        var start = _start.Value;
-        Selection = CaptureGeometry.Selection(start.X + _desktop.X, start.Y + _desktop.Y, _end.X + _desktop.X, _end.Y + _desktop.Y, _allowedSelection);
-        if (Selection.Width < 2 || Selection.Height < 2) { _start = null; Invalidate(); return; }
-        DialogResult = DialogResult.OK; Close();
+        base.OnMouseUp(e);if(e.Button!=MouseButtons.Left||!_model.Dragging)return;
+        _model.Update(e.X+_desktop.X,e.Y+_desktop.Y);_model.End();Capture=false;Invalidate();
     }
-    protected override void OnKeyDown(KeyEventArgs e) { base.OnKeyDown(e); if (e.KeyCode == Keys.Escape) { DialogResult = DialogResult.Cancel; Close(); } }
-    // 以原始冻结图绘制高亮选区，遮暗其余区域并显示像素尺寸。
+    protected override void OnMouseDoubleClick(MouseEventArgs e) { base.OnMouseDoubleClick(e);if(e.Button==MouseButtons.Left)ConfirmSelection(); }
+    protected override bool IsInputKey(Keys keyData) => (keyData & Keys.KeyCode) is Keys.Left or Keys.Right or Keys.Up or Keys.Down || base.IsInputKey(keyData);
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if(e.KeyCode==Keys.Escape){CancelSelection();return;}
+        if(e.KeyCode==Keys.Enter){ConfirmSelection();e.Handled=true;return;}
+        if(e.KeyCode==Keys.M){_magnifier=!_magnifier;Invalidate();e.Handled=true;return;}
+        var step=e.Control?10:1;
+        var delta=e.KeyCode switch { Keys.Left=>(-step,0),Keys.Right=>(step,0),Keys.Up=>(0,-step),Keys.Down=>(0,step),_=>(0,0) };
+        if(delta!=(0,0)){_model.Nudge(delta.Item1,delta.Item2,e.Shift);e.Handled=true;e.SuppressKeyPress=true;Invalidate();}
+    }
+    private void ConfirmSelection() { if(!_model.CanConfirm||_model.Selection is not {} r)return;Selection=r;DialogResult=DialogResult.OK;Close(); }
+    private void CancelSelection() { DialogResult=DialogResult.Cancel;Close(); }
     protected override void OnPaint(PaintEventArgs e)
     {
-        e.Graphics.DrawImageUnscaled(_frozen, 0, 0);
-        using var shade = new SolidBrush(Color.FromArgb(92, 0, 0, 0));
-        e.Graphics.FillRectangle(shade, ClientRectangle);
-        if (_start is { } start)
+        var g=e.Graphics;g.DrawImageUnscaled(_frozen,0,0);
+        using var shade=new SolidBrush(Color.FromArgb(92,0,0,0));g.FillRectangle(shade,ClientRectangle);
+        if(_model.Selection is {} r && r.Width>0 && r.Height>0)
         {
-            var rect = CaptureGeometry.Selection(start.X, start.Y, _end.X, _end.Y, new(_allowedSelection.X - _desktop.X, _allowedSelection.Y - _desktop.Y, _allowedSelection.Width, _allowedSelection.Height));
-            if (rect.Width > 0 && rect.Height > 0)
-            {
-                var box = new Rectangle(rect.X, rect.Y, rect.Width, rect.Height);
-                e.Graphics.DrawImage(_frozen, box, box, GraphicsUnit.Pixel);
-                using var pen = new Pen(Color.FromArgb(55, 175, 255), 2);
-                e.Graphics.DrawRectangle(pen, box);
-                DrawHint(e.Graphics, $"{rect.Width} × {rect.Height} px · 松开鼠标完成 · Esc 取消", Math.Max(10, rect.X), Math.Max(10, rect.Y - 38));
-            }
+            var box=new Rectangle(r.X-_desktop.X,r.Y-_desktop.Y,r.Width,r.Height);g.DrawImage(_frozen,box,box,GraphicsUnit.Pixel);
+            using var pen=new Pen(Color.FromArgb(55,175,255),1);g.DrawRectangle(pen,box);
+            foreach(var x in new[]{box.Left,box.Left+box.Width/2,box.Right})foreach(var y in new[]{box.Top,box.Top+box.Height/2,box.Bottom})
+                if(x!=box.Left+box.Width/2||y!=box.Top+box.Height/2) {g.FillRectangle(Brushes.White,x-3,y-3,6,6);g.DrawRectangle(pen,x-3,y-3,6,6);}
+            DrawHint(g,$"{r.Width} × {r.Height} px · 拖动边界/内部调整 · 方向键微调 · Shift 调尺寸 · Enter/双击确认",box.X,box.Y-38);
         }
-        else DrawHint(e.Graphics, "拖动选择区域 · Esc / 右键取消", Math.Max(12, -_desktop.X + 24), Math.Max(12, -_desktop.Y + 24));
+        else DrawHint(g,"拖动框选 · M 放大镜 · Esc / 右键取消",Math.Max(12,-_desktop.X+24),Math.Max(12,-_desktop.Y+24));
+        if(_magnifier)DrawMagnifier(g);
     }
-    // 把操作提示限制在覆盖层边界内，避免靠边选区时文字被截断。
-    private void DrawHint(Graphics graphics, string text, int x, int y)
+    // 放大镜只读取本次冻结图，最近邻放大显示真实像素；不访问系统指针或再次捕获。
+    private void DrawMagnifier(Graphics g)
     {
-        using var font = new Font("Microsoft YaHei UI", 11);
-        var size = graphics.MeasureString(text, font);
-        x = Math.Clamp(x, 0, Math.Max(0, ClientSize.Width - (int)size.Width - 16));
-        y = Math.Clamp(y, 0, Math.Max(0, ClientSize.Height - (int)size.Height - 12));
-        graphics.FillRectangle(Brushes.Black, x, y, size.Width + 16, size.Height + 12);
-        graphics.DrawString(text, font, Brushes.White, x + 8, y + 6);
+        var source=new Rectangle(Math.Clamp(_pointer.X-7,0,Math.Max(0,_frozen.Width-15)),Math.Clamp(_pointer.Y-7,0,Math.Max(0,_frozen.Height-15)),Math.Min(15,_frozen.Width),Math.Min(15,_frozen.Height));
+        var target=new Rectangle(Math.Clamp(_pointer.X+28,0,Math.Max(0,ClientSize.Width-128)),Math.Clamp(_pointer.Y+28,0,Math.Max(0,ClientSize.Height-156)),120,120);
+        var state=g.Save();g.InterpolationMode=System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;g.PixelOffsetMode=System.Drawing.Drawing2D.PixelOffsetMode.Half;
+        g.DrawImage(_frozen,target,source,GraphicsUnit.Pixel);g.Restore(state);g.DrawRectangle(Pens.White,target);
+        var px=Math.Clamp(_pointer.X,0,_frozen.Width-1);var py=Math.Clamp(_pointer.Y,0,_frozen.Height-1);
+        var centerX=target.X+(px-source.X)*target.Width/source.Width;var centerY=target.Y+(py-source.Y)*target.Height/source.Height;
+        g.DrawRectangle(Pens.Red,centerX,centerY,Math.Max(1,target.Width/source.Width),Math.Max(1,target.Height/source.Height));
+        var color=_frozen.GetPixel(px,py);DrawHint(g,$"{px+_desktop.X}, {py+_desktop.Y} · #{color.R:X2}{color.G:X2}{color.B:X2} · M 隐藏",target.X,target.Bottom+3);
+    }
+    private void DrawHint(Graphics graphics,string text,int x,int y)
+    {
+        using var font=new Font("Microsoft YaHei UI",11);var size=graphics.MeasureString(text,font);
+        x=Math.Clamp(x,0,Math.Max(0,ClientSize.Width-(int)size.Width-16));y=Math.Clamp(y,0,Math.Max(0,ClientSize.Height-(int)size.Height-12));
+        graphics.FillRectangle(Brushes.Black,x,y,size.Width+16,size.Height+12);graphics.DrawString(text,font,Brushes.White,x+8,y+6);
     }
 }

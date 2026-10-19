@@ -80,7 +80,7 @@ tests.Add(("Provider errors never expose body, keys, or URL query", async () => 
     var service = new AiService(Store(), new HttpClient(new Handler(_ => new(HttpStatusCode.Unauthorized) { Content = new StringContent("SECRET response detail") })));
     await service.UpdateProviderAsync(new("id", "Remote", "openai-compatible", "https://example.com/v1", "text", "SECRET"));
     try { await service.TranslateAsync("id", "Hi", "Chinese"); throw new Exception("Expected error"); }
-    catch (AiProviderException e) { Check(e.Code == "provider_http_error" && !e.Message.Contains("SECRET") && e.Message.Contains("401"), "Unsafe error"); }
+    catch (AiProviderException e) { Check(e.Code == "provider_authentication_failed" && !e.Message.Contains("SECRET") && e.Message.Contains("401"), "Unsafe error"); }
 }));
 // 缺字段、空结果和无效 JSON 均应转为可读结构错误。
 tests.Add(("Malformed/empty responses are readable errors", async () => {
@@ -143,6 +143,33 @@ tests.Add(("Interrupted response streams return a safe connection error", async 
     var service = new AiService(Store(), new HttpClient(new Handler(_ => new(HttpStatusCode.OK) { Content = new BrokenContent() })));
     await service.UpdateProviderAsync(new("id", "Local", "ollama", "http://localhost:11434", "vision"));
     await Error(() => service.TranslateAsync("id", "Hello", "Chinese"), "provider_connection_failed");
+}));
+tests.Add(("HTTP categories distinguish rate limits, invalid requests and outages",async()=>{
+    foreach(var pair in new[]{(429,"provider_rate_limited"),(403,"provider_authentication_failed"),(422,"provider_request_invalid"),(503,"provider_unavailable")}){
+        var service=new AiService(Store(),new HttpClient(new Handler(_=>new((HttpStatusCode)pair.Item1){Content=new StringContent("SECRET")})));
+        await service.UpdateProviderAsync(new("id","Local","ollama","http://localhost:11434","text"));
+        await Error(()=>service.TranslateAsync("id","hello","Chinese"),pair.Item2);
+    }
+}));
+tests.Add(("Bounded cache avoids duplicate billing, isolates provider changes and reports usage without content",async()=>{
+    var sent=0;var service=new AiService(Store(),new HttpClient(new Handler(_=>{sent++;return Json("{\"message\":{\"content\":\"translated\"},\"prompt_eval_count\":12,\"eval_count\":7}");})));
+    await service.UpdateProviderAsync(new("id","Local","ollama","http://localhost:11434","text"));
+    var first=await service.TranslateAsync("id","PRIVATE-SOURCE","Chinese");var cached=await service.TranslateAsync("id","PRIVATE-SOURCE","Chinese");
+    Check(sent==1&&first.Usage?.InputTokens==12&&cached.Cached&&cached.Usage is null,"Cache usage incorrect");
+    Check(!JsonSerializer.Serialize(service.ReadUsage()).Contains("PRIVATE-SOURCE"),"Source text leaked into usage");
+    await service.UpdateProviderAsync(new("id","Local","ollama","http://localhost:11434","new-model"));
+    await service.TranslateAsync("id","PRIVATE-SOURCE","Chinese");Check(sent==2,"Changed model reused stale cache");
+    for(var i=0;i<40;i++)await service.TranslateAsync("id","different-"+i,"Chinese");
+    await service.TranslateAsync("id","PRIVATE-SOURCE","Chinese");Check(sent==43,"LRU capacity was not bounded");
+    for(var i=0;i<140;i++)await service.TranslateAsync("id","same","Chinese");
+    Check(service.ReadUsage().Count==128,"Usage log is not bounded");
+}));
+tests.Add(("Explicit probes use synthetic inputs and never reuse cached capability claims",async()=>{
+    var sent=0;var service=new AiService(Store(),new HttpClient(new Handler(request=>{
+        sent++;var body=request.Content!.ReadAsStringAsync().Result;Check(!body.Contains("PRIVATE"),"Probe sent user data");return Json("{\"message\":{\"content\":\"PROBE_OK\"}}");})));
+    await service.UpdateProviderAsync(new("id","Local","ollama","http://localhost:11434","text"));
+    await service.ProbeAsync("id","text");await service.ProbeAsync("id","text");await service.ProbeAsync("id","image");Check(sent==3,"Probe reused cache");
+    await Error(()=>service.ProbeAsync("id","unsupported"),"invalid_probe");Check(sent==3,"Invalid probe sent request");
 }));
 // 逐项运行并汇总退出码，确保失败时仍清理测试配置。
 int failed = 0;

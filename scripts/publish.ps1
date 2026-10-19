@@ -8,7 +8,7 @@ try {
     Push-Location editor
     try {
         if (-not $SkipRestore) {
-            & npm.cmd ci
+            & npm.cmd ci --ignore-scripts
             if ($LASTEXITCODE) { throw 'Editor dependency restore failed.' }
         }
         & npm.cmd run build
@@ -17,5 +17,7 @@ try {
     # 固定已核实的受维护运行时补丁，避免旧 SDK 默认附带较早的自包含运行时。
     & dotnet publish src/Screenshot.App/Screenshot.App.csproj -c Release -r win-x64 --self-contained true "-p:ScreenshotRuntimeVersion=$RuntimeVersion" --maxcpucount:1 --artifacts-path (Join-Path $taskRoot 'artifacts/publish-build') -o $Output
     if ($LASTEXITCODE) { throw 'Windows publish failed.' }
+    & node (Join-Path $PSScriptRoot 'release-audit.cjs') $Output
+    if ($LASTEXITCODE) { throw 'Portable package audit failed.' }
     Write-Output "Runnable output: $Output"
 } finally { Pop-Location }

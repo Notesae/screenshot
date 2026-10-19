@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
-import { Canvas, FabricImage, Textbox } from 'fabric';
+import { Canvas, StaticCanvas, FabricImage, Textbox } from 'fabric';
 import { renderBase } from './render';
 import { outputSize, type Annotation, type AnnotationKind, type ProjectDocument } from './document';
 import { annotationFromObject as serialize, annotationToObject as restore, patchAnnotationObject } from './annotations';
@@ -18,7 +18,7 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
   const [size, setSize] = useState({ width: 720, height: 480 });
   const callbacks = useRef({ onAnnotations, onError }); callbacks.current = { onAnnotations, onError };
   const current = useRef(doc); current.current = doc;
-  const properties = JSON.stringify([doc.editor.mode, doc.editor.padding, doc.editor.radius, doc.editor.background, doc.editor.shadow, doc.editor.text, doc.editor.title, doc.editor.fontSize, doc.editor.textWidth, doc.editor.translation, doc.editor.textLayout, doc.editor.crop, doc.editor.resize]);
+  const properties = JSON.stringify([doc.editor.mode, doc.editor.padding, doc.editor.radius, doc.editor.background, doc.editor.shadow, doc.editor.borderWidth, doc.editor.borderColor, doc.editor.lineSpacing, doc.editor.paragraphSpacing, doc.editor.text, doc.editor.title, doc.editor.fontSize, doc.editor.textWidth, doc.editor.translation, doc.editor.textLayout, doc.editor.crop, doc.editor.resize]);
   const latestProperties = useRef(properties); latestProperties.current = properties;
   const rendered = useRef<{ image: ProjectDocument['image']; properties: string } | null>(null);
   const lastAnnotations = useRef<Annotation[]>([]);
@@ -89,7 +89,14 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
       // 未编辑的原样 PNG 跳过重编码，完整保留透明像素数据。
       const doc = current.current;
       if (scale === 1 && doc.editor.mode === 'raw' && !doc.editor.crop && !doc.editor.resize && !doc.editor.annotations.length && doc.image?.dataUrl.startsWith('data:image/png;base64,')) return doc.image.dataUrl;
-      return canvas.toDataURL({ format: 'png', multiplier: scale, enableRetinaScaling: false });
+      // 重排文字在目标倍率重新绘制，避免仅放大预览底图；标注仍由同一 Fabric 对象内核合成。
+      const size = outputSize(doc.image, doc.editor, scale), base = await renderBase(doc, scale);
+      const output = new StaticCanvas(undefined, { width:size.width, height:size.height, enableRetinaScaling:false });
+      try {
+        output.add(new FabricImage(base, { originX:'left',originY:'top',scaleX:1/scale,scaleY:1/scale }));
+        for (const annotation of doc.editor.annotations) output.add(restore(annotation));
+        return output.toDataURL({ format:'png',multiplier:scale,enableRetinaScaling:false });
+      } finally { await output.dispose(); }
     },
     add(type) {
       const canvas = fabric.current;

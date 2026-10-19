@@ -149,6 +149,16 @@ Check(presentation.TryDismiss(newerFrame.CaptureId) && presentation.Mode == Pres
 Check(presentation.TryDismiss(null) && presentation.Mode == PresentationMode.Hidden, "unscoped dismiss allowed when already hidden");
 var adjusted = OverlayWindowGeometry.FitClient(new PixelRect(-1920, -240, 3840, 1440), new PixelRect(-1920, -240, 3840, 1440), new PixelRect(-1912, -232, 3824, 1424));
 Check(adjusted == new PixelRect(-1928, -248, 3856, 1456), "physical client alignment accounts for borders without applying a screen DPI");
+var inference = new InferenceTasks();
+using(var oldTask=inference.Begin("old",CancellationToken.None)) {
+    Check(!inference.Cancel("new"),"unknown cancellation does not affect running inference");
+    Check(!oldTask.Token.IsCancellationRequested,"wrong task remains live");
+    Check(inference.Cancel("old")&&oldTask.Token.IsCancellationRequested,"matching task cancellation propagates");
+}
+using(var newTask=inference.Begin("new",CancellationToken.None)) {
+    Check(!inference.Cancel("old")&&!newTask.Token.IsCancellationRequested,"late cancellation cannot cancel newer task");
+}
+checks += RegionSelectionTests.Run();
 checks += await CapturePipelineTests.RunAsync();
 Console.WriteLine($"PASS {checks} native boundary, PNG roundtrip, capture geometry, request concurrency, overlay lifecycle and fake-frame capture checks");
 }

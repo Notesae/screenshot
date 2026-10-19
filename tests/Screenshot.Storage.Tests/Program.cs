@@ -168,6 +168,21 @@ using (var store = new SnapshotStore(rollbackRoot))
     Check((await store.ListAsync()).Single(item => item.DocumentId == "safe-name").Name == "example.png", "list name removes directory and control characters");
     Check(Directory.GetFiles(Path.Combine(rollbackRoot, "assets"), "*.tmp").Length == 0, "atomic asset writes leave no temporary file after completion");
 }
+using(var batch=new SnapshotStore(Path.Combine(testRoot,"batch")))
+{
+    await batch.SaveAsync("a",1,Document("a"));await batch.SaveAsync("b",1,Document("b"));await batch.SaveAsync("c",1,Document("c"));
+    var usage=await batch.GetUsageAsync();Check(usage.Documents==3&&usage.ReferencedAssetBytes==Convert.FromBase64String(png[(png.IndexOf(',')+1)..]).Length,"usage counts deduplicated bytes");
+    await Reject(()=>batch.DeleteManyAsync(new[]{"a","../escape"}),"invalid batch has no partial deletion");Check((await batch.ListAsync()).Count==3,"batch validation precedes all deletes");
+    using(var connection=new SqliteConnection("Data Source="+Path.Combine(testRoot,"batch","snapshots.db")))
+    {
+        connection.Open();using var command=connection.CreateCommand();command.CommandText="CREATE TRIGGER reject_b BEFORE DELETE ON snapshots WHEN OLD.document_id='b' BEGIN SELECT RAISE(ABORT,'synthetic'); END;";command.ExecuteNonQuery();
+        await Reject(()=>batch.DeleteManyAsync(new[]{"a","b"}),"interrupted batch rolls back");Check((await batch.ListAsync()).Count==3,"interrupted batch preserved earlier row");
+        command.CommandText="DROP TRIGGER reject_b;";command.ExecuteNonQuery();
+    }
+    var removed=await batch.DeleteManyAsync(new[]{"a","b","b"});Check(removed.Deleted==2&&(await batch.GetUsageAsync()).Documents==1,"batch deduplicates IDs and preserves unselected snapshot");
+    Check((await batch.LoadAsync("c")).Revision==1,"remaining shared image remains readable");
+    await batch.DeleteManyAsync(new[]{"c"});Check((await batch.GetUsageAsync()).ReferencedAssetBytes==0,"deleting final reference frees capacity");
+}
 SqliteConnection.ClearAllPools();
 Console.WriteLine($"PASS {passed} SQLite immutable asset, revision, interruption, restart, corruption and capacity checks");
 Console.WriteLine("Synthetic evidence directory: " + testRoot);

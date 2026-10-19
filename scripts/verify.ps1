@@ -7,7 +7,7 @@ try {
     Push-Location editor
     try {
         if (-not $SkipRestore) {
-            & npm.cmd ci
+            & npm.cmd ci --ignore-scripts
             if ($LASTEXITCODE) { throw 'Editor dependency restore failed.' }
         }
         & npm.cmd test

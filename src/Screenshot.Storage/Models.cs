@@ -18,5 +18,8 @@ public sealed class SnapshotStoreException(string code, string message) : Except
     public string Code { get; } = code;
 }
 
+public sealed record SnapshotUsage(int Documents,long ReferencedAssetBytes,int MaxDocuments,long MaxAssetBytes);
+public sealed record SnapshotBatchDeleteResult(int Deleted,bool CleanupPending);
+
 // 仅在单次保存中持有原图，数据库 JSON 不包含 image.dataUrl。
 internal sealed record PreparedSnapshot(string Json, string Name, byte[]? Image, string? Hash);

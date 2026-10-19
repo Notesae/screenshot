@@ -18,9 +18,10 @@ export function useRecovery(documentId: string, revision: number, document: Proj
 /** 仅显式展开列表和选取恢复；不自动加载任何私人内容。 */
 export function RecoveryPanel({ state, onRestore, onError, onDeleteCurrent, currentId, compact = false }: { state: ReturnType<typeof useRecovery>; onRestore: (item: RecoveryItem) => Promise<void>; onError: (error: unknown) => void; onDeleteCurrent: () => Promise<void>; currentId: string; compact?: boolean }) {
   const [open, setOpen] = useState(false), [items, setItems] = useState<RecoveryItem[]>([]), [busy, setBusy] = useState(false);
+  const [selected,setSelected]=useState<string[]>([]),[confirming,setConfirming]=useState(false),[usage,setUsage]=useState<{documents:number;referencedAssetBytes:number;maxDocuments:number;maxAssetBytes:number}|null>(null);
   async function refresh() {
     setBusy(true);
-    try { setItems(parseRecoveryItems(await native.request('recovery.list'))); setOpen(true); } catch (error) { onError(error); } finally { setBusy(false); }
+    try { setItems(parseRecoveryItems(await native.request('recovery.list'))); setUsage(await native.request('recovery.usage'));setSelected([]);setConfirming(false); setOpen(true); } catch (error) { onError(error); } finally { setBusy(false); }
   }
   async function remove(item: RecoveryItem) {
     setBusy(true);
@@ -28,9 +29,18 @@ export function RecoveryPanel({ state, onRestore, onError, onDeleteCurrent, curr
       await onDeleteCurrent();
       const result = await native.request<{ deleted: boolean }>('recovery.delete', { documentId: item.documentId });
       if (!result.deleted) throw new Error('未找到要删除的恢复记录。');
-      setItems(current => current.filter(value => value.documentId !== item.documentId));
+      setItems(current => current.filter(value => value.documentId !== item.documentId));setUsage(await native.request("recovery.usage"));
       if (item.documentId !== currentId) { state.resume(); state.retry(); }
     } catch (error) { onError(error); } finally { state.resume(); setBusy(false); }
   }
-  return <section className={`recovery-panel ${compact ? 'compact-recovery' : ''}`} aria-label="本机自动恢复"><p role="status" className={state.status === 'unsaved' ? 'save-state unsaved' : 'save-state'}>{state.message}</p>{(state.status === 'unsaved' || state.status === 'paused') && <button onClick={state.retry}>{state.status === 'paused' ? '恢复自动保存' : '重试自动保存'}</button>}<button className="compact-secondary" disabled={!native.available || busy} onClick={() => { if (open) setOpen(false); else void refresh(); }}>{open ? '收起恢复记录' : '查看恢复记录'}</button>{open && <div className="recovery-list"><p className="ai-note">记录仅存在本机。点击恢复才打开内容；删除记录不会删除当前编辑。</p>{!items.length && <p>暂无恢复记录。</p>}{items.map(item => <div className="recovery-item" data-document-id={item.documentId} key={item.documentId}><strong>{item.name || '未命名文档'}</strong><small>{item.updatedAtUtc} · r{item.revision}</small><div><button disabled={busy} onClick={async () => { setBusy(true); try { await onRestore(item); setOpen(false); } catch (error) { onError(error); } finally { setBusy(false); } }}>恢复</button><button disabled={busy} onClick={() => { void remove(item); }}>删除记录</button></div></div>)}</div>}</section>;
+  async function removeSelected() {
+    setBusy(true);const deleting=[...selected];
+    try {
+      await onDeleteCurrent();
+      await native.request('recovery.deleteMany',{documentIds:deleting});
+      setItems(items=>items.filter(item=>!deleting.includes(item.documentId)));setSelected([]);setConfirming(false);setUsage(await native.request('recovery.usage'));
+      if(!deleting.includes(currentId)){state.resume();state.retry();}
+    } catch(error){onError(error);}finally{state.resume();setBusy(false);}
+  }
+  return <section className={`recovery-panel ${compact ? 'compact-recovery' : ''}`} aria-label="本机自动恢复"><p role="status" className={state.status === 'unsaved' ? 'save-state unsaved' : 'save-state'}>{state.message}</p>{(state.status === 'unsaved' || state.status === 'paused') && <button onClick={state.retry}>{state.status === 'paused' ? '恢复自动保存' : '重试自动保存'}</button>}<button className="compact-secondary" disabled={!native.available || busy} onClick={() => { if (open) setOpen(false); else void refresh(); }}>{open ? '收起恢复记录' : '查看恢复记录'}</button>{open && <div className="recovery-list">{usage&&<p className="ai-note">恢复 {usage.documents} / {usage.maxDocuments} 条 · 去重原图 {(usage.referencedAssetBytes/1048576).toFixed(1)} / {(usage.maxAssetBytes/1048576).toFixed(0)} MiB（数据库及待清理文件另计）</p>}<button disabled={busy||!selected.length} onClick={()=>setConfirming(true)}>清理所选 {selected.length} 条</button>{confirming&&<div role="group" aria-label="确认批量清理"><p>删除所选本机恢复记录？当前编辑保留，修改后可重新自动保存。</p><button disabled={busy} onClick={()=>{void removeSelected();}}>确认清理所选记录</button><button onClick={()=>setConfirming(false)}>取消清理</button></div>}<p className="ai-note">记录仅存在本机。点击恢复才打开内容；删除记录不会删除当前编辑。</p>{!items.length && <p>暂无恢复记录。</p>}{items.map(item => <div className="recovery-item" data-document-id={item.documentId} key={item.documentId}><label><input type="checkbox" aria-label={`选择恢复记录 ${item.documentId}`} checked={selected.includes(item.documentId)} onChange={e=>setSelected(ids=>e.target.checked?[...ids,item.documentId]:ids.filter(id=>id!==item.documentId))}/>选择</label><strong>{item.name || '未命名文档'}</strong><small>{item.updatedAtUtc} · r{item.revision}</small><div><button disabled={busy} onClick={async () => { setBusy(true); try { await onRestore(item); setOpen(false); } catch (error) { onError(error); } finally { setBusy(false); } }}>恢复</button><button disabled={busy} onClick={() => { void remove(item); }}>删除记录</button></div></div>)}</div>}</section>;
 }

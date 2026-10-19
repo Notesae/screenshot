@@ -1,3 +1,5 @@
+import { translationChunks,runTranslationChunks,type TranslationChunk } from './translation';
+import { StyleTools } from './StyleTools';
 import { RecoveryPanel, useRecovery } from './RecoveryPanel';
 import type { RecoveryItem } from './recovery';
 import { TextTools, CaptureBackendSelector } from './TextTools';
@@ -29,15 +31,17 @@ export default function App() {
   const [ocrEngine, setOcrEngine] = useState<'local' | 'cloud'>('local');
   const [localStatus, setLocalStatus] = useState<LocalOcrStatus | null>(null);
   const [captureBackend, setCaptureBackend] = useState<'wgc' | 'gdi' | null>(null);
-  const aiSequence = useRef(0);
+  const aiSequence = useRef(0), aiTaskId = useRef<string | null>(null);
   const [overlay, setOverlay] = useState<OverlayMetadata | null>(null);
   const [busy, setBusy] = useState('');
   const [aiBusy, setAiBusy] = useState('');
+  const [translationJob,setTranslationJob]=useState<{chunks:TranslationChunk[];stamp:RequestStamp;providerId:string;targetLanguage:string}|null>(null);
   const [documentEpoch, setDocumentEpoch] = useState(0);
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
   const [settings, setSettings] = useState<Settings>({ providers: [] });
   const [providerId, setProviderId] = useState('');
   const [targetLanguage, setTargetLanguage] = useState('简体中文');
+  const aiOptions=useRef({providerId,targetLanguage});aiOptions.current={providerId,targetLanguage};
   const [scale, setScale] = useState(1);
   const [dragging, setDragging] = useState(false);
   const canvas = useRef<CanvasHandle>(null);
@@ -204,18 +208,33 @@ export default function App() {
   }
   // 身份、历史修订和请求序号共同保护结果；本地与云端都只响应明确点击。
   function requestStamp(sequence = aiSequence.current): RequestStamp { return { documentId: documentIdRef.current, generation: generation.current, revision: history.currentRevision(), sequence }; }
-  async function ai(kind: 'ocr' | 'translate') {
+  async function ai(kind: 'ocr' | 'translate', retry=false) {
     if (aiBusy) return;
+    const taskId=crypto.randomUUID(); aiTaskId.current=taskId;
     const sequence = ++aiSequence.current, stamp = requestStamp(sequence), snapshot = history.current();
     const local = kind === 'ocr' && ocrEngine === 'local';
+    const matches=()=>requestMatches(stamp,requestStamp())&&(local||(aiOptions.current.providerId===providerId&&(kind==='ocr'||aiOptions.current.targetLanguage===targetLanguage)));
     setAiBusy(local ? '本地识别文字' : kind === 'ocr' ? '识别文字' : '翻译文字'); setNotice(null);
     try {
       if (!native.available) throw new Error('OCR 和翻译需要 Windows 桌面应用。');
       if (local ? !localStatus?.available : !providerId) throw new Error(local ? '本地模型不可用，请检查模型状态提示。' : '请先配置并选择 AI 服务。');
       const input = kind === 'ocr' ? await imageForProcessing(snapshot) : null;
-      if (!requestMatches(stamp, requestStamp())) return;
-      const result = await native.request<unknown>(local ? 'ocr.local' : 'ai.' + kind, kind === 'ocr' ? { ...(local ? {} : { providerId }), imageDataUrl: input!.dataUrl } : { providerId, text: snapshot.editor.text, targetLanguage });
-      if (!requestMatches(stamp, requestStamp())) { setNotice({ text: '内容已切换或修改，已忽略之前的识别或翻译结果。' }); return; }
+      if (!matches()) return;
+      let result:unknown;
+      if(kind==='translate') {
+        const previous=retry?translationJob:null;
+        if(previous&&(!requestMatches(previous.stamp,{...stamp,sequence:previous.stamp.sequence})||previous.providerId!==providerId||previous.targetLanguage!==targetLanguage))throw new Error('原文或文档已改变，请重新发起翻译。');
+        const chunks=previous?.chunks || translationChunks(snapshot.editor.text);
+        const completed=await runTranslationChunks(chunks,async text=>{
+          const chunkId=crypto.randomUUID();aiTaskId.current=chunkId;
+          const value=await native.request<{text:string}>('ai.translate',{taskId:chunkId,providerId,text,targetLanguage});return value.text;
+        },chunks=>setTranslationJob({chunks,stamp,providerId,targetLanguage}),()=>matches());
+        if(!matches())return;
+        const failed=completed.filter(c=>c.status==='failed');
+        if(failed.length){setNotice({text:`${failed.length} / ${completed.length} 块翻译失败，成功块已保留。可仅重试失败块。`,error:true});return;}
+        result={text:completed.map(c=>c.text).join('\n')};
+      } else result=await native.request<unknown>(local?'ocr.local':'ai.ocr',{taskId,...(local?{}:{providerId}),imageDataUrl:input!.dataUrl});
+      if (!matches()) { setNotice({ text: '内容已切换或修改，已忽略之前的识别或翻译结果。' }); return; }
       if (local) {
         const ocr = parseOcr(result, { crop: snapshot.editor.crop, resize: snapshot.editor.resize });
         if (ocr.imageWidth !== input!.width || ocr.imageHeight !== input!.height) throw new Error('识别坐标与输入尺寸不符。');
@@ -224,15 +243,15 @@ export default function App() {
       } else {
         const text = (result as { text?: unknown })?.text;
         if (typeof text !== 'string' || text.length > 20000) throw new Error('服务返回的文字无效或过长。');
-        update(kind === 'ocr' ? { text, ocr: null, translation: '', textLayout: 'source', mode: 'reflow' } : { translation: text, textLayout: 'parallel', mode: 'reflow' });
+        update(kind === 'ocr' ? { text, ocr: null, translation: '', textLayout: 'source', mode: 'reflow' } : { translation: text, translationSource:snapshot.editor.text, textLayout: 'parallel', mode: 'reflow' });
       }
       setNotice({ text: kind === 'ocr' ? '识别完成，请校对文字与阅读顺序。' : '翻译完成，原文已保留，请校对译文。' });
     } catch (error) { if (sequence === aiSequence.current) errorNotice(error); }
-    finally { if (sequence === aiSequence.current) setAiBusy(''); }
+    finally { if (sequence===aiSequence.current) {aiTaskId.current=null;setAiBusy('');} }
   }
   async function cancelOcr() {
-    aiSequence.current++; setAiBusy('');
-    try { await native.request('ocr.cancel'); setNotice({ text: '本地识别已取消，现有校对内容保持不变。' }); } catch (error) { errorNotice(error); }
+    const taskId=aiTaskId.current; aiTaskId.current=null; aiSequence.current++; setAiBusy('');
+    try { if(taskId) await native.request('ai.cancel',{taskId}); setNotice({ text: '已取消此任务，现有校对内容保持不变。' }); } catch (error) { errorNotice(error); }
   }
   async function configureCapture(backend: 'wgc' | 'gdi') {
     await run('切换捕获后端', async () => {
@@ -268,7 +287,20 @@ export default function App() {
     expiredCaptures.current.add(captureId); setOverlay(null);
     setNotice({ text: '选区显示已失效，已保留图片并返回工作台。', error: true });
   }
-  const textTools = { document: doc, update, settings, providerId, setProviderId, targetLanguage, setTargetLanguage, ocrEngine, setOcrEngine, localStatus, busy, aiBusy, onAi: (kind: 'ocr' | 'translate') => { void ai(kind); }, onCancelOcr: () => { void cancelOcr(); }, onConfigure: () => { void run('服务设置', async () => applySettings(await native.request<Settings>('settings.configure'))); }, onError: errorNotice };
+  async function probeAi(kind:'text'|'image') {
+    if(aiBusy||!providerId)return;
+    const taskId=crypto.randomUUID(),sequence=++aiSequence.current;aiTaskId.current=taskId;setAiBusy('测试服务');
+    try{const result=await native.request<{text:string}>('ai.test',{taskId,providerId,kind});if(sequence===aiSequence.current)setNotice({text:`${kind==='text'?'文字':'合成图片'}测试收到文字响应；仅证明此时接口可返回文字，不代表OCR准确率或所有功能兼容。${typeof result.text==='string'?' '+result.text.slice(0,120):''}`});}
+    catch(error){if(sequence===aiSequence.current)errorNotice(error);}finally{if(sequence===aiSequence.current){aiTaskId.current=null;setAiBusy('');}}
+  }
+  async function copyPlainText(text: string) {
+    await run('复制文字',async()=>{
+      if(native.available) await native.request('text.copy',{text});
+      else await navigator.clipboard.writeText(text);
+      setNotice({text:'文字已复制'});
+    });
+  }
+  const textTools = { onProbe:(kind:"text"|"image")=>{void probeAi(kind);}, translationProgress:translationJob?{done:translationJob.chunks.filter(c=>c.status==='done').length,total:translationJob.chunks.length,failed:translationJob.chunks.filter(c=>c.status==='failed').length,canRetry:translationJob.providerId===providerId&&translationJob.targetLanguage===targetLanguage&&requestMatches(translationJob.stamp,{...requestStamp(),sequence:translationJob.stamp.sequence}),errors:translationJob.chunks.filter(c=>c.error).map(c=>c.error!)}:null, onRetryTranslation:()=>{void ai('translate',true);}, onCopyText:(text:string)=>{void copyPlainText(text);}, document: doc, update, settings, providerId, setProviderId, targetLanguage, setTargetLanguage, ocrEngine, setOcrEngine, localStatus, busy, aiBusy, onAi: (kind: 'ocr' | 'translate') => { void ai(kind); }, onCancelOcr: () => { void cancelOcr(); }, onConfigure: () => { void run('服务设置', async () => applySettings(await native.request<Settings>('settings.configure'))); }, onError: errorNotice };
   const recoveryPanel = <RecoveryPanel state={recovery} onRestore={restoreRecovery} onError={errorNotice} onDeleteCurrent={recovery.pause} currentId={documentId}/>;
   if (overlay && doc.image) return <CompactOverlay key={documentEpoch} document={doc} metadata={overlay} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo} onTransform={changeTransform} textTools={textTools} recoveryPanel={recoveryPanel} captureBackend={captureBackend} onCaptureBackend={backend => { void configureCapture(backend); }} onReadyResult={handleReadyResult} canvasRef={canvas} update={update} onExport={copy => { void exportImage(copy); }} onAi={kind => { void ai(kind); }} onPresentation={mode => { void presentation(mode); }} onConfigure={() => { void run('服务设置', async () => applySettings(await native.request<Settings>('settings.configure'))); }} onSaveProject={() => { void saveProject(); }} onError={errorNotice} busy={busy} aiBusy={aiBusy} settings={settings} providerId={providerId} setProviderId={setProviderId} targetLanguage={targetLanguage} setTargetLanguage={setTargetLanguage} scale={scale} setScale={setScale} notice={notice} clearNotice={() => setNotice(null)}/>;
   return <div className="app" onDragOver={event => { event.preventDefault(); setDragging(true); }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }} onDrop={event => { event.preventDefault(); setDragging(false); void chooseFiles(event.dataTransfer.files); }}>
@@ -276,7 +308,7 @@ export default function App() {
     <div className="body"><aside className="left-panel"><div className="eyebrow">从这里开始</div><button className="import-button" onClick={openImage} disabled={!!busy}><ImagePlus size={19}/>导入图片<span>+</span></button><div className="capture-actions"><button title={native.available ? '捕获整个桌面' : '需要 Windows 桌面应用'} onClick={() => nativeImage('capture.screen', '捕获桌面')} disabled={!!busy}><Monitor/>桌面</button><button title="在桌面上选择矩形区域" onClick={() => nativeImage('capture.region', '选择区域')} disabled={!!busy}><Crop/>区域</button><button onClick={() => nativeImage('image.paste', '粘贴图片')} disabled={!!busy}><Clipboard/>粘贴</button></div><CaptureBackendSelector backend={captureBackend} disabled={!!busy || !native.available} onChange={backend => { void configureCapture(backend); }}/><div className="section-label">编辑意图</div><nav className="modes" aria-label="编辑意图">{modes.map(mode => <button key={mode.id} className={editor.mode === mode.id ? 'selected' : ''} onClick={() => update({ mode: mode.id as Mode })}><mode.icon size={19}/><span><strong>{mode.name}</strong><small>{mode.description}</small></span><span className="mode-dot"/></button>)}</nav><div className="section-label">标注工具</div><div className="tool-grid"><button onClick={() => canvas.current?.add('text')} disabled={!hasContent}><Type/>文字</button><button onClick={() => canvas.current?.add('rect')} disabled={!hasContent}><Frame/>矩形</button><button onClick={() => canvas.current?.remove()} disabled={!hasContent}><Trash2/>删除选中</button></div><AnnotationPalette canvasRef={canvas} onError={errorNotice}/><p className="tool-hint"><MousePointer2 size={13}/>拖动调整位置，双击编辑文字。</p>{recoveryPanel}<div className="local-note"><span className="status-dot"/><span>{native.available ? '本地桌面工作台' : '浏览器预览模式'}<small>只有点击 AI 操作才发送内容。</small></span></div></aside>
       <main className="main-panel"><div className="workspace-bar"><div><span className="eyebrow">工作台</span><strong>{doc.image?.name || (editor.mode === 'reflow' ? '文字阅读卡片' : '新的截图')}</strong></div><span className="mode-badge">{modes.find(m => m.id === editor.mode)?.name}</span></div><div className="stage">{hasContent ? <EditorCanvas key={documentEpoch} ref={canvas} document={doc} onAnnotations={(annotations, group) => update({ annotations }, group)} onError={errorNotice}/> : <div className="empty-state"><div className="empty-art" aria-hidden="true"><span className="art-corner top-left"/><span className="art-corner bottom-right"/><div className="art-paper"><div className="paper-sun"/><div className="paper-mountain"/></div><span className="art-caption">每一个好内容，都值得留下。</span></div><div className="eyebrow">CAPTURE. CRAFT. KEEP.</div><h1>留下画面，<br/>也留下你的表达。</h1><p>导入一张图片，或从桌面捕获。<br/>原样保存、精心美化，或将文字重新编排。</p><button className="primary" onClick={openImage} disabled={!!busy}><ImagePlus/>选择一张图片</button><span className="empty-tip">支持拖入 PNG / JPG / WebP · Ctrl + V 粘贴</span></div>}</div><footer className="workspace-footer"><span>{(busy || aiBusy) ? <><span className="spinner"/>{busy || aiBusy}…</> : '编辑在本地完成'}</span><span>{doc.image ? `${doc.image.width} × ${doc.image.height} 原始像素` : '准备好，留下一张好截图。'}</span></footer></main>
       <aside className="right-panel"><div className="inspector-heading"><h2>{editor.mode === 'raw' ? '保留原貌' : editor.mode === 'beauty' ? '画面样式' : '文字排版'}</h2><span>01</span></div>{editor.mode === 'raw' && <div className="raw-note"><FileImage size={30}/><h3>像素，原封不动。</h3><p>不添加背景、圆角或阴影。1× 按当前裁剪与缩放尺寸输出；标注会合并到导出图片。</p></div>}{editor.mode === 'beauty' && <><label className="control-label">背景色</label><div className="swatches">{swatches.map(color => <button key={color} aria-label={`背景 ${color}`} className={editor.background === color ? 'active' : ''} style={{ background: color }} onClick={() => update({ background: color })}>{editor.background === color && <Check size={14} color={color === '#363b37' ? '#f8f4eb' : '#554d42'}/>}</button>)}<input type="color" value={editor.background} onChange={e => update({ background: e.target.value })} aria-label="自定义背景色"/></div><Range label="留白" value={editor.padding} min={0} max={200} onChange={padding => update({ padding })}/><Range label="圆角" value={editor.radius} min={0} max={100} onChange={radius => update({ radius })}/><label className="checkbox-row"><input type="checkbox" checked={editor.shadow} onChange={e => update({ shadow: e.target.checked })}/>柔和阴影</label></>}{editor.mode === 'reflow' && <><label className="control-label" htmlFor="title">卡片标题</label><input id="title" value={editor.title} maxLength={240} onChange={e => update({ title: e.target.value })}/><Range label="文字大小" value={editor.fontSize} min={14} max={64} onChange={fontSize => update({ fontSize })}/><Range label="卡片宽度" value={editor.textWidth} min={360} max={1400} step={20} onChange={textWidth => update({ textWidth })}/></>}
-        <TransformPanel document={doc} onTransform={changeTransform}/><div className="inspector-divider"/><div className="ai-heading"><h3><ScanText size={16}/>文字与翻译</h3><span>按需调用</span></div><TextTools {...textTools}/><div className="export-panel"><div><strong>导出 PNG</strong><select aria-label="导出倍率" value={scale} onChange={e => setScale(Number(e.target.value))}><option value={1}>1× 当前尺寸</option><option value={2}>2× 尺寸</option></select></div><button className="primary" onClick={() => exportImage()} disabled={!!busy || !hasContent}><ArrowDownToLine/>保存图片</button><button className="copy-button" onClick={() => exportImage(true)} disabled={!!busy || !hasContent}><Copy/>复制到剪贴板</button></div></aside></div>
+        <StyleTools editor={editor} update={update} onError={errorNotice}/><TransformPanel document={doc} onTransform={changeTransform}/><div className="inspector-divider"/><div className="ai-heading"><h3><ScanText size={16}/>文字与翻译</h3><span>按需调用</span></div><TextTools {...textTools}/><div className="export-panel"><div><strong>导出 PNG</strong><select aria-label="导出倍率" value={scale} onChange={e => setScale(Number(e.target.value))}><option value={1}>1× 当前尺寸</option><option value={2}>2× 尺寸</option></select></div><button className="primary" onClick={() => exportImage()} disabled={!!busy || !hasContent}><ArrowDownToLine/>保存图片</button><button className="copy-button" onClick={() => exportImage(true)} disabled={!!busy || !hasContent}><Copy/>复制到剪贴板</button></div></aside></div>
     {notice && <div role={notice.error ? 'alert' : 'status'} className={`notice ${notice.error ? 'error' : ''}`}><span>{notice.text}</span><button aria-label="关闭提示" onClick={() => setNotice(null)}><X size={16}/></button></div>}{dragging && <div className="drop-overlay"><ImagePlus size={44}/><strong>松开，开始编辑。</strong><span>图片或拾影项目文件</span></div>}
     <input className="sr-only" ref={imageInput} type="file" accept="image/png,image/jpeg,image/webp" onChange={e => { void chooseFiles(e.target.files); e.target.value = ''; }}/><input className="sr-only" ref={projectInput} type="file" accept=".json" onChange={e => { void chooseFiles(e.target.files); e.target.value = ''; }}/>
   </div>;

@@ -1,32 +1,36 @@
 import type { EditorState } from './document';
 export type TextLayoutMode = 'source' | 'translated' | 'parallel' | 'stacked';
-export type TextSection = { label: string; lines: string[]; x: number; y: number; width: number };
-// 浏览器使用实际字体度量；纯测试使用保守字宽，预览和导出共享同一排版函数。
+export type TextSection = { label: string; lines: string[]; offsets: number[]; height: number; x: number; y: number; width: number };
 let measureContext: CanvasRenderingContext2D | null | undefined;
 export const TEXT_FONT = '"Microsoft YaHei", "PingFang SC", sans-serif';
-function lines(text: string, width: number, font: number): string[] {
+/** 保留每个换行与空段，并记录基线偏移；预览和高分辨率导出共享逻辑坐标。 */
+function wrap(text: string, width: number, font: number, lineHeight: number, gap: number, bold = false) {
   if (measureContext === undefined) measureContext = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d');
-  if (measureContext) measureContext.font = `${font}px ${TEXT_FONT}`;
-  return text.split('\n').flatMap(paragraph => {
-    const result: string[] = []; let line = '';
-    for (const char of paragraph.replace(/\t/g, '    ')) {
-      const measured = measureContext ? measureContext.measureText(line + char).width : [...line, char].length * font;
-      if (line && measured > width) { result.push(line); line = ''; }
+  if (measureContext) measureContext.font = `${bold ? '600 ' : ''}${font}px ${TEXT_FONT}`;
+  const lines: string[] = [], offsets: number[] = []; let y = 0;
+  const push = (line: string) => { lines.push(line); offsets.push(y); y += lineHeight; };
+  text.split('\n').forEach((paragraph,index) => {
+    if (index) y += gap;
+    let line = '';
+    for (const char of paragraph.replace(/\t/g,'    ')) {
+      const measured = measureContext ? measureContext.measureText(line + char).width : [...line,char].length * font;
+      if (line && measured > width) { push(line); line = ''; }
       line += char;
     }
-    result.push(line); return result;
+    push(line);
   });
+  return { lines, offsets, height:y };
 }
-/** 先完成全部原译文换行再计算高度，长文超安全像素上限时明确拒绝而非截断。 */
+/** 完整排版后计算高度；超出导出上限由文档层明确拒绝，绝不截断或无限缩字。 */
 export function textLayout(editor: EditorState) {
-  const width = editor.textWidth, font = editor.fontSize, lineHeight = font * 1.7;
-  const title = lines(editor.title, width - 96, 32), top = 78 + title.length * 44 + 30;
+  const width = editor.textWidth, font = editor.fontSize, lineHeight = font * editor.lineSpacing;
+  const title = wrap(editor.title,width-96,32,44,0,true).lines, top = 78 + title.length * 44 + 30;
   const mode = editor.textLayout || 'source', dual = mode === 'parallel' || mode === 'stacked';
   const columnWidth = mode === 'parallel' ? (width - 120) / 2 : width - 96;
-  const source = lines(editor.text, columnWidth, font), translated = lines(editor.translation || '', columnWidth, font);
+  const source = wrap(editor.text,columnWidth,font,lineHeight,editor.paragraphSpacing);
+  const translated = wrap(editor.translation || '',columnWidth,font,lineHeight,editor.paragraphSpacing);
   const sections: TextSection[] = [];
-  if (mode !== 'translated') sections.push({ label: dual ? '原文' : '', lines: source, x: 48, y: top + (dual ? 32 : 0), width: columnWidth });
-  if (mode !== 'source') sections.push({ label: dual ? '译文' : '', lines: translated, x: mode === 'parallel' ? 72 + columnWidth : 48, y: mode === 'stacked' ? top + 32 + source.length * lineHeight + 64 : top + (dual ? 32 : 0), width: columnWidth });
-  const height = Math.ceil(Math.max(...sections.map(section => section.y + section.lines.length * lineHeight)) + 48);
-  return { width, height, title, sections, lineHeight };
+  if (mode !== 'translated') sections.push({ ...source, label:dual ? '原文' : '', x:48, y:top+(dual?32:0), width:columnWidth });
+  if (mode !== 'source') sections.push({ ...translated, label:dual ? '译文' : '', x:mode==='parallel'?72+columnWidth:48, y:mode==='stacked'?top+32+source.height+64:top+(dual?32:0), width:columnWidth });
+  return { width, height:Math.ceil(Math.max(...sections.map(s=>s.y+s.height))+48), title, sections, lineHeight };
 }

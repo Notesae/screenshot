@@ -329,7 +329,7 @@ public partial class MainWindow : Window
     {
         switch (method)
         {
-            case "app.info": return new { version = "0.2.0", platform = "windows", presentation = _presentation.Mode.ToString().ToLowerInvariant(), capture = new { backend = _captureBackend, colorMode = "sdr", supportsHdr = false, availableBackends = new[] { "wgc", "gdi" }, targets = new[] { "desktop", "monitor", "window" }, availability = "checked-on-capture" }, capabilities = new[] { "image.open", "image.paste", "capture.screen", "capture.region", "capture.settings", "capture.configure", "image.save", "image.copy", "project.open", "project.save", "ai.ocr", "ai.translate", "ocr.local", "ocr.cancel", "ocr.status", "recovery.save", "recovery.list", "recovery.load", "recovery.delete", "presentation.workbench", "presentation.dismiss", "presentation.ready" } };
+            case "app.info": return new { version = "0.3.0", platform = "windows", presentation = _presentation.Mode.ToString().ToLowerInvariant(), capture = new { backend = _captureBackend, colorMode = "sdr", supportsHdr = false, availableBackends = new[] { "wgc", "gdi" }, targets = new[] { "desktop", "monitor", "window" }, availability = "checked-on-capture" }, capabilities = new[] { "image.open", "image.paste", "capture.screen", "capture.region", "capture.settings", "capture.configure", "image.save", "image.copy", "text.copy", "project.open", "project.save", "ai.ocr", "ai.translate", "ocr.local", "ocr.cancel", "ocr.status", "ai.cancel", "ai.usage", "ai.test", "recovery.save", "recovery.list", "recovery.load", "recovery.delete", "recovery.usage", "recovery.deleteMany", "presentation.workbench", "presentation.dismiss", "presentation.ready" } };
             case "image.open": return NativeImages.Open(this);
             case "image.paste": return NativeImages.Paste();
             case "capture.screen": return await CaptureAsync(ParseCaptureRequest(payload, false));
@@ -341,8 +341,16 @@ public partial class MainWindow : Window
                 _captureBackend = backend;
                 return new { backend = _captureBackend };
             case "ocr.status": return await Task.Run(_localOcr.GetStatus, _lifetime.Token);
-            case "ocr.local": return await RecognizeLocalAsync(RequiredString(payload, "imageDataUrl"));
+            case "ocr.local": return await RunInferenceAsync(payload, async token => await RecognizeLocalAsync(RequiredString(payload, "imageDataUrl"), token));
+            case "ai.cancel": return new { cancelled = _inferenceTasks.Cancel(RequiredString(payload,"taskId")) };
+            case "ai.test": return await RunInferenceAsync(payload,async token=>await _ai.ProbeAsync(RequiredString(payload,"providerId"),RequiredString(payload,"kind"),token));
+            case "ai.usage": return new { items = _ai.ReadUsage() };
             case "ocr.cancel": _ocrCancellation?.Cancel(); return new { cancelled = _ocrCancellation is not null };
+            case "recovery.usage": return await RunRecoveryAsync(store=>store.GetUsageAsync(_lifetime.Token));
+            case "recovery.deleteMany":
+                if(!payload.TryGetProperty("documentIds",out var ids)||ids.ValueKind!=JsonValueKind.Array||ids.GetArrayLength()>1000)throw new InvalidOperationException("恢复记录列表无效。");
+                var selectedIds=new List<string>();foreach(var id in ids.EnumerateArray()){if(id.ValueKind!=JsonValueKind.String)throw new InvalidOperationException("恢复文档标识无效。");selectedIds.Add(id.GetString()!);}
+                return await RunRecoveryAsync(store=>store.DeleteManyAsync(selectedIds,_lifetime.Token));
             case "recovery.save": return await SaveRecoveryAsync(payload);
             case "recovery.list": return new { items = await RunRecoveryAsync(store => store.ListAsync(_lifetime.Token)) };
             case "recovery.load": return await RunRecoveryAsync(store => store.LoadAsync(RequiredString(payload, "documentId"), _lifetime.Token));
@@ -360,13 +368,14 @@ public partial class MainWindow : Window
                 return new { presentation = _presentation.Mode.ToString().ToLowerInvariant(), accepted = dismissed, captureId = _presentation.Overlay?.CaptureId };
             case "presentation.ready": return ReadyPresentation(RequiredString(payload, "captureId"));
             case "image.save": return NativeImages.Save(this, RequiredString(payload, "dataUrl"), OptionalString(payload, "suggestedName"));
+            case "text.copy": return NativeImages.CopyText(RequiredString(payload, "text"));
             case "image.copy": return NativeImages.Copy(RequiredString(payload, "dataUrl"));
             case "project.open": return NativeImages.OpenProject(this);
             case "project.save": return NativeImages.SaveProject(this, payload.GetProperty("document"), OptionalString(payload, "suggestedName"));
             case "settings.read": return await _ai.ReadSettingsAsync(_lifetime.Token);
             case "settings.configure": new ProviderSettingsWindow(_ai) { Owner = this }.ShowDialog(); return await _ai.ReadSettingsAsync(_lifetime.Token);
-            case "ai.ocr": return await _ai.OcrAsync(RequiredString(payload, "providerId"), RequiredString(payload, "imageDataUrl"), _lifetime.Token);
-            case "ai.translate": return await _ai.TranslateAsync(RequiredString(payload, "providerId"), RequiredString(payload, "text"), RequiredString(payload, "targetLanguage"), _lifetime.Token);
+            case "ai.ocr": return await RunInferenceAsync(payload, async token => await _ai.OcrAsync(RequiredString(payload, "providerId"), RequiredString(payload, "imageDataUrl"), token));
+            case "ai.translate": return await RunInferenceAsync(payload, async token => await _ai.TranslateAsync(RequiredString(payload, "providerId"), RequiredString(payload, "text"), RequiredString(payload, "targetLanguage"), token));
             default: throw new InvalidOperationException("不支持的原生命令：" + method);
         }
     }

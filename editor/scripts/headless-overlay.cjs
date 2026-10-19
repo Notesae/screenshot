@@ -42,12 +42,18 @@ async function installMock(page) {
         window.__messages.push(request);
         if (request.method === window.__holdMethod) { window.__heldMethods.push(request); return; }
         if (request.method === 'presentation.ready' && window.__holdReady) { window.__heldReady.push(request); return; }
-        const results = { 'settings.read': { providers: [{ id: 'synthetic', name: '模拟服务', kind: 'ollama', model: 'test', baseUrl: 'http://127.0.0.1:0', hasApiKey: false }], defaultProviderId: 'synthetic' }, 'image.open': window.__openImage, 'image.copy': { copied: true }, 'image.save': { saved: true }, 'project.save': { saved: true }, 'ai.ocr': { text: '仅用于无头测试的合成文字' } };
+        const results = { 'settings.read': { providers: [{ id: 'synthetic', name: '模拟服务', kind: 'ollama', model: 'test', baseUrl: 'http://127.0.0.1:0', hasApiKey: false }], defaultProviderId: 'synthetic' }, 'image.open': window.__openImage, 'image.copy': { copied: true }, 'text.copy': { copied:true }, 'image.save': { saved: true }, 'project.save': { saved: true }, 'ai.ocr': { text: '仅用于无头测试的合成文字' } };
         let result = results[request.method];
         if (request.method === 'ocr.status') result = { available: true, modelVersion: 'synthetic', message: 'synthetic only', missingFiles: [] };
+        if (request.method === 'ai.cancel') result={cancelled:true};
         if (request.method === 'ocr.cancel') result = { cancelled: true };
         if (request.method === 'ocr.local') result = { modelVersion: 'synthetic', imageWidth: 80, imageHeight: 60, blocks: [{ id: 'block-a', polygon: [{x:1,y:1},{x:38,y:1},{x:38,y:20},{x:1,y:20}], text:'<b>原文</b>', confidence:.9, order:0 }, { id:'block-b', polygon:[{x:42,y:22},{x:78,y:22},{x:78,y:45},{x:42,y:45}], text:'second', confidence:null, order:1 }] };
-        if (request.method === 'ai.translate') result = { text:'synthetic translation' };
+        if (request.method === 'ai.translate') {
+          if(window.__chunkMode && request.payload.text.startsWith('乙') && !window.__failedChunk){window.__failedChunk=true;setTimeout(()=>window.__emit({id:request.id,ok:false,error:{code:'provider_rate_limited',message:'模拟429限流'}}),0);return;}
+          result = { text:window.__chunkMode?'translated-'+request.payload.text.slice(0,1):'synthetic translation' };
+        }
+        if(request.method==='ai.test')result={text:'PROBE_OK'};
+        if(request.method==='ai.usage')result={items:[]};
         if (request.method === 'capture.settings') result = { backend:window.__captureBackend };
         if (request.method === 'capture.configure') { window.__captureBackend = request.payload.backend; result = { backend:window.__captureBackend }; }
         if (request.method === 'recovery.save') {
@@ -56,6 +62,8 @@ async function installMock(page) {
           result = { saved:!stale, stale };
         }
         if (request.method === 'recovery.list') result = { items:Object.values(window.__recoveries).map(item => ({ documentId:item.documentId, revision:item.revision, name:item.document.image?.name || 'synthetic text', updatedAtUtc:'2026-10-19T00:00:00Z' })) };
+        if(request.method==='recovery.usage') result={documents:Object.keys(window.__recoveries).length,referencedAssetBytes:128,maxDocuments:20,maxAssetBytes:268435456};
+        if(request.method==='recovery.deleteMany'){let deleted=0;for(const id of request.payload.documentIds){if(window.__recoveries[id]){delete window.__recoveries[id];deleted++;}}result={deleted,cleanupPending:false};}
         if (request.method === 'recovery.load') result = window.__recoveries[request.payload.documentId];
         if (request.method === 'recovery.delete') { delete window.__recoveries[request.payload.documentId]; result = { deleted:true }; }
 
@@ -272,6 +280,95 @@ async function e2LayoutRecovery(page) {
   checks.push('parallel/stacked bilingual PNGs retain final lines; explicit recovery restores ID and advances revision; deletion keeps edits; backend selection is explicit');
 }
 
+// 原文/译文、样式与目标倍率均验证实际应用路径；剪贴板仍仅在 mock 消息中。
+async function editorOptionsChecks(page) {
+  await page.locator('#content').fill('中文\n文字\n\nhello\nworld');
+  await page.getByRole('status').filter({hasText:'译文已过期'}).waitFor();
+  await page.getByLabel('复制文字换行',{exact:true}).selectOption('merge');
+  await page.getByRole('button',{name:'复制原文',exact:true}).click();
+  await page.waitForFunction(()=>window.__messages.some(m=>m.method==='text.copy'));
+  assert.equal(await page.evaluate(()=>window.__messages.filter(m=>m.method==='text.copy').at(-1).payload.text),'中文文字\n\nhello world');
+  await page.getByRole('button',{name:'已按当前原文校对',exact:true}).click();
+  assert.equal(await page.getByRole('status').filter({hasText:'译文已过期'}).count(),0);
+  await page.getByLabel('正文行距',{exact:true}).fill('2'); await page.getByLabel('段落间距',{exact:true}).fill('24');
+  // 截获重绘时的变换矩阵，证明正文在2倍目标分辨率绘制，而非只放大旧位图。
+  await page.evaluate(()=>{window.__exportDraws=[];const old=CanvasRenderingContext2D.prototype.fillText;CanvasRenderingContext2D.prototype.fillText=function(text,...args){window.__exportDraws.push({text,scale:this.getTransform().a});return old.call(this,text,...args);};});
+  await page.getByLabel('导出倍率',{exact:true}).selectOption('2');
+  const exportCopy=async()=>{
+    const count=await page.evaluate(()=>window.__messages.filter(m=>m.method==='image.copy').length);
+    await page.getByRole('button',{name:'复制到剪贴板',exact:true}).click();
+    await page.waitForFunction(count=>window.__messages.filter(m=>m.method==='image.copy').length>count,count);
+    return page.evaluate(()=>window.__messages.filter(m=>m.method==='image.copy').at(-1).payload.dataUrl);
+  };
+  const textPng=await exportCopy(page);
+  assert.equal((await imagePixel(page,textPng)).width,1440);
+  assert.ok(await page.evaluate(()=>window.__exportDraws.some(d=>d.scale===2 && d.text.includes('hello'))));
+  checks.push('text copy merges only soft lines through mock native bridge; translation source edits show stale status; 2x text is redrawn at target scale');
+  await page.getByLabel('成品样式',{exact:true}).selectOption('outline');
+  await page.getByRole('button',{name:'应用样式',exact:true}).click(); await waitCanvas(page,128,108);
+  await page.getByLabel('边框颜色',{exact:true}).fill('#112233');
+  await page.getByLabel('新样式名称',{exact:true}).fill('离屏合成样式');
+  await page.getByRole('button',{name:'保存当前样式',exact:true}).click();
+  const id=await page.getByLabel('成品样式',{exact:true}).inputValue();
+  const stored=await page.evaluate(()=>JSON.parse(localStorage.getItem('screenshot.style-presets.v1')));
+  assert.equal(stored.length,1);assert.equal(stored[0].style.borderColor,'#112233');assert.equal('text' in stored[0].style,false);
+  await page.getByLabel('边框宽度',{exact:true}).fill('0');
+  await page.getByRole('button',{name:'应用样式',exact:true}).click();
+  assert.equal(await page.getByLabel('边框宽度',{exact:true}).inputValue(),'2');
+  await page.getByLabel('导出倍率',{exact:true}).selectOption('1');
+  const border=await exportCopy(page);assert.deepEqual((await imagePixel(page,border,24,60)).pixel,[17,34,51,255]);
+  await capture(page,'styles-remount');await waitCanvas(page,80,60);
+  await page.getByRole('button',{name:'美化',exact:true}).click();
+  await page.getByLabel('成品样式',{exact:true}).selectOption(id);
+  await page.getByRole('button',{name:'应用样式',exact:true}).click();await waitCanvas(page,128,108);
+  assert.deepEqual((await imagePixel(page,await copied(page),24,60)).pixel,[17,34,51,255]);
+  await page.setViewportSize({width:2240,height:900});await page.locator('.compact-panel').evaluate(panel=>panel.scrollTop=0);
+  await page.screenshot({path:path.resolve(__dirname,'../output/editor-options.png')});
+  checks.push('style presets persist only validated appearance across compact/workbench remount; border pixels match shared export');
+}
+
+// 长文分块、重试、定向取消及批量清理均只操作合成页面内存。
+async function taskManagementChecks(page) {
+  await page.getByRole('button',{name:'OCR',exact:true}).click();
+  await page.locator('#compact-text').fill('甲'.repeat(2000)+'乙'.repeat(2000)+'丙'.repeat(300));
+  await page.evaluate(()=>{window.__chunkMode=true;window.__failedChunk=false;});
+  const before=await page.evaluate(()=>window.__messages.filter(m=>m.method==='ai.translate').length);
+  await page.getByRole('button',{name:'翻译',exact:true}).last().click();
+  await page.getByRole('button',{name:'仅重试失败块',exact:true}).waitFor();
+  assert.equal(await page.evaluate(()=>window.__messages.filter(m=>m.method==='ai.translate').length),before+3);
+  await page.getByLabel('目标语言',{exact:true}).selectOption('English');
+  assert.equal(await page.getByRole('button',{name:'仅重试失败块',exact:true}).isDisabled(),true);
+  await page.getByLabel('目标语言',{exact:true}).selectOption('简体中文');
+  await page.getByRole('button',{name:'仅重试失败块',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('textarea[aria-label="可校对的译文"]')?.value==='translated-甲\ntranslated-乙\ntranslated-丙');
+  assert.equal(await page.evaluate(()=>window.__messages.filter(m=>m.method==='ai.translate').length),before+4);
+  await page.evaluate(()=>{window.__holdMethod='ai.translate';});
+  await page.getByRole('button',{name:'翻译',exact:true}).last().click();await page.waitForFunction(()=>window.__heldMethods.length===1);
+  const held=await page.evaluate(()=>window.__heldMethods[0]);
+  await page.getByRole('button',{name:'取消翻译',exact:true}).click();
+  await page.waitForFunction(id=>window.__messages.some(m=>m.method==='ai.cancel'&&m.payload.taskId===id),held.payload.taskId);
+  await page.evaluate(()=>{const request=window.__heldMethods.shift();window.__holdMethod=null;window.__chunkMode=false;window.__emit({id:request.id,ok:true,result:{text:'late'}});});
+  assert.equal(await page.getByRole('textbox',{name:'可校对的译文',exact:true}).inputValue(),'translated-甲\ntranslated-乙\ntranslated-丙');
+  checks.push('translation sends three ordered chunks, retries only one failed block, rejects target changes, and cancels exact task without merging late results');
+  await page.locator('.provider-tests summary').click();
+  await page.getByRole('button',{name:'测试文字接口',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.compact-progress'));
+  await page.getByRole('button',{name:'测试图片接口',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.compact-progress'));
+  const probes=await page.evaluate(()=>window.__messages.filter(m=>m.method==='ai.test'));
+  assert.equal(probes.length,2);for(const probe of probes)assert.deepEqual(Object.keys(probe.payload).sort(),['kind','providerId','taskId']);
+  checks.push('capability tests require explicit clicks and send no document text or screenshot through the bridge');
+  await page.getByRole('button',{name:'更多与完整工作台',exact:true}).click();
+  const ids=await page.evaluate(()=>{const seed=window.__messages.filter(m=>m.method==='recovery.save').at(-1).payload;const ids=[crypto.randomUUID(),crypto.randomUUID()];for(const id of ids)window.__recoveries[id]={...seed,documentId:id};return ids;});
+  await page.getByRole('button',{name:'查看恢复记录',exact:true}).click();
+  for(const id of ids)await page.getByLabel('选择恢复记录 '+id,{exact:true}).check();
+  await page.getByRole('button',{name:'清理所选 2 条',exact:true}).click();
+  assert.equal(await page.evaluate(()=>window.__messages.filter(m=>m.method==='recovery.deleteMany').length),0);
+  await page.getByRole('button',{name:'确认清理所选记录',exact:true}).click();
+  await page.waitForFunction(ids=>ids.every(id=>!window.__recoveries[id]),ids);
+  assert.deepEqual(await page.evaluate(()=>window.__messages.filter(m=>m.method==='recovery.deleteMany').at(-1).payload.documentIds),ids);
+  await page.getByRole('button',{name:'OCR',exact:true}).click();assert.equal((await page.locator('#compact-text').inputValue()).length,4300);
+  checks.push('capacity metadata and explicit confirmed batch cleanup delete only selected recoveries and keep the current in-memory edits');
+}
+
 // 首次空启动不写库；已编辑的纯文字文档清空后必须用空快照替换旧内容。
 async function emptyTextRecovery(page) {
   await page.waitForTimeout(1100);
@@ -387,6 +484,8 @@ async function emptyTextRecovery(page) {
   await e1Checks(page, source);
   await privacyChecks(page);
   await e2Checks(page);
+  await editorOptionsChecks(page);
+  await taskManagementChecks(page);
   assert.deepEqual(errors, []);
   const evidence = { headless: true, syntheticOnly: true, nativeCalls: false, clipboardAccess: false, checks };
   const evidencePath = path.resolve(__dirname, '../output/headless-overlay.json'); fs.mkdirSync(path.dirname(evidencePath), { recursive: true }); fs.writeFileSync(evidencePath, JSON.stringify(evidence, null, 2) + '\n');

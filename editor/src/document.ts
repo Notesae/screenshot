@@ -7,13 +7,18 @@ export type AnnotationKind = 'text' | 'rect' | 'arrow' | 'highlight' | 'cover';
 export type Annotation = { id?: string; type: AnnotationKind; left: number; top: number; width: number; height: number; scaleX: number; scaleY: number; angle: number; text: string; color: string; fontSize: number };
 export type SourceCrop = { x: number; y: number; width: number; height: number };
 export type ContentResize = { width: number; height: number };
-export type EditorState = { mode: Mode; padding: number; radius: number; background: string; shadow: boolean; text: string; title: string; fontSize: number; textWidth: number; annotations: Annotation[]; ocr: OcrData | null; translation: string; textLayout: TextLayoutMode; crop: SourceCrop | null; resize: ContentResize | null };
+export type EditorState = { mode: Mode; padding: number; radius: number; background: string; shadow: boolean; borderWidth: number; borderColor: string; lineSpacing: number; paragraphSpacing: number; translationSource: string | null; text: string; title: string; fontSize: number; textWidth: number; annotations: Annotation[]; ocr: OcrData | null; translation: string; textLayout: TextLayoutMode; crop: SourceCrop | null; resize: ContentResize | null };
 export type ProjectDocument = { schemaVersion: 1 | 2; image: LoadedImage | null; editor: EditorState };
 export const MAX_IMAGE_BYTES = 24 * 1024 * 1024;
-export function defaultEditor(): EditorState { return { mode: 'raw', padding: 48, radius: 18, background: '#e9dfd1', shadow: true, text: '', title: '一段值得留下的文字', fontSize: 26, textWidth: 720, annotations: [], ocr: null, translation: '', textLayout: 'source', crop: null, resize: null }; }
+export function defaultEditor(): EditorState { return { mode: 'raw', padding: 48, radius: 18, background: '#e9dfd1', shadow: true, borderWidth: 0, borderColor: '#d7cbb9', lineSpacing: 1.7, paragraphSpacing: 0, translationSource: null, text: '', title: '一段值得留下的文字', fontSize: 26, textWidth: 720, annotations: [], ocr: null, translation: '', textLayout: 'source', crop: null, resize: null }; }
 /** 原图与美化间按有效留白平移标注；对象回调已有完整坐标，文字重排保持卡片画布语义。 */
 export function applyEditorChange(editor: EditorState, change: Partial<EditorState>): EditorState {
   const next = { ...editor, ...change };
+  // 译文绑定产生它的原文；原文修改后保留译文并显示过期，可撤销回到原版本。
+  if (change.translation !== undefined && change.translationSource === undefined) {
+    if (!change.translation) next.translationSource = null;
+    else if (!editor.translation) next.translationSource = next.text;
+  }
   if (change.annotations !== undefined || editor.mode === 'reflow' || next.mode === 'reflow') return next;
   const delta = (next.mode === 'beauty' ? next.padding : 0) - (editor.mode === 'beauty' ? editor.padding : 0);
   if (delta) next.annotations = editor.annotations.map(annotation => ({ ...annotation, left: annotation.left + delta, top: annotation.top + delta }));
@@ -71,7 +76,7 @@ export function parseDocument(value: unknown): ProjectDocument {
   }
   const layout = e.textLayout ?? 'source';
   if (!['source', 'translated', 'parallel', 'stacked'].includes(String(layout))) throw new Error('文字布局无效。');
-  const editor: EditorState = { ocr, translation: string(e.translation ?? '', 20000), textLayout: layout as TextLayoutMode, mode: e.mode as Mode, padding: number(e.padding, 0, 200), radius: number(e.radius, 0, 100), background: color(e.background), shadow: e.shadow, text: string(e.text, 20000), title: string(e.title, 240), fontSize: number(e.fontSize, 14, 64), textWidth: number(e.textWidth, 360, 1400), annotations, ...transform };
+  const editor: EditorState = { borderWidth: number(e.borderWidth ?? 0, 0, 12), borderColor: color(e.borderColor ?? '#d7cbb9'), lineSpacing: number(e.lineSpacing ?? 1.7, 1, 3), paragraphSpacing: number(e.paragraphSpacing ?? 0, 0, 80), translationSource: e.translationSource == null ? null : string(e.translationSource, 20000), ocr, translation: string(e.translation ?? '', 20000), textLayout: layout as TextLayoutMode, mode: e.mode as Mode, padding: number(e.padding, 0, 200), radius: number(e.radius, 0, 100), background: color(e.background), shadow: e.shadow, text: string(e.text, 20000), title: string(e.title, 240), fontSize: number(e.fontSize, 14, 64), textWidth: number(e.textWidth, 360, 1400), annotations, ...transform };
   outputSize(image, editor);
   return { schemaVersion: 2, image, editor };
 }

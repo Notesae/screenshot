@@ -15,3 +15,15 @@
 | PP-OCRv5 mobile det/rec | RapidOCR v3.10.0 固定 SHA256 | Apache-2.0；完整模型来源、上游许可和 NOTICE 见 models/pp-ocrv5-mobile 与 docs/OCR-MODELS.md |
 
 发布时模型目录必须同时包含 manifest、PaddleOCR/RapidOCR 许可证和归属说明。应用运行时不下载模型，不包含任何服务商密钥、私人截图或测试输入。
+
+
+## 0.3.0 便携目录的依赖盘点
+
+`scripts/release-audit.cjs` 从本机锁定 npm 包及发布还原的 NuGet metadata 生成 CycloneDX1.6 SBOM、`dependency-inventory.json` 和 `dependency-licenses/`。为避免漏报，npm 开发依赖及仅构建时使用的 NuGet 包也保守列入；不能据此认定它们都进入运行时 bundle。无许可证标识或文本的组件列在 licenseReviewGaps，仍需逐项复核，自动脚本不作法律保证。
+
+模型按固定 manifest 校验，发布不嵌入新字体，继续使用系统字体回退。运行时/SDK/WebView2/OpenCV等随包第三方归属仍需一起保留。安装器、证书、更新通道、ARM64与干净机器验收尚未完成。
+
+SBOM字段依据 [CycloneDX1.6官方schema](https://github.com/CycloneDX/specification/blob/1.6/schema/bom-1.6.schema.json)；AI用量解析依据 [OpenAI Chat协议](https://developers.openai.com/api/reference/resources/chat)与[Ollama Chat协议](https://docs.ollama.com/api/chat)，兼容服务缺失字段保持未知。
+
+
+遗漏许可补齐：saxes6.0.0 的完整ISC/历史归属文本固定取自 npm发布 gitHead `211fa0ebec9b628affc09219199639887174bfc3`；esbuild/Rollup的Windows制品使用同版本父包随附文本；node-canvas保留发布包Readme中的完整MIT及BMP许可。stackback0.0.2（仅测试工具链）的发布包声明MIT但未附文本，仍列为复核缺口，不推断其版权文字或宣称全量许可审计完成。

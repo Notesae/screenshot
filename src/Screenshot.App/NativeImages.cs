@@ -72,6 +72,12 @@ public static class NativeImages
         encoder.Frames.Add(BitmapFrame.Create(bitmap)); encoder.Save(output);
         return new { saved = true, path = dialog.FileName };
     }
+    // 文字输出是明确操作，只写剪贴板，不读取用户现有内容。
+    public static object CopyText(string text)
+    {
+        if (string.IsNullOrEmpty(text) || text.Length > 100_000) throw new InvalidOperationException("复制文字不能为空，且最多100000字符。");
+        Clipboard.SetText(text); return new { copied = true };
+    }
     public static object Copy(string dataUrl) { Clipboard.SetImage(DecodePng(dataUrl)); return new { copied = true }; }
     // 读取有大小及深度限制的项目 JSON，校验后复制数据供编辑器恢复。
     public static object? OpenProject(Window owner)

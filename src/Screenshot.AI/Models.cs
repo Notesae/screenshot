@@ -5,7 +5,11 @@ public sealed record PublicProvider(string Id, string Name, string Kind, string 
 /// <summary>公开服务列表及默认服务标识。</summary>
 public sealed record PublicSettings(IReadOnlyList<PublicProvider> Providers, string? DefaultProviderId);
 /// <summary>OCR 和翻译共用的纯文字响应。</summary>
-public sealed record AiTextResult(string Text);
+public sealed record AiTextResult(string Text, AiUsage? Usage = null, bool Cached = false);
+/// <summary>仅记录服务返回的 token 数量；缺失不推算、不换算为费用。</summary>
+public sealed record AiUsage(long? InputTokens, long? OutputTokens);
+/// <summary>有界内存中的调用摘要；不包含图片、正文、译文、地址或密钥。</summary>
+public sealed record AiUsageEntry(DateTimeOffset AtUtc,string Operation,bool Cached,AiUsage? Usage,string? ErrorCode);
 /// <summary>原生配置窗口提交的修改；密钥留空保留，清除需显式指定。</summary>
 public sealed record ProviderUpdate(string Id, string Name, string Kind, string BaseUrl, string Model,
     string? ApiKey = null, bool ClearApiKey = false, bool MakeDefault = true);

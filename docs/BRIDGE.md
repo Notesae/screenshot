@@ -25,6 +25,7 @@ User cancellation returns null (or saved:false); it is not an exception.
 | presentation.dismiss | { captureId?:string } | same presentation result; a supplied obsolete ID cannot hide a newer capture |
 | image.save | { dataUrl, suggestedName } | { saved:boolean, path?:string } |
 | image.copy | { dataUrl } | { copied:boolean } |
+| text.copy | { text:string } | { copied:boolean }; explicit clipboard write, max100000 characters |
 | project.open | {} | { name:string, document:object } or null |
 | project.save | { document:object, suggestedName:string } | { saved:boolean, path?:string } |
 | settings.read | {} | { providers: PublicProvider[], defaultProviderId?:string } |
@@ -40,6 +41,8 @@ Project documents use `{ schemaVersion:2, image:LoadedImage|null, editor:object 
 The default native capture backend reports `backend:"wgc", colorMode:"sdr", supportsHdr:false`. GDI is an explicit compatibility option; failures never silently change backend. Local UI/capture operations share one gate; cloud AI and local OCR requests use a separate gate. Public metadata/settings reads and OCR cancellation remain available. A running inference request does not prevent saving/copying an existing document or importing another image; the editor rejects stale results after a document or revision change.
 
 ## P0 additions
+
+Region selection retains the frozen frame after dragging: drag edges/corners or interior to adjust, arrows move one physical pixel, Shift+arrows resize, Ctrl uses ten pixels, Enter/double-click confirms, Escape/right-click cancels, M toggles the frozen-pixel magnifier. This interaction has only model validation until desktop testing resumes.
 
 `capture.screen` and `capture.region` accept `{backend?:"wgc"|"gdi",target?:{kind:"desktop"|"monitor"|"window",handle?:string,area?:"window"|"client"},timeoutMs?:number}`. Native handles are nonzero decimal or `0x` strings, never JS numbers. Desktop is the default; monitor/window require an explicit valid handle. Timeout is 100–30000 ms (default 8000). Capture overlay metadata also reports the actual `backend`, `colorMode:"sdr"`, and `supportsHdr:false`. WGC uses BGRA8; HDR fidelity is not claimed. Availability is checked on capture without enumerating targets during app.info.
 
@@ -64,3 +67,18 @@ Capture success prepares a hidden native overlay. The editor maps geometry using
 If no matching ready arrives within 15 seconds, the native layer releases that backdrop, restores the workbench and sends `{ event:"presentation.changed", payload:{ presentation:"workbench", reason:"overlay_timeout", timedOutCaptureId:string } }`. The editor must not recreate an overlay for that expired ID if its image decode completes later. Presentation replies include the current capture ID so an old rejection cannot clear a newer frontend overlay. The desktop-test pause does not verify the real transparency or hidden-window layout behavior of this protocol.
 
 While overlay/selection is active, workbench/dismiss without a capture ID are rejected too. An omitted ID is valid only when already in workbench/hidden mode and not selecting. The tray recovery entry emits presentation.changed with reason:"user_workbench" and invalidatedCaptureId for any released frame; it provides access to the in-memory document even if global hotkey registration failed. These are presentation events, not new document loads.
+
+
+## 0.3.0 task and storage additions
+
+`ocr.local`, `ai.ocr`, `ai.translate` accept an optional bounded ASCII `taskId`; the editor always sends a fresh UUID. `ai.cancel {taskId}` cancels only that active identity, bypassing the inference gate. The older unscoped `ocr.cancel` is retained for v0.2 compatibility; the new editor uses scoped cancellation for OCR, translation and probes. A cancelled/obsolete result never joins a newer document/revision/configuration.
+
+`ai.test {providerId,kind:"text"|"image",taskId}` performs an explicit noncached request with fixed synthetic input. Its text response proves only that this request returned text; it is not an accuracy/structure/general-capability claim. The UI warns that the provider may charge. Automatic validation uses mocked HTTP only.
+
+`ai.usage {}` returns `{items:{atUtc,operation,cached,usage:{inputTokens:number|null,outputTokens:number|null}|null,errorCode:string|null}[]}`: last128 process-memory summaries, no user text/images/keys/URL. Missing provider usage remains unknown; no cost estimate. OCR/translation cache: max32 results, max200000 UTF16 characters, 15minute TTL, SHA256 identity over provider configuration/model/protected-key/operation/input; process-only, no persistent screenshot cache. Cache hits report no new token use. HTTP401/403,429,400/404/422 and5xx have distinct categories; no automatic paid retry or fallback occurs.
+
+Long translations run sequentially in <=2000 Unicode-codepoint chunks and keep successful blocks in the editor task. Only failed blocks retry on explicit click; source document/revision/provider/target changes prevent reuse. No partial result overwrites current text. The overall20000-character output limit remains explicit.
+
+`recovery.usage {}` returns `{documents,referencedAssetBytes,maxDocuments,maxAssetBytes}` for metadata and deduplicated currently referenced PNG bytes; SQLite/WAL and temporarily undeletable orphan files are separate. `recovery.deleteMany {documentIds:string[]}` accepts1–1000 validated IDs and deletes atomically, returning `{deleted:number,cleanupPending:boolean}`. The UI confirms selection and waits for active autosave before deleting; memory edits remain. A rollback preserves all selected records.
+
+Schema2 gains optional `borderWidth/borderColor`, `lineSpacing/paragraphSpacing` and `translationSource` fields with bounded defaults. Translation source differs from the current text => stale; unknown legacy source remains unconfirmed. Presets contain only validated appearance fields, never document/AI content, and live in the local WebView store. Export waits for fonts and redraws text at target scale using shared layout and annotation construction.
