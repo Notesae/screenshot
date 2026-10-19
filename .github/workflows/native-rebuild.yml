@@ -1,0 +1,35 @@
+name: Rebuild minimal OCR native runtime
+on:
+  push:
+    paths:
+      - 'native/**'
+      - 'scripts/build-native.ps1'
+      - 'scripts/native-build-manifest.cjs'
+      - '.github/workflows/native-rebuild.yml'
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify preinstalled native build tools
+        shell: pwsh
+        run: |
+          Get-Command cmake.exe,ninja.exe -ErrorAction Stop | Select-Object Name,Source
+          cmake --version
+          ninja --version
+      - name: Build pinned minimal OpenCV and OpenCvSharp
+        shell: pwsh
+        run: ./scripts/build-native.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Screenshot-native-source-evidence
+          path: artifacts/native-runtime/win-x64/
+          if-no-files-found: error
+          retention-days: 14
