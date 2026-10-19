@@ -1,3 +1,5 @@
+import { parseOcr, type OcrData } from './ocr';
+import { textLayout, type TextLayoutMode } from './textLayout';
 import type { LoadedImage } from './bridge';
 export type Mode = 'raw' | 'beauty' | 'reflow';
 // 标注只保存受支持字段，不恢复可以加载资源或执行行为的 Fabric 对象 JSON。
@@ -5,10 +7,10 @@ export type AnnotationKind = 'text' | 'rect' | 'arrow' | 'highlight' | 'cover';
 export type Annotation = { id?: string; type: AnnotationKind; left: number; top: number; width: number; height: number; scaleX: number; scaleY: number; angle: number; text: string; color: string; fontSize: number };
 export type SourceCrop = { x: number; y: number; width: number; height: number };
 export type ContentResize = { width: number; height: number };
-export type EditorState = { mode: Mode; padding: number; radius: number; background: string; shadow: boolean; text: string; title: string; fontSize: number; textWidth: number; annotations: Annotation[]; crop: SourceCrop | null; resize: ContentResize | null };
+export type EditorState = { mode: Mode; padding: number; radius: number; background: string; shadow: boolean; text: string; title: string; fontSize: number; textWidth: number; annotations: Annotation[]; ocr: OcrData | null; translation: string; textLayout: TextLayoutMode; crop: SourceCrop | null; resize: ContentResize | null };
 export type ProjectDocument = { schemaVersion: 1 | 2; image: LoadedImage | null; editor: EditorState };
 export const MAX_IMAGE_BYTES = 24 * 1024 * 1024;
-export function defaultEditor(): EditorState { return { mode: 'raw', padding: 48, radius: 18, background: '#e9dfd1', shadow: true, text: '', title: '一段值得留下的文字', fontSize: 26, textWidth: 720, annotations: [], crop: null, resize: null }; }
+export function defaultEditor(): EditorState { return { mode: 'raw', padding: 48, radius: 18, background: '#e9dfd1', shadow: true, text: '', title: '一段值得留下的文字', fontSize: 26, textWidth: 720, annotations: [], ocr: null, translation: '', textLayout: 'source', crop: null, resize: null }; }
 /** 原图与美化间按有效留白平移标注；对象回调已有完整坐标，文字重排保持卡片画布语义。 */
 export function applyEditorChange(editor: EditorState, change: Partial<EditorState>): EditorState {
   const next = { ...editor, ...change };
@@ -59,7 +61,17 @@ export function parseDocument(value: unknown): ProjectDocument {
   const image = doc.image === null ? null : parseImage(doc.image);
   if (new Set(annotations.map(annotation => annotation.id)).size !== annotations.length) throw new Error('项目中存在重复标注标识。');
   const transform = parseTransform(image, doc.schemaVersion === 1 ? null : e.crop, doc.schemaVersion === 1 ? null : e.resize);
-  const editor: EditorState = { mode: e.mode as Mode, padding: number(e.padding, 0, 200), radius: number(e.radius, 0, 100), background: color(e.background), shadow: e.shadow, text: string(e.text, 20000), title: string(e.title, 240), fontSize: number(e.fontSize, 14, 64), textWidth: number(e.textWidth, 360, 1400), annotations, ...transform };
+  let ocr: OcrData | null = null;
+  if (e.ocr != null) {
+    const source = record(record(e.ocr).source);
+    const basis = parseTransform(image, source.crop, source.resize);
+    ocr = parseOcr(e.ocr, basis);
+    const dimensions = contentGeometry(image, { ...defaultEditor(), ...basis });
+    if (!image || dimensions.width !== ocr.imageWidth || dimensions.height !== ocr.imageHeight) throw new Error('OCR 坐标与源图尺寸不符。');
+  }
+  const layout = e.textLayout ?? 'source';
+  if (!['source', 'translated', 'parallel', 'stacked'].includes(String(layout))) throw new Error('文字布局无效。');
+  const editor: EditorState = { ocr, translation: string(e.translation ?? '', 20000), textLayout: layout as TextLayoutMode, mode: e.mode as Mode, padding: number(e.padding, 0, 200), radius: number(e.radius, 0, 100), background: color(e.background), shadow: e.shadow, text: string(e.text, 20000), title: string(e.title, 240), fontSize: number(e.fontSize, 14, 64), textWidth: number(e.textWidth, 360, 1400), annotations, ...transform };
   outputSize(image, editor);
   return { schemaVersion: 2, image, editor };
 }
@@ -68,11 +80,10 @@ export function outputSize(image: LoadedImage | null, editor: EditorState, scale
   const padding = editor.mode === 'beauty' ? editor.padding : 0;
   const content = contentGeometry(image, editor);
   const width = editor.mode === 'reflow' ? editor.textWidth : content.width + padding * 2;
-  const height = editor.mode === 'reflow' ? 156 + estimateLines(editor.title, width - 96, 34) * 44 + estimateLines(editor.text, width - 96, editor.fontSize) * editor.fontSize * 1.7 : content.height + padding * 2;
+  const height = editor.mode === 'reflow' ? textLayout(editor).height : content.height + padding * 2;
   if (width * scale > 16000 || height * scale > 16000 || width * height * scale * scale > 40_000_000) throw new Error('导出尺寸过大，请降低倍率或缩短文字。');
   return { width: Math.ceil(width), height: Math.ceil(height) };
 }
-function estimateLines(text: string, width: number, font: number) { return text.split('\n').reduce((lines, line) => lines + Math.max(1, Math.ceil([...line].length * font / width)), 0); }
 
 /** 裁剪始终指向不可变原图；缩放只记录尺寸，拒绝越界与非等比伪造项目。 */
 function parseTransform(image: LoadedImage | null, cropValue: unknown, resizeValue: unknown): { crop: SourceCrop | null; resize: ContentResize | null } {

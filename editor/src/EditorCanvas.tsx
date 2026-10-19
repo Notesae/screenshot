@@ -18,7 +18,7 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
   const [size, setSize] = useState({ width: 720, height: 480 });
   const callbacks = useRef({ onAnnotations, onError }); callbacks.current = { onAnnotations, onError };
   const current = useRef(doc); current.current = doc;
-  const properties = JSON.stringify([doc.editor.mode, doc.editor.padding, doc.editor.radius, doc.editor.background, doc.editor.shadow, doc.editor.text, doc.editor.title, doc.editor.fontSize, doc.editor.textWidth, doc.editor.crop, doc.editor.resize]);
+  const properties = JSON.stringify([doc.editor.mode, doc.editor.padding, doc.editor.radius, doc.editor.background, doc.editor.shadow, doc.editor.text, doc.editor.title, doc.editor.fontSize, doc.editor.textWidth, doc.editor.translation, doc.editor.textLayout, doc.editor.crop, doc.editor.resize]);
   const latestProperties = useRef(properties); latestProperties.current = properties;
   const rendered = useRef<{ image: ProjectDocument['image']; properties: string } | null>(null);
   const lastAnnotations = useRef<Annotation[]>([]);

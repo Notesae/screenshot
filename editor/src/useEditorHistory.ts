@@ -1,3 +1,4 @@
+import { recoveryRevision } from './recovery';
 import { useRef, useState } from 'react';
 import { applyEditorChange, type EditorState, type ProjectDocument } from './document';
 import { commitHistory, createHistory, redoHistory, undoHistory, type HistoryState } from './history';
@@ -10,7 +11,7 @@ export function useEditorHistory(initial: ProjectDocument) {
   return {
     document: state.present, canUndo: Boolean(state.past.length), canRedo: Boolean(state.future.length), revision: state.revision,
     current: () => store.current.present, currentRevision: () => store.current.revision,
-    reset(document: ProjectDocument) { publish({ ...createHistory(document), revision: store.current.revision + 1 }); },
+    reset(document: ProjectDocument, restoredRevision = 0) { publish({ ...createHistory(document), revision: recoveryRevision(store.current.revision, restoredRevision) }); },
     commitDocument(document: ProjectDocument, group?: string) { publish(commitHistory(store.current, document, { group })); },
     change(change: Partial<EditorState>, group?: string) { const current = store.current.present; publish(commitHistory(store.current, { ...current, editor: applyEditorChange(current.editor, change) }, { group })); },
     undo() { publish(undoHistory(store.current)); }, redo() { publish(redoHistory(store.current)); },

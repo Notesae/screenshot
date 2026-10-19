@@ -1,3 +1,4 @@
+import { textLayout } from './textLayout';
 import { contentGeometry, outputSize, type ProjectDocument } from './document';
 import { parseImage, MAX_IMAGE_BYTES } from './document';
 import type { LoadedImage } from './bridge';
@@ -12,19 +13,6 @@ export function loadImage(dataUrl: string): Promise<HTMLImageElement> {
     image.src = dataUrl;
   });
 }
-// 按实际字体度量逐字换行，支持没有空格的中日韩文本。
-function wrapText(context: CanvasRenderingContext2D, text: string, width: number): string[] {
-  return text.split('\n').flatMap(paragraph => {
-    const lines: string[] = [];
-    let line = '';
-    for (const char of paragraph) {
-      if (line && context.measureText(line + char).width > width) { lines.push(line); line = ''; }
-      line += char;
-    }
-    lines.push(line);
-    return lines;
-  });
-}
 /** 生成预览与导出共用的底图，原样模式无装饰，美化与重排在此合成。 */
 export async function renderBase(doc: ProjectDocument): Promise<HTMLCanvasElement> {
   const { image, editor } = doc;
@@ -36,11 +24,13 @@ export async function renderBase(doc: ProjectDocument): Promise<HTMLCanvasElemen
     ctx.fillStyle = '#faf5eb'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#b4432c'; ctx.fillRect(48, 48, 36, 4);
     ctx.textBaseline = 'top'; ctx.fillStyle = '#302d27'; ctx.font = `600 32px ${FONT}`;
-    let y = 78;
-    for (const line of wrapText(ctx, editor.title, canvas.width - 96)) { ctx.fillText(line, 48, y); y += 44; }
-    y += 30;
-    ctx.font = `${editor.fontSize}px ${FONT}`;
-    for (const line of wrapText(ctx, editor.text, canvas.width - 96)) { ctx.fillText(line, 48, y); y += editor.fontSize * 1.7; }
+    const layout = textLayout(editor); let y = 78;
+    for (const line of layout.title) { ctx.fillText(line, 48, y); y += 44; }
+    for (const section of layout.sections) {
+      if (section.label) { ctx.font = '600 14px ' + FONT; ctx.fillStyle = '#b4432c'; ctx.fillText(section.label, section.x, section.y - 30); }
+      ctx.font = editor.fontSize + 'px ' + FONT; ctx.fillStyle = '#302d27';
+      section.lines.forEach((line, index) => ctx.fillText(line, section.x, section.y + index * layout.lineHeight));
+    }
     return canvas;
   }
   if (!image) return canvas;

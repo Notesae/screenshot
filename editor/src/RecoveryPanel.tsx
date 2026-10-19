@@ -1,0 +1,36 @@
+import { useEffect, useRef, useState } from 'react';
+import { native } from './bridge';
+import { RecoveryWriter, parseRecoveryItems, type RecoveryItem, type RecoveryState, type RecoverySaveResult } from './recovery';
+import type { ProjectDocument } from './document';
+/** 后台保存不打开历史内容；每次打开新文档取消上一个去抖任务。 */
+export function useRecovery(documentId: string, revision: number, document: ProjectDocument) {
+  const [state, setState] = useState<RecoveryState>({ status: 'idle', message: native.available ? '尚无需要恢复的内容' : '浏览器模式不提供本机恢复库' });
+  const [retry, setRetry] = useState(0);
+  const writer = useRef<RecoveryWriter | null>(null);
+  if (!writer.current) writer.current = new RecoveryWriter(snapshot => native.request<RecoverySaveResult>('recovery.save', snapshot), setState);
+  useEffect(() => {
+    // 初始修订0不占恢复记录；编辑或载入后即使清空全文，也要写入空快照覆盖旧内容。
+    if (native.available && (revision > 0 || document.image || document.editor.text || document.editor.translation)) writer.current!.schedule({ documentId, revision, document });
+    return () => writer.current!.cancel();
+  }, [documentId, revision, document, retry]);
+  return { ...state, retry: () => setRetry(value => value + 1), pause: () => writer.current!.pause(), resume: () => writer.current!.resume() };
+}
+/** 仅显式展开列表和选取恢复；不自动加载任何私人内容。 */
+export function RecoveryPanel({ state, onRestore, onError, onDeleteCurrent, currentId, compact = false }: { state: ReturnType<typeof useRecovery>; onRestore: (item: RecoveryItem) => Promise<void>; onError: (error: unknown) => void; onDeleteCurrent: () => Promise<void>; currentId: string; compact?: boolean }) {
+  const [open, setOpen] = useState(false), [items, setItems] = useState<RecoveryItem[]>([]), [busy, setBusy] = useState(false);
+  async function refresh() {
+    setBusy(true);
+    try { setItems(parseRecoveryItems(await native.request('recovery.list'))); setOpen(true); } catch (error) { onError(error); } finally { setBusy(false); }
+  }
+  async function remove(item: RecoveryItem) {
+    setBusy(true);
+    try {
+      await onDeleteCurrent();
+      const result = await native.request<{ deleted: boolean }>('recovery.delete', { documentId: item.documentId });
+      if (!result.deleted) throw new Error('未找到要删除的恢复记录。');
+      setItems(current => current.filter(value => value.documentId !== item.documentId));
+      if (item.documentId !== currentId) { state.resume(); state.retry(); }
+    } catch (error) { onError(error); } finally { state.resume(); setBusy(false); }
+  }
+  return <section className={`recovery-panel ${compact ? 'compact-recovery' : ''}`} aria-label="本机自动恢复"><p role="status" className={state.status === 'unsaved' ? 'save-state unsaved' : 'save-state'}>{state.message}</p>{(state.status === 'unsaved' || state.status === 'paused') && <button onClick={state.retry}>{state.status === 'paused' ? '恢复自动保存' : '重试自动保存'}</button>}<button className="compact-secondary" disabled={!native.available || busy} onClick={() => { if (open) setOpen(false); else void refresh(); }}>{open ? '收起恢复记录' : '查看恢复记录'}</button>{open && <div className="recovery-list"><p className="ai-note">记录仅存在本机。点击恢复才打开内容；删除记录不会删除当前编辑。</p>{!items.length && <p>暂无恢复记录。</p>}{items.map(item => <div className="recovery-item" data-document-id={item.documentId} key={item.documentId}><strong>{item.name || '未命名文档'}</strong><small>{item.updatedAtUtc} · r{item.revision}</small><div><button disabled={busy} onClick={async () => { setBusy(true); try { await onRestore(item); setOpen(false); } catch (error) { onError(error); } finally { setBusy(false); } }}>恢复</button><button disabled={busy} onClick={() => { void remove(item); }}>删除记录</button></div></div>)}</div>}</section>;
+}

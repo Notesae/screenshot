@@ -1,17 +1,20 @@
 # 后续实现任务与验收
 
-本表依据完整评估分配模块责任，表示完整产品路线，不扩大原任务已批准的「应用框架」交付。框架的实际测试结果另见 VALIDATION.md。
+本表依据完整评估分配模块责任，表示完整产品路线。用户已在框架交付后继续授权 C1/E1/O1 及 E2/S1 首批实现；实际完成与未测项见 VALIDATION.md，不把本批实现等同于完整产品验收。
 
 ## 当前并行分工
 
 | 执行者 | 负责路径/模块 | 本阶段交付 |
 |---|---|---|
-| native_host | src/Screenshot.App（设置窗口除外）、src/Screenshot.App.Tests | WPF/WebView2、受限桥、GDI 基线捕获、冻结背景原位层与生命周期、原生文件/剪贴板和热键 |
-| editor | editor | 文档模型、Fabric、原样/美化/重排、原位紧凑工具条与坐标映射、导出、OCR/翻译操作入口 |
-| ai_providers | src/Screenshot.AI、ProviderSettingsWindow、tests/Screenshot.AI.Tests | 两类 HTTP 协议、DPAPI 设置、模拟 HTTP 测试 |
-| integrator | 根配置、scripts、docs、CI、仓库集成 | 来源归档、契约审查、构建/实机验证、提交与推送 |
+| native_host | src/Screenshot.App 捕获模块、src/Screenshot.App.Tests | WGC/GDI、帧资源/超时取消、物理坐标与布局变化模拟；C2 后续仍由 Capture 模块承担 |
+| editor | editor | E1 标注/历史/变换、E2 OCR 校对双语、恢复界面与无头回归；样式预设待办 |
+| ai_providers | src/Screenshot.Ocr、src/Screenshot.Storage 及各自 tests | O1 CPU 推理、模型校验、S1 SQLite 恢复；现有 AI 协议不变，A1 待办 |
+| integrator | 宿主桥集成、根配置、scripts、docs、CI | 契约/独立审查、顺序构建、发布及提交推送；遵守实机测试暂停 |
+| integration_review | 限定路径只读 | 复核资源、恢复竞态、输入边界与长文导出，确认缺陷后由模块作者修复并复测 |
 
 ## 建议下一批可独立实施任务
+
+本批进度：C1 后端已实现并通过模拟测试，真实捕获未测；E1 基础标注/历史/裁剪缩放已交付，样式预设未做；O1 固定模型与真实合成推理已交付，现实样本错误率未测。E2/S1 已实现并通过模块断言，完整集成结果见 VALIDATION.md。C2、A1、R1 及下表未覆盖的验收点仍保持待办。
 
 | ID/责任模块 | 优先级与依赖 | 明确交付与验收条件 |
 |---|---|---|
