@@ -158,6 +158,8 @@ using(var oldTask=inference.Begin("old",CancellationToken.None)) {
 using(var newTask=inference.Begin("new",CancellationToken.None)) {
     Check(!inference.Cancel("old")&&!newTask.Token.IsCancellationRequested,"late cancellation cannot cancel newer task");
 }
+checks += HotkeyTests.Run();
+checks += CaptureTargetsTests.Run();
 checks += RegionSelectionTests.Run();
 checks += await CapturePipelineTests.RunAsync();
 Console.WriteLine($"PASS {checks} native boundary, PNG roundtrip, capture geometry, request concurrency, overlay lifecycle and fake-frame capture checks");

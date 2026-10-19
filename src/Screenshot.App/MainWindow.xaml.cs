@@ -30,12 +30,11 @@ public partial class MainWindow : Window
     private WorkbenchPlacement? _workbenchPlacement;
     private bool _boundsUpdateQueued; // 合并 DPI 更新后的边界校正，避免递归窗口消息。
     private bool _ready;
-    private bool _hotkeyRegistered;
+    private HotkeyManager? _hotkeys;
+    private string _hotkeyLoadMessage="";
+    private readonly HotkeySettingsStore _hotkeyStore=new(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Screenshot","capture-hotkey.json"));
     private HwndSource? _source;
     private System.Windows.Forms.NotifyIcon? _trayIcon; // 隐藏后仍可恢复同一 WebView 中的内存文档。
-    private const int HotkeyId = 0x5343;
-    [DllImport("user32.dll", SetLastError = true)] private static extern bool RegisterHotKey(IntPtr hwnd, int id, uint modifiers, uint key);
-    [DllImport("user32.dll")] private static extern bool UnregisterHotKey(IntPtr hwnd, int id);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
     [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hwnd, out NativeRect rect);
@@ -54,7 +53,8 @@ public partial class MainWindow : Window
         {
             var handle = new WindowInteropHelper(this).Handle;
             _source = HwndSource.FromHwnd(handle); _source.AddHook(WindowMessage);
-            _hotkeyRegistered = RegisterHotKey(handle, HotkeyId, 0x4006, 0x53); // Ctrl + Shift + S，禁止按住重复触发。
+            var loaded=_hotkeyStore.Load();_hotkeyLoadMessage=loaded.Message;
+            _hotkeys=new(new WindowsHotkeyRegistration(handle));_hotkeys.Apply(loaded.Binding,_=>{});
             InitializeTray();
         };
         Closed += (_, _) =>
@@ -65,7 +65,7 @@ public partial class MainWindow : Window
             {
                 tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose(); _trayIcon = null;
             }
-            if (_hotkeyRegistered) UnregisterHotKey(new WindowInteropHelper(this).Handle, HotkeyId);
+            _hotkeys?.Dispose();
             _source?.RemoveHook(WindowMessage); Editor.Dispose(); _ai.Dispose(); DisposeLocalFeatures(); _lifetime.Dispose();
         };
     }
@@ -120,7 +120,7 @@ public partial class MainWindow : Window
             core.NavigationCompleted += (_, args) =>
             {
                 _ready = args.IsSuccess;
-                Status.Text = args.IsSuccess ? (_hotkeyRegistered ? "本地编辑器 · Ctrl + Shift + S 区域截图 · 图片仅在显式 AI 操作时发送" : "快捷键 Ctrl + Shift + S 被占用，注册失败。请使用编辑器截图按钮。") : "编辑器加载失败：" + args.WebErrorStatus;
+                Status.Text = args.IsSuccess ? ((_hotkeys?.State.Message??"快捷键不可用，请使用截图按钮。")+" "+_hotkeyLoadMessage+" · 图片仅在显式 AI 操作时发送") : "编辑器加载失败：" + args.WebErrorStatus;
             };
             // 虚拟主机映射不提供目录默认页，必须导航到明确的本地入口文件。
             core.Navigate(BridgePolicy.Origin + "index.html");
@@ -133,7 +133,7 @@ public partial class MainWindow : Window
     }
     private IntPtr WindowMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        if (message == 0x0312 && wParam.ToInt32() == HotkeyId) { handled = true; _ = CaptureFromHotkeyAsync(); }
+        if (message == 0x0312 && _hotkeys?.ShouldTrigger(wParam.ToInt32())==true) { handled = true; _ = CaptureFromHotkeyAsync(); }
         if (message == 0x02E0 && _presentation.Mode == PresentationMode.Overlay && !_presentation.IsSelecting && !_boundsUpdateQueued)
         {
             // WPF 先更新当前窗口的渲染 DPI，再以物理客户区重新钉住虚拟桌面边界。
@@ -152,7 +152,7 @@ public partial class MainWindow : Window
         if (!_ready || !_requests.TryEnter("capture.region", out var lease)) return;
         try
         {
-            var image = await CaptureAsync(CaptureRequest.Default(true) with { Backend = _captureBackend });
+            var image = await CaptureAsync(CaptureRequest.Default(true) with { Backend = _captureBackend, SnapWindows=_snapWindows, SnapClientArea=_snapClientArea });
             if (image is not null) Post(new { @event = "image.loaded", payload = image });
         }
         catch (Exception exception) { Status.Text = "截图失败：" + exception.Message; }
@@ -329,17 +329,26 @@ public partial class MainWindow : Window
     {
         switch (method)
         {
-            case "app.info": return new { version = "0.3.0", platform = "windows", presentation = _presentation.Mode.ToString().ToLowerInvariant(), capture = new { backend = _captureBackend, colorMode = "sdr", supportsHdr = false, availableBackends = new[] { "wgc", "gdi" }, targets = new[] { "desktop", "monitor", "window" }, availability = "checked-on-capture" }, capabilities = new[] { "image.open", "image.paste", "capture.screen", "capture.region", "capture.settings", "capture.configure", "image.save", "image.copy", "text.copy", "project.open", "project.save", "ai.ocr", "ai.translate", "ocr.local", "ocr.cancel", "ocr.status", "ai.cancel", "ai.usage", "ai.test", "recovery.save", "recovery.list", "recovery.load", "recovery.delete", "recovery.usage", "recovery.deleteMany", "presentation.workbench", "presentation.dismiss", "presentation.ready" } };
+            case "app.info": return new { version = "0.4.0", platform = "windows", presentation = _presentation.Mode.ToString().ToLowerInvariant(), capture = new { backend = _captureBackend, colorMode = "sdr", supportsHdr = false, availableBackends = new[] { "wgc", "gdi" }, targets = new[] { "desktop", "monitor", "window" }, availability = "checked-on-capture" }, capabilities = new[] { "image.open", "image.paste", "capture.screen", "capture.region", "capture.current", "capture.monitors", "capture.settings", "capture.configure", "hotkey.read", "hotkey.configure", "image.save", "image.copy", "text.copy", "project.open", "project.save", "ai.ocr", "ai.translate", "ocr.local", "ocr.cancel", "ocr.status", "ai.cancel", "ai.usage", "ai.test", "recovery.save", "recovery.list", "recovery.load", "recovery.delete", "recovery.usage", "recovery.deleteMany", "presentation.workbench", "presentation.dismiss", "presentation.ready" } };
             case "image.open": return NativeImages.Open(this);
             case "image.paste": return NativeImages.Paste();
+            case "capture.monitors": return ReadCaptureMonitors();
+            case "capture.current": return await CaptureAsync(CurrentMonitorRequest());
             case "capture.screen": return await CaptureAsync(ParseCaptureRequest(payload, false));
             case "capture.region": return await CaptureAsync(ParseCaptureRequest(payload, true));
-            case "capture.settings": return new { backend = _captureBackend };
+            case "hotkey.read": return _hotkeys?.State??new HotkeyStatus(HotkeyBinding.Default,false,false,"快捷键尚未就绪。");
+            case "hotkey.configure":
+                if(_hotkeys is null)throw new InvalidOperationException("快捷键尚未就绪。");
+                var hotkey=_hotkeys.Apply(HotkeyBinding.Parse(payload),_hotkeyStore.Save);Status.Text=hotkey.Message;return hotkey;
+            case "capture.settings": return new { backend = _captureBackend,snapWindows=_snapWindows,windowArea=_snapClientArea?"client":"window" };
             case "capture.configure":
                 var backend = RequiredString(payload, "backend");
                 if (backend is not ("wgc" or "gdi")) throw new CaptureException("invalid_capture_backend", "请选择 WGC 或 GDI 兼容后端。");
+                var settingsRequest=CaptureRequest.Parse(payload,true);
                 _captureBackend = backend;
-                return new { backend = _captureBackend };
+                if(payload.TryGetProperty("snapWindows",out _))_snapWindows=settingsRequest.SnapWindows;
+                if(payload.TryGetProperty("windowArea",out _))_snapClientArea=settingsRequest.SnapClientArea;
+                return new { backend = _captureBackend,snapWindows=_snapWindows,windowArea=_snapClientArea?"client":"window" };
             case "ocr.status": return await Task.Run(_localOcr.GetStatus, _lifetime.Token);
             case "ocr.local": return await RunInferenceAsync(payload, async token => await RecognizeLocalAsync(RequiredString(payload, "imageDataUrl"), token));
             case "ai.cancel": return new { cancelled = _inferenceTasks.Cancel(RequiredString(payload,"taskId")) };
@@ -374,8 +383,8 @@ public partial class MainWindow : Window
             case "project.save": return NativeImages.SaveProject(this, payload.GetProperty("document"), OptionalString(payload, "suggestedName"));
             case "settings.read": return await _ai.ReadSettingsAsync(_lifetime.Token);
             case "settings.configure": new ProviderSettingsWindow(_ai) { Owner = this }.ShowDialog(); return await _ai.ReadSettingsAsync(_lifetime.Token);
-            case "ai.ocr": return await RunInferenceAsync(payload, async token => await _ai.OcrAsync(RequiredString(payload, "providerId"), RequiredString(payload, "imageDataUrl"), token));
-            case "ai.translate": return await RunInferenceAsync(payload, async token => await _ai.TranslateAsync(RequiredString(payload, "providerId"), RequiredString(payload, "text"), RequiredString(payload, "targetLanguage"), token));
+            case "ai.ocr": return await RunInferenceAsync(payload, async token => await _ai.OcrAsync(RequiredString(payload, "providerId"), RequiredString(payload, "imageDataUrl"),OptionalString(payload,"providerRevision"), token));
+            case "ai.translate": return await RunInferenceAsync(payload, async token => await _ai.TranslateAsync(RequiredString(payload, "providerId"), RequiredString(payload, "text"), RequiredString(payload, "targetLanguage"),OptionalString(payload,"providerRevision"), token));
             default: throw new InvalidOperationException("不支持的原生命令：" + method);
         }
     }

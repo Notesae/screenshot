@@ -48,9 +48,15 @@ for(const [id,library]of Object.entries(assets.libraries)){
   const license=match?.[1]==='expression'?match[2]:xml.includes('<licenseUrl>')?'See package license URL':null;
   add(name,version,'nuget',license,base,match?.[1]==='file'?match[2]:null);
 }
+// 自包含运行时pack不总在project.assets库列表中，显式补入实际包的许可告知。
+for(const name of ['Microsoft.NETCore.App.Runtime.win-x64','Microsoft.WindowsDesktop.App.Runtime.win-x64']){
+  const version='10.0.13',base=Object.keys(assets.packageFolders).map(folder=>path.join(folder,name.toLowerCase(),version)).find(dir=>fs.existsSync(dir));
+  if(!base)throw new Error('Pinned runtime package license unavailable: '+name);
+  add(name,version,'nuget','MIT',base);
+}
 const manifest=read(path.join(output,'models/pp-ocrv5-mobile/manifest.json'));
 for(const file of manifest.files){const target=path.join(output,'models/pp-ocrv5-mobile',file.name);if(hash(target)!==file.sha256)throw new Error('Model checksum failed: '+file.name);components.push({type:'file','bom-ref':'model:'+file.name,name:file.name,version:manifest.modelVersion,hashes:[{alg:'SHA-256',content:file.sha256}],licenses:[{license:{name:manifest.license}}]});}
-const bom={bomFormat:'CycloneDX',specVersion:'1.6',serialNumber:'urn:uuid:'+crypto.randomUUID(),version:1,metadata:{timestamp:new Date().toISOString(),component:{type:'application',name:'Screenshot',version:'0.3.0'}},components};
+const bom={bomFormat:'CycloneDX',specVersion:'1.6',serialNumber:'urn:uuid:'+crypto.randomUUID(),version:1,metadata:{timestamp:new Date().toISOString(),component:{type:'application',name:'Screenshot',version:read(path.join(root,'editor/package.json')).version}},components};
 fs.writeFileSync(path.join(output,'sbom.cdx.json'),JSON.stringify(bom,null,2)+'\n');
 fs.writeFileSync(path.join(output,'dependency-inventory.json'),JSON.stringify({scope:'Installed locked npm development/runtime packages and restored NuGet dependency closure; includes build-only components conservatively.',packages:inventory,licenseReviewGaps:gaps},null,2)+'\n');
 const required=['Screenshot.exe','Screenshot.runtimeconfig.json','web/index.html','THIRD-PARTY-NOTICES.md','models/pp-ocrv5-mobile/NOTICE.md','models/pp-ocrv5-mobile/LICENSE-PaddleOCR.txt','models/pp-ocrv5-mobile/LICENSE-RapidOCR.txt'];

@@ -32,6 +32,10 @@ internal sealed class RegionSelection(PixelRect bounds)
         if (edgeBottom) return SelectionHandle.Bottom;
         return x >= r.X && x <= right && y >= r.Y && y <= bottom ? SelectionHandle.Move : SelectionHandle.Create;
     }
+    public void Set(PixelRect rect)
+    {
+        var clipped=CaptureTargets.Intersect(rect,bounds);Selection=clipped.Width>=2&&clipped.Height>=2?clipped:null;Dragging=false;
+    }
     public void Begin(int x, int y)
     {
         _handle = HitTest(x,y); _startX=x; _startY=y; _before=Selection ?? default; Dragging=true;

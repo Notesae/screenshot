@@ -12,6 +12,7 @@ namespace Screenshot.App;
 public partial class MainWindow
 {
     private readonly InferenceTasks _inferenceTasks = new();
+    private bool _snapWindows=true,_snapClientArea;
     private string _captureBackend = CaptureRequest.DefaultBackend;
     private readonly LocalOcrService _localOcr = new(Path.Combine(AppContext.BaseDirectory, "models", "pp-ocrv5-mobile"));
     private readonly Lazy<SnapshotStore> _recovery = new(() => new SnapshotStore(Path.Combine(
@@ -22,8 +23,8 @@ public partial class MainWindow
     private CaptureRequest ParseCaptureRequest(JsonElement payload, bool region)
     {
         var request = CaptureRequest.Parse(payload, region);
-        return payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("backend", out _)
-            ? request : request with { Backend = _captureBackend };
+        var objectPayload=payload.ValueKind==JsonValueKind.Object;
+        return request with{Backend=objectPayload&&payload.TryGetProperty("backend",out _)?request.Backend:_captureBackend,SnapWindows=objectPayload&&payload.TryGetProperty("snapWindows",out _)?request.SnapWindows:_snapWindows,SnapClientArea=objectPayload&&payload.TryGetProperty("windowArea",out _)?request.SnapClientArea:_snapClientArea};
     }
 
     // 解码也在后台执行，拒绝外链与超大数据，不调用 WPF 解码或保存输入图片。

@@ -24,7 +24,7 @@ async function installMock(page) {
   await page.addInitScript(() => {
     const listeners = [];
     window.__messages = []; window.__heldMethods = []; window.__holdMethod = null; window.__recoveries = {}; window.__captureBackend = 'gdi';
-    window.__heldDecodes = []; window.__heldReady = []; window.__holdReady = false; window.__currentCaptureId = null;
+    window.__heldDecodes = []; window.__heldReady = []; window.__holdReady = false; window.__currentCaptureId = null; window.__hotkey={enabled:true,ctrl:true,alt:false,shift:true,key:'S'};window.__snapSettings={snapWindows:true,windowArea:'window'};window.__providerRevision='a'.repeat(64);
     window.__emit = data => {
       if (data.event === 'image.loaded' && data.payload.overlay) window.__currentCaptureId = data.payload.overlay.captureId;
       if (data.event === 'presentation.changed' && (!data.payload.timedOutCaptureId || data.payload.timedOutCaptureId === window.__currentCaptureId)) window.__currentCaptureId = null;
@@ -42,20 +42,27 @@ async function installMock(page) {
         window.__messages.push(request);
         if (request.method === window.__holdMethod) { window.__heldMethods.push(request); return; }
         if (request.method === 'presentation.ready' && window.__holdReady) { window.__heldReady.push(request); return; }
-        const results = { 'settings.read': { providers: [{ id: 'synthetic', name: '模拟服务', kind: 'ollama', model: 'test', baseUrl: 'http://127.0.0.1:0', hasApiKey: false }], defaultProviderId: 'synthetic' }, 'image.open': window.__openImage, 'image.copy': { copied: true }, 'text.copy': { copied:true }, 'image.save': { saved: true }, 'project.save': { saved: true }, 'ai.ocr': { text: '仅用于无头测试的合成文字' } };
+        const results = { 'settings.read': { providers: [{ id: 'synthetic', name: '模拟服务', kind: 'ollama', model: 'test', baseUrl: 'http://127.0.0.1:0', hasApiKey: false, revision:window.__providerRevision }], defaultProviderId: 'synthetic' }, 'image.open': window.__openImage, 'image.copy': { copied: true }, 'text.copy': { copied:true }, 'image.save': { saved: true }, 'project.save': { saved: true }, 'ai.ocr': { text: '仅用于无头测试的合成文字' } };
         let result = results[request.method];
         if (request.method === 'ocr.status') result = { available: true, modelVersion: 'synthetic', message: 'synthetic only', missingFiles: [] };
         if (request.method === 'ai.cancel') result={cancelled:true};
         if (request.method === 'ocr.cancel') result = { cancelled: true };
         if (request.method === 'ocr.local') result = { modelVersion: 'synthetic', imageWidth: 80, imageHeight: 60, blocks: [{ id: 'block-a', polygon: [{x:1,y:1},{x:38,y:1},{x:38,y:20},{x:1,y:20}], text:'<b>原文</b>', confidence:.9, order:0 }, { id:'block-b', polygon:[{x:42,y:22},{x:78,y:22},{x:78,y:45},{x:42,y:45}], text:'second', confidence:null, order:1 }] };
         if (request.method === 'ai.translate') {
+          if(window.__failBlockB&&request.payload.text==='second'&&!window.__failedBlockB){window.__failedBlockB=true;setTimeout(()=>window.__emit({id:request.id,ok:false,error:{code:'provider_rate_limited',message:'synthetic rate limit'}}),0);return;}
+
           if(window.__chunkMode && request.payload.text.startsWith('乙') && !window.__failedChunk){window.__failedChunk=true;setTimeout(()=>window.__emit({id:request.id,ok:false,error:{code:'provider_rate_limited',message:'模拟429限流'}}),0);return;}
           result = { text:window.__chunkMode?'translated-'+request.payload.text.slice(0,1):'synthetic translation' };
         }
         if(request.method==='ai.test')result={text:'PROBE_OK'};
         if(request.method==='ai.usage')result={items:[]};
-        if (request.method === 'capture.settings') result = { backend:window.__captureBackend };
-        if (request.method === 'capture.configure') { window.__captureBackend = request.payload.backend; result = { backend:window.__captureBackend }; }
+        if (request.method === 'capture.settings') result = { backend:window.__captureBackend,...window.__snapSettings };
+        if(request.method==='capture.monitors')result={monitors:[{handle:'9007199254740993',label:'Synthetic left',bounds:{x:-1920,y:-240,width:1920,height:1080},primary:false,current:true},{handle:'2',label:'Synthetic right',bounds:{x:0,y:0,width:2560,height:1440},primary:true,current:false}]};
+        if(request.method==='capture.current'||request.method==='capture.screen')result={cancelled:true};
+        if(request.method==='hotkey.read')result={binding:window.__hotkey,registered:true,applied:true,message:'synthetic current'};
+        if(request.method==='hotkey.configure'){const conflict=request.payload.key==='Q';if(!conflict)window.__hotkey=request.payload;result={binding:window.__hotkey,registered:window.__hotkey.enabled,applied:!conflict,message:conflict?'synthetic conflict; original retained':'synthetic saved'};}
+
+        if (request.method === 'capture.configure') { window.__captureBackend = request.payload.backend;for(const name of ['snapWindows','windowArea'])if(request.payload[name]!==undefined)window.__snapSettings[name]=request.payload[name]; result = { backend:window.__captureBackend,...window.__snapSettings }; }
         if (request.method === 'recovery.save') {
           const existing = window.__recoveries[request.payload.documentId], stale = Boolean(existing && existing.revision >= request.payload.revision);
           if (!stale) window.__recoveries[request.payload.documentId] = request.payload;
@@ -71,7 +78,7 @@ async function installMock(page) {
           const active = window.__currentCaptureId;
           const accepted = active ? request.payload.captureId === active : request.payload.captureId === undefined;
           const target = request.method === 'presentation.ready' ? 'overlay' : request.method === 'presentation.workbench' ? 'workbench' : 'hidden';
-          if (accepted && target !== 'overlay') window.__currentCaptureId = null;
+          if (accepted && target !== 'overlay') window.__currentCaptureId = null; window.__hotkey={enabled:true,ctrl:true,alt:false,shift:true,key:'S'};window.__snapSettings={snapWindows:true,windowArea:'window'};window.__providerRevision='a'.repeat(64);
           result = { accepted, presentation: accepted ? target : active ? 'overlay' : 'workbench', captureId: window.__currentCaptureId };
         }
         setTimeout(() => window.__emit(result ? { id: request.id, ok: true, result } : { id: request.id, ok: false, error: { code: 'MOCK', message: '测试未模拟此操作' } }), 0);
@@ -107,7 +114,7 @@ async function lateImage(page) {
 }
 async function releaseDecodes(page) { await page.evaluate(() => window.__heldDecodes.splice(0).forEach(release => release())); }
 async function returnWorkbench(page) {
-  await page.getByRole('button', { name: '更多与完整工作台', exact: true }).click();
+  if(!await page.getByRole('button',{name:'完整工作台',exact:true}).isVisible())await page.getByRole('button', { name: '更多与完整工作台', exact: true }).click();
   await page.getByRole('button', { name: '完整工作台', exact: true }).click(); await page.locator('.app').waitFor();
 }
 async function copied(page) {
@@ -122,7 +129,7 @@ async function imagePixel(page, dataUrl, x = 30, y = 25) {
 }
 async function saveDocument(page) {
   const count = await page.evaluate(() => window.__messages.filter(message => message.method === 'project.save').length);
-  await page.getByRole('button', { name: '保存可编辑项目', exact: true }).click();
+  await page.getByRole('button', { name: await page.locator('.app').count()?'保存项目':'保存可编辑项目', exact: true }).click();
   await page.waitForFunction(previous => window.__messages.filter(message => message.method === 'project.save').length > previous, count);
   return page.evaluate(() => window.__messages.filter(message => message.method === 'project.save').at(-1).payload.document);
 }
@@ -342,6 +349,7 @@ async function taskManagementChecks(page) {
   await page.getByRole('button',{name:'仅重试失败块',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('textarea[aria-label="可校对的译文"]')?.value==='translated-甲\ntranslated-乙\ntranslated-丙');
   assert.equal(await page.evaluate(()=>window.__messages.filter(m=>m.method==='ai.translate').length),before+4);
+  await page.locator('#compact-text').fill('丁'+'甲'.repeat(1999)+'乙'.repeat(2000)+'丙'.repeat(300));
   await page.evaluate(()=>{window.__holdMethod='ai.translate';});
   await page.getByRole('button',{name:'翻译',exact:true}).last().click();await page.waitForFunction(()=>window.__heldMethods.length===1);
   const held=await page.evaluate(()=>window.__heldMethods[0]);
@@ -367,6 +375,78 @@ async function taskManagementChecks(page) {
   assert.deepEqual(await page.evaluate(()=>window.__messages.filter(m=>m.method==='recovery.deleteMany').at(-1).payload.documentIds),ids);
   await page.getByRole('button',{name:'OCR',exact:true}).click();assert.equal((await page.locator('#compact-text').inputValue()).length,4300);
   checks.push('capacity metadata and explicit confirmed batch cleanup delete only selected recoveries and keep the current in-memory edits');
+}
+
+
+// These controls talk only to the synthetic bridge; no native enumeration or OS registration occurs.
+async function captureControlsChecks(page){
+  assert.equal(await page.evaluate(()=>window.__messages.filter(m=>m.method==='capture.monitors'||m.method==='hotkey.read').length),0);
+  await capture(page,'controls');await page.locator('.compact-toolbar').waitFor();
+  await page.getByRole('button',{name:'更多与完整工作台',exact:true}).click();
+  await page.getByLabel('捕获后端',{exact:true}).selectOption('wgc');
+  await page.locator('.capture-controls summary').click();
+  await page.getByRole('button',{name:'刷新显示器列表',exact:true}).click();
+  await page.getByRole('button',{name:'捕获所选屏幕',exact:true}).click();
+  await page.waitForFunction(()=>window.__messages.some(m=>m.method==='capture.screen'));
+  assert.deepEqual(await page.evaluate(()=>window.__messages.filter(m=>m.method==='capture.screen').at(-1).payload.target),{kind:'monitor',handle:'9007199254740993'});
+  await page.getByRole('button',{name:'捕获当前屏幕',exact:true}).click();
+  await page.waitForFunction(()=>window.__messages.some(m=>m.method==='capture.current'));
+  await page.getByRole('button',{name:'读取捕获与快捷键设置',exact:true}).click();
+  await page.getByLabel('吸附范围',{exact:true}).selectOption('client');await page.getByLabel('窗口吸附',{exact:true}).uncheck();
+  await page.getByRole('button',{name:'应用吸附设置',exact:true}).click();
+  await page.waitForFunction(()=>window.__snapSettings.windowArea==='client'&&!window.__snapSettings.snapWindows);
+  await page.getByLabel('热键按键',{exact:true}).selectOption('Q');await page.getByRole('button',{name:'应用区域热键',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('select[aria-label="热键按键"]')?.value==='S');
+  assert.equal(await page.evaluate(()=>window.__hotkey.key),'S');
+  await page.getByLabel('热键按键',{exact:true}).selectOption('F8');await page.getByRole('button',{name:'应用区域热键',exact:true}).click();
+  await page.waitForFunction(()=>window.__hotkey.key==='F8');assert.equal(await page.getByRole('alert').count(),0);
+  await page.screenshot({path:path.resolve(__dirname,'../output/capture-controls.png')});
+  checks.push('capture targets and hotkey settings are queried only on explicit clicks, preserve 64-bit string handles, share snap settings and retain old binding on simulated conflict');
+  await returnWorkbench(page);
+}
+async function syntheticDrop(page,width,height,name,hold=false){
+  return page.evaluate(async({width,height,name,hold})=>{
+    const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;const ctx=canvas.getContext('2d');ctx.fillStyle='#7733aa';ctx.fillRect(0,0,width,height);const dataUrl=canvas.toDataURL('image/png');
+    if(hold)window.__holdNextDecodeURL=dataUrl;
+    const bytes=Uint8Array.from(atob(dataUrl.split(',')[1]),c=>c.charCodeAt(0));const dt=new DataTransfer();dt.items.add(new File([bytes],name,{type:'image/png'}));
+    window.dispatchEvent(new DragEvent('dragenter',{dataTransfer:dt,bubbles:true}));document.querySelector('.compact-overlay').dispatchEvent(new DragEvent('drop',{dataTransfer:dt,bubbles:true,cancelable:true}));
+    return dataUrl;
+  },{width,height,name,hold});
+}
+async function dropChecks(page){
+  await capture(page,'retained-drop');await page.waitForFunction(()=>window.__messages.some(m=>m.method==='presentation.ready'&&m.payload.captureId==='retained-drop'));
+  const transitions=await page.evaluate(()=>window.__messages.filter(m=>m.method==='presentation.workbench').length);
+  const png=await syntheticDrop(page,3000,1800,'synthetic-large.png');await waitCanvas(page,3000,1800);await page.waitForFunction(()=>!document.querySelector('.compact-progress'));
+  const frame=await page.locator('.compact-canvas').boundingBox();assert.ok(frame.width<1920&&frame.height<1080);
+  assert.equal(await page.locator('.compact-overlay').count(),1);assert.equal(await copied(page),png);
+  assert.equal(await page.evaluate(()=>window.__messages.filter(m=>m.method==='presentation.ready'&&m.payload.captureId==='retained-drop').length),1);
+  assert.equal(await page.evaluate(()=>window.__messages.filter(m=>m.method==='presentation.workbench').length),transitions);
+  await syntheticDrop(page,19,11,'late-drop.png',true);await page.waitForFunction(()=>window.__heldDecodes.length===1);
+  const winner=await capture(page,'drop-newer-capture');await page.waitForFunction(()=>window.__messages.some(m=>m.method==='presentation.ready'&&m.payload.captureId==='drop-newer-capture'));
+  await releaseDecodes(page);await page.waitForFunction(()=>!document.querySelector('.compact-progress'));assert.equal(await copied(page),winner);
+  checks.push('in-place synthetic file drop keeps compact presentation and single ready handshake, fits view without resizing export, and discards late drops after newer capture');
+  await returnWorkbench(page);
+}
+async function persistedTranslationChecks(page){
+  await capture(page,'persisted-translation');await page.locator('.compact-toolbar').waitFor();await page.getByRole('button',{name:'OCR',exact:true}).click();
+  await page.getByLabel('识别方式',{exact:true}).selectOption('local');await page.getByRole('button',{name:'本地识别文字',exact:true}).click();await page.getByLabel('当前块校正',{exact:true}).waitFor();
+  await page.evaluate(()=>{window.__failBlockB=true;window.__failedBlockB=false;});
+  const before=await page.evaluate(()=>window.__messages.filter(m=>m.method==='ai.translate').length);
+  await page.getByRole('button',{name:'翻译',exact:true}).last().click();await page.getByRole('button',{name:'仅重试失败块',exact:true}).waitFor();
+  await page.waitForFunction(()=>Object.values(window.__recoveries).some(r=>r.document.editor.translationData?.chunks.some(c=>c.sourceBlockId==='block-b'&&c.status==='failed')));
+  await returnWorkbench(page);const saved=await saveDocument(page);const data=saved.editor.translationData;
+  assert.deepEqual(data.chunks.map(c=>[c.sourceBlockId,c.status]),[['block-a','done'],['block-b','failed']]);
+  assert.equal(data.chunks.map(c=>c.source).join(''),saved.editor.text);assert.equal(data.providerRevision,'a'.repeat(64));
+  await page.locator('input[type="file"]').first().setInputFiles({name:'synthetic-project.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(saved))});
+  await page.getByRole('button',{name:'仅重试失败块',exact:true}).waitFor();await page.getByRole('button',{name:'仅重试失败块',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('textarea[aria-label="可校对的译文"]')?.value==='synthetic translation\nsynthetic translation');
+  assert.equal(await page.evaluate(()=>window.__messages.filter(m=>m.method==='ai.translate').length),before+3);
+  await page.getByLabel('当前源块译文 1',{exact:true}).fill('人工校对块');const corrected=await saveDocument(page);
+  assert.equal(corrected.editor.translationData.chunks[0].text,'人工校对块');assert.equal(corrected.editor.translationData.chunks[0].generatedText,'synthetic translation');
+  await page.getByLabel('当前块校正',{exact:true}).fill('modified source');
+  assert.equal(await page.getByLabel('当前源块译文 1',{exact:true}).count(),0);
+  await page.screenshot({path:path.resolve(__dirname,'../output/persisted-translation.png')});
+  checks.push('partial OCR-linked translation persists in autosave and editable project, resumes only failed block after reload, preserves generated text on correction, and suspends source mapping after text changes');
 }
 
 // 首次空启动不写库；已编辑的纯文字文档清空后必须用空快照替换旧内容。
@@ -486,6 +566,9 @@ async function emptyTextRecovery(page) {
   await e2Checks(page);
   await editorOptionsChecks(page);
   await taskManagementChecks(page);
+  await captureControlsChecks(page);
+  await dropChecks(page);
+  await persistedTranslationChecks(page);
   assert.deepEqual(errors, []);
   const evidence = { headless: true, syntheticOnly: true, nativeCalls: false, clipboardAccess: false, checks };
   const evidencePath = path.resolve(__dirname, '../output/headless-overlay.json'); fs.mkdirSync(path.dirname(evidencePath), { recursive: true }); fs.writeFileSync(evidencePath, JSON.stringify(evidence, null, 2) + '\n');

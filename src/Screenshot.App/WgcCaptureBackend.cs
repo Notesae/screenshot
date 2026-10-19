@@ -25,7 +25,7 @@ public sealed class WgcCaptureBackend : ICaptureBackend
         if (request.Region)
         {
             using var frozen = ToDrawingBitmap(acquired.Backdrop);
-            using var overlay = new RegionOverlay(frozen, new Rectangle(acquired.DesktopBounds.X, acquired.DesktopBounds.Y, acquired.DesktopBounds.Width, acquired.DesktopBounds.Height), selected);
+            using var overlay = new RegionOverlay(frozen, new Rectangle(acquired.DesktopBounds.X, acquired.DesktopBounds.Y, acquired.DesktopBounds.Width, acquired.DesktopBounds.Height), selected, request.SnapWindows ? WindowsWindowTargets.Snapshot() : null, request.SnapClientArea);
             if (overlay.ShowDialog() != DialogResult.OK) return null;
             selected = overlay.Selection;
             imagePixels = CapturePixelGeometry.Crop(acquired.Selected,

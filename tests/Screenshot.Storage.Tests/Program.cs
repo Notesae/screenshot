@@ -62,6 +62,11 @@ using (var store = new SnapshotStore(Path.Combine(testRoot, "roundtrip")))
     Check((await store.ListAsync()).Count == 1, "explicit delete removes only selected recovery");
 }
 
+// 使用真正关闭/重开SQLite验证新增翻译块字段，不依赖前端内存或专用测试钩子。
+var translationJson=JsonSerializer.SerializeToElement(new{schemaVersion=2,image=new{dataUrl=png,name="synthetic.png",width=1,height=1},editor=new{text="first\nsecond",translationData=new{schemaVersion=1,source="first\nsecond",providerId="synthetic",providerRevision=new string('a',64),targetLanguage="Chinese",chunks=new[]{new{id="a-tr-0",sourceBlockId="a",source="first\n",text=(string?)"corrected",generatedText=(string?)"generated",status="done",error=(string?)null},new{id="b-tr-0",sourceBlockId="b",source="second",text=(string?)null,generatedText=(string?)null,status="failed",error=(string?)"synthetic 429"}}}}});
+using(var translationStore=new SnapshotStore(Path.Combine(testRoot,"translation")))await translationStore.SaveAsync("translation",3,translationJson);
+using(var translationStore=new SnapshotStore(Path.Combine(testRoot,"translation"))){var persisted=(await translationStore.LoadAsync("translation")).Document.GetProperty("editor").GetProperty("translationData");var chunks=persisted.GetProperty("chunks");Check(chunks[0].GetProperty("generatedText").GetString()=="generated"&&chunks[0].GetProperty("text").GetString()=="corrected","translation generated/corrected text survives actual SQLite reopen");Check(chunks[1].GetProperty("status").GetString()=="failed"&&chunks[1].GetProperty("sourceBlockId").GetString()=="b","failed chunk state and source mapping survive SQLite reopen");Check(persisted.GetProperty("providerRevision").GetString()==new string('a',64),"safe provider fingerprint survives SQLite reopen");}
+
 // 重启后恢复不依赖服务对象内存，资产被改写后必须检出，不能返回被篡改的像素。
 using (var restarted = new SnapshotStore(Path.Combine(testRoot, "roundtrip")))
 {

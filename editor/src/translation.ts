@@ -1,4 +1,4 @@
-export type TranslationChunk = { id:string; source:string; text:string|null; error:string|null; status:'pending'|'running'|'done'|'failed' };
+export type TranslationChunk = { id:string; source:string; text:string|null; error:string|null; sourceBlockId?:string|null;generatedText?:string|null; status:'pending'|'running'|'done'|'failed' };
 /** 按Unicode码点切分，优先在后半段换行处切开；原文切片拼接后逐字相同。 */
 export function translationChunks(text:string,limit=2000):TranslationChunk[] {
   if(!Number.isInteger(limit)||limit<2||limit>4000)throw new Error('翻译分块上限无效。');
@@ -14,7 +14,7 @@ export async function runTranslationChunks(input:TranslationChunk[],send:(text:s
   for(let i=0;i<chunks.length;i++){
     if(!current())break;if(chunks[i].status==='done')continue;
     chunks=chunks.map((c,n)=>n===i?{...c,status:'running',error:null}:c);progress(chunks);
-    try{const text=await send(chunks[i].source);if(!current())break;if(typeof text!=='string'||text.length>20000||!text.trim())throw new Error('此块译文无效或过长。');chunks=chunks.map((c,n)=>n===i?{...c,text,status:'done'}:c);}
+    try{const text=await send(chunks[i].source);if(!current())break;if(typeof text!=='string'||text.length>20000||!text.trim())throw new Error('此块译文无效或过长。');if(chunks.reduce((sum,c,n)=>sum+(n===i?text.length:c.text?.length||0),0)+Math.max(0,chunks.length-1)>20000)throw new Error('完整译文将超过20000字符，请缩小原文范围；结果未截断。');chunks=chunks.map((c,n)=>n===i?{...c,text,generatedText:text,status:'done'}:c);}
     catch(error){if(!current())break;chunks=chunks.map((c,n)=>n===i?{...c,status:'failed',error:error instanceof Error?error.message:'翻译失败'}:c);}
     progress(chunks);
   }

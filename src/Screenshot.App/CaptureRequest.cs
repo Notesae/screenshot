@@ -18,6 +18,8 @@ public sealed record CaptureTarget(CaptureTargetKind Kind, nint Handle = 0, bool
 // WGC 为主后端；只有调用方显式选择 gdi 时才进入兼容捕获，不做隐式降级。
 public sealed record CaptureRequest(string Backend, CaptureTarget Target, bool Region, int TimeoutMs = 8000)
 {
+    public bool SnapWindows { get; init; } = true;
+    public bool SnapClientArea { get; init; }
     public const string DefaultBackend = "wgc";
     public static CaptureRequest Default(bool region) => new(DefaultBackend, new(CaptureTargetKind.Desktop), region);
 
@@ -47,7 +49,9 @@ public sealed record CaptureRequest(string Backend, CaptureTarget Target, bool R
                 _ => throw new CaptureException("invalid_capture_target", "不支持的截图目标。")
             };
         }
-        return new(backend, target, region, timeout);
+        var snap=true;if(payload.TryGetProperty("snapWindows",out var snapValue)){if(snapValue.ValueKind is not (JsonValueKind.True or JsonValueKind.False))throw new CaptureException("invalid_capture_request","窗口吸附参数无效。");snap=snapValue.GetBoolean();}
+        var snapArea=ReadString(payload,"windowArea")??"window";if(snapArea is not ("window" or "client"))throw new CaptureException("invalid_capture_request","请选择窗口或客户区。");
+        return new(backend, target, region, timeout){SnapWindows=snap,SnapClientArea=snapArea=="client"};
     }
 
     private static string? ReadString(JsonElement value, string name)

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { native } from './bridge';
+import {correctTranslationChunk,translationText} from './translationDocument';
 import { copyText } from './textCopy';
 import { ArrowDown, ArrowUp, Languages, ScanText, Settings2, X } from 'lucide-react';
 import type { EditorState, ProjectDocument } from './document';
@@ -11,7 +12,7 @@ export type TextToolsProps = {
   targetLanguage: string; setTargetLanguage: (language: string) => void;
   ocrEngine: 'local' | 'cloud'; setOcrEngine: (engine: 'local' | 'cloud') => void; localStatus: LocalOcrStatus | null;
   onProbe:(kind:"text"|"image")=>void;
-  translationProgress:{done:number;total:number;failed:number;canRetry:boolean;errors:string[]}|null; onRetryTranslation:()=>void;
+  translationProgress:{done:number;total:number;failed:number;pending:number;canRetry:boolean;errors:string[]}|null; onRetryTranslation:()=>void;
   busy: string; aiBusy: string; onAi: (kind: 'ocr' | 'translate') => void; onCancelOcr: () => void; onConfigure: () => void; onError: (error: unknown) => void; onCopyText: (text: string) => void; compact?: boolean;
 };
 /** 工作台与原位面板共用校对状态；自由全文编辑不悄悄改写源框。 */
@@ -45,9 +46,10 @@ export function TextTools(props: TextToolsProps) {
     <label className="control-label text-label" htmlFor={contentId}>可校对的文字<span>{editor.text.length} / 20000</span></label><textarea id={contentId} maxLength={20000} value={editor.text} placeholder="输入文字或从图片中识别" onChange={event => update({ text: event.target.value })}/>
     <div className="translate-row"><select aria-label={compact ? '目标语言' : '翻译目标语言'} value={props.targetLanguage} onChange={event => props.setTargetLanguage(event.target.value)}><option>简体中文</option><option>English</option><option>日本語</option><option>한국어</option></select><button disabled={!!busy || !!aiBusy || !editor.text.trim()} onClick={() => props.onAi('translate')}><Languages/>翻译</button></div>
     <p className="ai-note">长文每2000字分块顺序翻译，不自动重试；失败块可单独重试，可能产生服务费用。</p>
-    {props.translationProgress&&<div className="translation-progress" role="status">翻译进度 {props.translationProgress.done} / {props.translationProgress.total}{props.translationProgress.failed>0&&<><p>{props.translationProgress.failed} 块失败：{props.translationProgress.errors.join('；')}</p><button disabled={!!busy||!!aiBusy||!props.translationProgress.canRetry} onClick={props.onRetryTranslation}>仅重试失败块</button>{!props.translationProgress.canRetry&&<p>文档已改变，请重新发起翻译。</p>}</>}</div>}
+    {props.translationProgress&&<div className="translation-progress" role="status">翻译进度 {props.translationProgress.done} / {props.translationProgress.total}{(props.translationProgress.failed>0||props.translationProgress.pending>0)&&<><p>{props.translationProgress.failed} 块失败 / {props.translationProgress.pending} 块未完成：{props.translationProgress.errors.join('；')}</p><button disabled={!!busy||!!aiBusy||!props.translationProgress.canRetry} onClick={props.onRetryTranslation}>{props.translationProgress.failed?'仅重试失败块':'继续未完成块'}</button>{!props.translationProgress.canRetry&&<p>文档已改变，请重新发起翻译。</p>}</>}</div>}
     <label className="control-label">可校对的译文<textarea aria-label="可校对的译文" value={editor.translation} maxLength={20000} placeholder="翻译结果保留在这里，不覆盖原文" onChange={event => update({ translation: event.target.value })}/></label>
     {editor.translation && editor.translationSource !== editor.text && <p className="ai-note warning" role="status">原文已修改或译文来源未确认；译文已过期，请重新翻译或校对。<button onClick={()=>update({translationSource:editor.text})}>已按当前原文校对</button></p>}
+    {editor.translationData&&<div className="translation-blocks"><strong>持久化块译文 · {editor.translationData.chunks.filter(c=>c.status==='done').length}/{editor.translationData.chunks.length}</strong>{editor.translationData.source!==editor.text?<p className="ai-note warning">原文已改变，保留旧块译文并暂停源框对应；重新翻译时仅复用来源和服务配置均匹配的成功块。</p>:selected&&editor.translationData.chunks.filter(c=>c.sourceBlockId===selected.id).map((chunk,i)=><div key={chunk.id}><p className="ocr-original">生成译文：{chunk.generatedText??'尚未生成'}</p><label className="control-label">当前源块译文 {i+1}<textarea aria-label={`当前源块译文 ${i+1}`} value={chunk.text||''} maxLength={20000} onChange={event=>{try{const next=correctTranslationChunk(editor.translationData!,chunk.id,event.target.value);update({translationData:next,translation:translationText(next),translationSource:next.source},`translation-edit:${chunk.id}`);}catch(error){props.onError(error);}}}/></label></div>)}{editor.translation&&translationText(editor.translationData)!==editor.translation&&<p className="ai-note">全文译文已单独修改；继续校对块会按块顺序重建全文译文。</p>}</div>}
     <label className="control-label">复制文字换行<select aria-label="复制文字换行" value={mergeLines?'merge':'keep'} onChange={e=>setMergeLines(e.target.value==='merge')}><option value="keep">保留换行</option><option value="merge">合并断行，保留空段</option></select></label>
     <div className="text-copy-actions"><button disabled={!editor.text} onClick={()=>props.onCopyText(copyText(editor.text,mergeLines))}>复制原文</button><button disabled={!editor.translation} onClick={()=>props.onCopyText(copyText(editor.translation,mergeLines))}>复制译文</button></div>
     <label className="control-label">正文行距<input aria-label="正文行距" type="number" min={1} max={3} step={0.1} value={editor.lineSpacing} onChange={e=>{ const value=Number(e.target.value); if(value>=1&&value<=3)update({lineSpacing:value}); }}/></label>

@@ -171,6 +171,13 @@ tests.Add(("Explicit probes use synthetic inputs and never reuse cached capabili
     await service.ProbeAsync("id","text");await service.ProbeAsync("id","text");await service.ProbeAsync("id","image");Check(sent==3,"Probe reused cache");
     await Error(()=>service.ProbeAsync("id","unsupported"),"invalid_probe");Check(sent==3,"Invalid probe sent request");
 }));
+tests.Add(("Provider revision rejects stale persisted tasks before HTTP send",async()=>{
+    var sent=0;var service=new AiService(Store(),new HttpClient(new Handler(_=>{sent++;return Json("{\"message\":{\"content\":\"translated\"}}");})));
+    var settings=await service.UpdateProviderAsync(new("id","Local","ollama","http://localhost:11434","model-one"));var revision=settings.Providers.Single().Revision;Check(revision.Length==64,"Missing safe provider fingerprint");
+    await service.TranslateAsync("id","hello","Chinese",revision);Check(sent==1,"Matching revision failed");
+    await service.UpdateProviderAsync(new("id","Local","ollama","http://localhost:11434","model-two"));
+    await Error(()=>service.TranslateAsync("id","changed input","Chinese",revision),"provider_configuration_changed");Check(sent==1,"Stale task sent HTTP after configuration changed");
+}));
 // 逐项运行并汇总退出码，确保失败时仍清理测试配置。
 int failed = 0;
 try {

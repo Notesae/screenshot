@@ -1,7 +1,7 @@
 namespace Screenshot.AI;
 
 /// <summary>允许返回前端的服务信息，仅表明是否保存密钥。</summary>
-public sealed record PublicProvider(string Id, string Name, string Kind, string Model, string BaseUrl, bool HasApiKey);
+public sealed record PublicProvider(string Id, string Name, string Kind, string Model, string BaseUrl, bool HasApiKey, string Revision = "");
 /// <summary>公开服务列表及默认服务标识。</summary>
 public sealed record PublicSettings(IReadOnlyList<PublicProvider> Providers, string? DefaultProviderId);
 /// <summary>OCR 和翻译共用的纯文字响应。</summary>

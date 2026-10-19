@@ -156,8 +156,10 @@ if(runIntegration) {
         Check(result.Blocks.All(b=>b.Confidence is >=0 and <=1 && b.Polygon.Count==4 && b.Polygon.All(p=>p.X>=0 && p.X<900 && p.Y>=0 && p.Y<260)),"Invalid actual confidence or coordinates");
         var again=await service.RecognizeAsync(png);
         Check(result.Blocks.Select(b=>b.Id).SequenceEqual(again.Blocks.Select(b=>b.Id)),"Repeated OCR IDs changed");
-        using var cts=new CancellationTokenSource(); cts.CancelAfter(30);
-        var cancellationWatch=Stopwatch.StartNew(); await Error(()=>service.RecognizeAsync(png,cts.Token),"cancelled"); cancellationWatch.Stop();
+        // 先提交请求并确认仍在进行，再立即取消；不假设热推理一定比30ms慢。
+        using var cts=new CancellationTokenSource();var inFlight=service.RecognizeAsync(png,cts.Token);
+        Check(!inFlight.IsCompleted,"Synthetic request unexpectedly completed before cancellation checkpoint");
+        var cancellationWatch=Stopwatch.StartNew();cts.Cancel();await Error(()=>inFlight,"cancelled");cancellationWatch.Stop();
         Check(cancellationWatch.Elapsed<TimeSpan.FromSeconds(5),"Cancellation kept running too long");
         var recovered=await service.RecognizeAsync(png); Check(recovered.Text.Contains("中文"),"Inference did not recover after cancellation");
         using var blank=new Mat(260,900,MatType.CV_8UC3,Scalar.White);

@@ -27,3 +27,7 @@ SBOM字段依据 [CycloneDX1.6官方schema](https://github.com/CycloneDX/specifi
 
 
 遗漏许可补齐：saxes6.0.0 的完整ISC/历史归属文本固定取自 npm发布 gitHead `211fa0ebec9b628affc09219199639887174bfc3`；esbuild/Rollup的Windows制品使用同版本父包随附文本；node-canvas保留发布包Readme中的完整MIT及BMP许可。stackback0.0.2（仅测试工具链）的发布包声明MIT但未附文本，仍列为复核缺口，不推断其版权文字或宣称全量许可审计完成。
+
+## 0.4.0补充复核
+
+自包含.NET运行时10.0.13的实际pack许可和.NETCore第三方告知纳入dependency-licenses。stackback0.0.2已定位上游发布提交，仍缺完整正文；OpenCvSharp运行时所附FFmpeg插件等嵌入依赖的构建归属也需继续复核，详见docs/RELEASE-LICENSE-REVIEW.md。不得把SBOM生成成功当作全量许可审计完成。
