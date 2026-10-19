@@ -1,4 +1,5 @@
 import { CaptureControls } from './CaptureControls';
+import { RecoveryStatus, type RecoveryView } from './RecoveryPanel';
 import { StyleTools } from './StyleTools';
 import { TextTools, CaptureBackendSelector, type TextToolsProps } from './TextTools';
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
@@ -11,6 +12,7 @@ import { overlayKeyAction } from './keyboard';
 import { AnnotationPalette, HistoryButtons, TransformPanel } from './EditControls';
 
 type Props = {
+  recoveryState: RecoveryView;
   renderStatus: CanvasRenderStatus; onRenderStatus: (status: CanvasRenderStatus) => void;
   skipReady:boolean;onFiles:(files:FileList|null)=>Promise<void>;onCapture:(method:string,payload?:object)=>void;
   recoveryPanel: ReactNode; textTools: TextToolsProps; captureBackend: 'wgc' | 'gdi' | null; onCaptureBackend: (backend: 'wgc' | 'gdi') => void;
@@ -38,7 +40,8 @@ export function CompactOverlay(props: Props) {
   const [tools, setTools] = useState({ width: 560, height: 44 });
   const [canvasReady, setCanvasReady] = useState(false),[dragging,setDragging]=useState(false);
   useEffect(()=>{const enter=(event:DragEvent)=>{if(Array.from(event.dataTransfer?.types||[]).includes('Files'))setDragging(true);};const leave=(event:DragEvent)=>{if(!event.relatedTarget)setDragging(false);};const drop=()=>setDragging(false);window.addEventListener('dragenter',enter);window.addEventListener('dragleave',leave);window.addEventListener('drop',drop);return()=>{window.removeEventListener('dragenter',enter);window.removeEventListener('dragleave',leave);window.removeEventListener('drop',drop);};},[]);
-  const toolbar = useRef<HTMLDivElement>(null), readySent = useRef(false), composing = useRef(false);
+  const toolbar = useRef<HTMLDivElement>(null), statusBar = useRef<HTMLDivElement>(null), readySent = useRef(false), composing = useRef(false);
+  const [statusHeight, setStatusHeight] = useState(34);
   const latest = useRef({ props, panel }); latest.current = { props, panel };
   const editor = doc.editor;
   let output = { width: doc.image?.width || 1, height: doc.image?.height || 1 };
@@ -50,7 +53,9 @@ export function CompactOverlay(props: Props) {
     window.addEventListener('resize', resize);
     const observer = new ResizeObserver(entries => setTools(size => ({ ...size, height: entries[0].target.getBoundingClientRect().height })));
     if (toolbar.current) observer.observe(toolbar.current);
-    return () => { window.removeEventListener('resize', resize); observer.disconnect(); };
+    const statusObserver = new ResizeObserver(entries => setStatusHeight(entries[0].target.getBoundingClientRect().height));
+    if (statusBar.current) statusObserver.observe(statusBar.current);
+    return () => { window.removeEventListener('resize', resize); observer.disconnect(); statusObserver.disconnect(); };
   }, []);
   useEffect(() => {
     if (props.skipReady || !canvasReady || readySent.current || !metadata.captureId) return;
@@ -100,7 +105,7 @@ export function CompactOverlay(props: Props) {
       {panel === 'text' && <TextTools {...props.textTools} compact/>}
       {panel === 'more' && <><CaptureControls onStart={props.clearNotice} backend={props.captureBackend} disabled={!!busy} onCapture={props.onCapture} onError={props.onError}/><CaptureBackendSelector backend={props.captureBackend} disabled={!!busy} onChange={props.onCaptureBackend}/>{props.recoveryPanel}<div className="compact-size">选区 {doc.image?.width} × {doc.image?.height} 像素</div><AnnotationPalette canvasRef={canvasRef} onError={props.onError}/><button className="compact-secondary" onClick={() => canvasRef.current?.remove()}><Trash2/>删除选中标注</button><TransformPanel document={doc} onTransform={props.onTransform}/><label className="control-label" htmlFor="compact-scale">导出倍率</label><select id="compact-scale" value={props.scale} onChange={event => props.setScale(Number(event.target.value))}><option value={1}>1× 当前尺寸</option><option value={2}>2× 尺寸</option></select><button className="compact-secondary" disabled={!!busy} onClick={props.onSaveProject}>保存可编辑项目</button><button className="compact-secondary" disabled={!!busy} onClick={() => props.onPresentation('workbench')}><Maximize2/>完整工作台</button></>}
     </section>}
-    {(busy || aiBusy) && <div className="compact-progress" role="status" style={{ left: layout.toolbar.x, top: Math.max(8, layout.toolbar.y - 42) }}><span className="spinner"/>{busy || aiBusy}…{aiBusy && <button className="task-cancel" onClick={props.textTools.onCancelOcr}>取消任务</button>}</div>}
+    <div ref={statusBar} className="compact-status-bar" style={{left:layout.toolbar.x,width:layout.toolbar.width,top:layout.toolbar.y + tools.height + 8 + statusHeight <= viewport.height - 8 ? layout.toolbar.y + tools.height + 8 : Math.max(8,layout.toolbar.y - statusHeight - 8)}}><RecoveryStatus state={props.recoveryState}/>{(busy || aiBusy || props.renderStatus === 'loading') && <div className="compact-progress" role="status"><span className="spinner"/>{busy || aiBusy || '画布更新中'}…{aiBusy && <button className="task-cancel" onClick={props.textTools.onCancelOcr}>取消任务</button>}</div>}</div>
     {props.notice && <div className={`compact-notice ${props.notice.error ? 'error' : ''}`} role={props.notice.error ? 'alert' : 'status'} style={{ left: layout.screen.x + 12, top: layout.screen.y + 12, maxWidth: Math.max(80, layout.screen.width - 24) }}><span>{props.notice.text}</span><button aria-label="关闭提示" onClick={props.clearNotice}><X/></button></div>}
   </div>;
 }
