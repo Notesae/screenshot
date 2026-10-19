@@ -68,7 +68,7 @@ export function overlayLayout(overlay: OverlayMetadata, viewport: Size, output: 
   const candidates=positions.map((value,index)=>({x,y:clamp(value,safe.y,bottom-groupHeight),width:toolWidth,height:groupHeight,index}));
   const lacksPanelSpace=(g:PixelRect)=>{
     if(!tools.panelOpen)return 0;
-    const sideWidth=Math.min(292,safe.width),minimumWidth=Math.min(220,sideWidth);
+    const sideWidth=Math.min(292,safe.width),minimumWidth=Math.min(180,sideWidth);
     const sides=[{x:frame.x+frame.width+8,width:right-frame.x-frame.width-8},{x:safe.x,width:frame.x-safe.x-8}];
     const freeSide=sides.some(s=>s.width>=minimumWidth&&(s.x+s.width<=g.x||s.x>=g.x+g.width));
     return !freeSide&&Math.max(g.y-safe.y-8,bottom-g.y-g.height-8)<minimumPanel-.01?1:0;
@@ -78,7 +78,7 @@ export function overlayLayout(overlay: OverlayMetadata, viewport: Size, output: 
   const status={x,y:toolbar.y+toolHeight+(statusHeight?8:0),width:toolWidth,height:statusHeight};
   const panelWidth=Math.min(292,safe.width),panels:(PixelRect&{placement:string})[]=[];
   const add=(px:number,py:number,width:number,height:number,placement:string)=>{
-    if(width<Math.min(220,panelWidth)||height<Math.min(64,safe.height*.3))return;
+    if(width<Math.min(180,panelWidth)||height<minimumPanel-.01)return;
     const panel={x:px,y:py,width,height,placement};
     if(px<safe.x-.01||py<safe.y-.01||px+width>right+.01||py+height>bottom+.01||area(panel,group)>.01)return;
     panels.push(panel);

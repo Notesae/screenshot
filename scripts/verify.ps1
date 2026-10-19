@@ -10,7 +10,8 @@ try {
             & npm.cmd ci --ignore-scripts
             if ($LASTEXITCODE) { throw 'Editor dependency restore failed.' }
         }
-        & npm.cmd test
+        New-Item -ItemType Directory -Force -Path ../artifacts/qa/product | Out-Null
+        & npm.cmd test -- --reporter=default --reporter=json --outputFile=../artifacts/qa/product/editor-tests.json
         if ($LASTEXITCODE) { throw 'Editor tests failed.' }
         & npm.cmd run build
         if ($LASTEXITCODE) { throw 'Editor build failed.' }
