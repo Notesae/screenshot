@@ -121,7 +121,7 @@ internal sealed class RegionOverlay : Form
         if(e.KeyCode==Keys.Escape){CancelSelection();return;}
         if(e.KeyCode==Keys.Enter){ConfirmSelection();e.Handled=true;return;}
         if(e.KeyCode==Keys.W){_snapEnabled=!_snapEnabled;Invalidate();e.Handled=true;return;}
-        if(e.KeyCode==Keys.C){_snapClient=!_snapClient;if(_selectedSnap is {} selected){var area=CaptureTargets.Area(selected,_allowed,_snapClient);if(area is {} bounds)_model.Set(bounds);}Invalidate();e.Handled=true;return;}
+        if(e.KeyCode==Keys.C){_snapClient=!_snapClient;if(_selectedSnap is {} selected){var area=CaptureTargets.Area(selected,_allowed,_snapClient);_model.Set(area??default);}Invalidate();e.Handled=true;return;}
         if(e.KeyCode==Keys.M){_magnifier=!_magnifier;Invalidate();e.Handled=true;return;}
         var step=e.Control?10:1;
         var delta=e.KeyCode switch { Keys.Left=>(-step,0),Keys.Right=>(step,0),Keys.Up=>(0,-step),Keys.Down=>(0,step),_=>(0,0) };

@@ -18,6 +18,8 @@ internal static class CaptureTargetsTests
         var model=new RegionSelection(allowed);model.Set(new(-500,-500,1000,1000));Check(model.Selection==allowed,"snap selection reuses adjustment bounds");
         model.Nudge(1,1,true);Check(model.Selection==allowed,"snapped selection cannot exceed capture bounds");
         Check(CaptureTargets.Area(top,allowed,true)==top.ClientBounds&&CaptureTargets.Area(top,allowed,false)==top.Bounds,"selected snap can toggle client and full area before confirmation");
+        var emptyClient=new RegionSelection(allowed);emptyClient.Set(top.Bounds);emptyClient.Set(CaptureTargets.Area(top with{ClientBounds=default},allowed,true)??default);
+        Check(!emptyClient.CanConfirm,"switching selected window to empty client clears confirmation instead of falling back to full window");
         return count;
     }
 }
