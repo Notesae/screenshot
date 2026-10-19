@@ -11,7 +11,7 @@ public sealed partial class SnapshotStore
         command.CommandText="SELECT COALESCE(SUM(byte_length),0) FROM assets WHERE EXISTS(SELECT 1 FROM snapshots WHERE asset_sha256=assets.sha256);";
         var bytes=Convert.ToInt64(command.ExecuteScalar());ct.ThrowIfCancellationRequested();transaction.Commit();
         return new SnapshotUsage(count,bytes,_options.MaxDocuments,_options.MaxAssetBytes);
-    },token);
+    },token,readOnly:true);
     /// <summary>先校验全部 ID，再在一个事务里删除；取消/中断不能造成半批删除。</summary>
     public Task<SnapshotBatchDeleteResult> DeleteManyAsync(IReadOnlyList<string> documentIds,CancellationToken token=default)
     {

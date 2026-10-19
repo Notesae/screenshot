@@ -49,17 +49,26 @@ for(const [id,library]of Object.entries(assets.libraries)){
   add(name,version,'nuget',license,base,match?.[1]==='file'?match[2]:null);
 }
 // 自包含运行时pack不总在project.assets库列表中，显式补入实际包的许可告知。
-for(const name of ['Microsoft.NETCore.App.Runtime.win-x64','Microsoft.WindowsDesktop.App.Runtime.win-x64']){
-  const version='10.0.13',base=Object.keys(assets.packageFolders).map(folder=>path.join(folder,name.toLowerCase(),version)).find(dir=>fs.existsSync(dir));
-  if(!base)throw new Error('Pinned runtime package license unavailable: '+name);
-  add(name,version,'nuget','MIT',base);
+for(const [name,version,license]of [['Microsoft.NETCore.App.Runtime.win-x64','10.0.13','MIT'],['Microsoft.WindowsDesktop.App.Runtime.win-x64','10.0.13','MIT'],['Microsoft.Windows.SDK.NET.Ref','10.0.19041.57','Microsoft Windows SDK standard terms']]){
+  const base=Object.keys(assets.packageFolders).map(folder=>path.join(folder,name.toLowerCase(),version)).find(dir=>fs.existsSync(dir));
+  if(!base)throw new Error('Pinned framework package unavailable: '+name);
+  add(name,version,'nuget',license,base);
 }
+const native=require('./native-audit.cjs').inventory(output,assets);
+if(!native.binaries.length||native.unownedBinaries.length)throw new Error('Unmapped package PE files: '+native.unownedBinaries.join(','));
+const nativeComponents=read(path.join(output,'licenses/native-components.json'));
+const opencv=native.binaries.find(b=>path.basename(b.file).toLowerCase()==='opencvsharpextern.dll');
+if(!opencv||opencv.sha256!==nativeComponents.runtime.expectedOpenCvSharpSlimSha256)throw new Error('Pinned OpenCV slim binary mismatch');
+for(const name of nativeComponents.excludedFromNewPackage)if(fs.existsSync(path.join(output,name)))throw new Error('Unused native plugin remains: '+name);
+for(const source of read(path.join(output,'licenses/native-license-sources.json')).sources)if(hash(path.join(output,'licenses',source.file))!==source.sha256)throw new Error('Native notice checksum mismatch: '+source.file);
+fs.writeFileSync(path.join(output,'native-dependencies.json'),JSON.stringify(native,null,2)+'\n');
+
 const manifest=read(path.join(output,'models/pp-ocrv5-mobile/manifest.json'));
 for(const file of manifest.files){const target=path.join(output,'models/pp-ocrv5-mobile',file.name);if(hash(target)!==file.sha256)throw new Error('Model checksum failed: '+file.name);components.push({type:'file','bom-ref':'model:'+file.name,name:file.name,version:manifest.modelVersion,hashes:[{alg:'SHA-256',content:file.sha256}],licenses:[{license:{name:manifest.license}}]});}
 const bom={bomFormat:'CycloneDX',specVersion:'1.6',serialNumber:'urn:uuid:'+crypto.randomUUID(),version:1,metadata:{timestamp:new Date().toISOString(),component:{type:'application',name:'Screenshot',version:read(path.join(root,'editor/package.json')).version}},components};
 fs.writeFileSync(path.join(output,'sbom.cdx.json'),JSON.stringify(bom,null,2)+'\n');
 fs.writeFileSync(path.join(output,'dependency-inventory.json'),JSON.stringify({scope:'Installed locked npm development/runtime packages and restored NuGet dependency closure; includes build-only components conservatively.',packages:inventory,licenseReviewGaps:gaps},null,2)+'\n');
-const required=['Screenshot.exe','Screenshot.runtimeconfig.json','web/index.html','THIRD-PARTY-NOTICES.md','models/pp-ocrv5-mobile/NOTICE.md','models/pp-ocrv5-mobile/LICENSE-PaddleOCR.txt','models/pp-ocrv5-mobile/LICENSE-RapidOCR.txt','dependency-licenses/nuget/Microsoft.NETCore.App.Runtime.win-x64-10.0.13/LICENSE.TXT','dependency-licenses/nuget/Microsoft.NETCore.App.Runtime.win-x64-10.0.13/THIRD-PARTY-NOTICES.TXT','dependency-licenses/nuget/Microsoft.WindowsDesktop.App.Runtime.win-x64-10.0.13/LICENSE'];
+const required=['native-dependencies.json','diagnose-portable.ps1','Screenshot.exe','Screenshot.runtimeconfig.json','web/index.html','THIRD-PARTY-NOTICES.md','models/pp-ocrv5-mobile/NOTICE.md','models/pp-ocrv5-mobile/LICENSE-PaddleOCR.txt','models/pp-ocrv5-mobile/LICENSE-RapidOCR.txt','dependency-licenses/nuget/Microsoft.NETCore.App.Runtime.win-x64-10.0.13/LICENSE.TXT','dependency-licenses/nuget/Microsoft.NETCore.App.Runtime.win-x64-10.0.13/THIRD-PARTY-NOTICES.TXT','dependency-licenses/nuget/Microsoft.WindowsDesktop.App.Runtime.win-x64-10.0.13/LICENSE'];
 for(const file of required)if(!fs.existsSync(path.join(output,file)))throw new Error('Missing release file: '+file);
 const runtime=read(path.join(output,'Screenshot.runtimeconfig.json'));
 const frameworks=runtime.runtimeOptions.includedFrameworks||[];
@@ -68,4 +77,4 @@ const files=[];function walk(dir){for(const entry of fs.readdirSync(dir,{withFil
 for(const file of files)if(/^(providers\.json|\.env.*)$/i.test(path.basename(file))||/\.(pfx|p12|pem|screenshot\.json|png|jpe?g|webp)$/i.test(file))throw new Error('Unexpected private/configuration/image file in package.');
 const sums=files.filter(f=>path.basename(f)!=='SHA256SUMS.txt').sort().map(f=>hash(f)+'  '+path.relative(output,f).replaceAll('\\','/')).join('\n')+'\n';
 fs.writeFileSync(path.join(output,'SHA256SUMS.txt'),sums);
-console.log(JSON.stringify({files:files.length,components:components.length,licenseReviewGaps:gaps,modelsVerified:manifest.files.length,runtime:'10.0.13',staticPackageCheck:'passed'},null,2));
+console.log(JSON.stringify({files:files.length,components:components.length,licenseReviewGaps:gaps,manualNativeReviewGaps:nativeComponents.manualReviewGaps,nativeBinaries:native.binaries.length,modelsVerified:manifest.files.length,runtime:'10.0.13',staticPackageCheck:'passed'},null,2));

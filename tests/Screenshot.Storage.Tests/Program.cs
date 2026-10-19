@@ -4,6 +4,8 @@ using System.Buffers.Binary;
 using Microsoft.Data.Sqlite;
 using Screenshot.Storage;
 
+if(args.Length>0&&args[0].StartsWith("--quality",StringComparison.Ordinal)){Environment.ExitCode=await StorageQualityChecks.Run(args);return;}
+
 // 测试失败只输出明确结果并返回非零退出码，避免未处理异常触发系统诊断界面。
 try
 {
@@ -60,12 +62,32 @@ using (var store = new SnapshotStore(Path.Combine(testRoot, "roundtrip")))
     }
     await store.DeleteAsync("doc-second");
     Check((await store.ListAsync()).Count == 1, "explicit delete removes only selected recovery");
+    var databasePath=Path.Combine(testRoot,"roundtrip","snapshots.db");
+    byte[] DatabaseHash(){using var stream=new FileStream(databasePath,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);return System.Security.Cryptography.SHA256.HashData(stream);}
+    var beforeRead=DatabaseHash();
+    await store.ListAsync();await store.GetUsageAsync();await store.LoadAsync("doc-first");
+    var afterRead=DatabaseHash();
+    Check(beforeRead.SequenceEqual(afterRead),"initialized read/list/usage do not rewrite database schema bytes");
 }
 
 // 使用真正关闭/重开SQLite验证新增翻译块字段，不依赖前端内存或专用测试钩子。
 var translationJson=JsonSerializer.SerializeToElement(new{schemaVersion=2,image=new{dataUrl=png,name="synthetic.png",width=1,height=1},editor=new{text="first\nsecond",translationData=new{schemaVersion=1,source="first\nsecond",providerId="synthetic",providerRevision=new string('a',64),targetLanguage="Chinese",chunks=new[]{new{id="a-tr-0",sourceBlockId="a",source="first\n",text=(string?)"corrected",generatedText=(string?)"generated",status="done",error=(string?)null},new{id="b-tr-0",sourceBlockId="b",source="second",text=(string?)null,generatedText=(string?)null,status="failed",error=(string?)"synthetic 429"}}}}});
 using(var translationStore=new SnapshotStore(Path.Combine(testRoot,"translation")))await translationStore.SaveAsync("translation",3,translationJson);
 using(var translationStore=new SnapshotStore(Path.Combine(testRoot,"translation"))){var persisted=(await translationStore.LoadAsync("translation")).Document.GetProperty("editor").GetProperty("translationData");var chunks=persisted.GetProperty("chunks");Check(chunks[0].GetProperty("generatedText").GetString()=="generated"&&chunks[0].GetProperty("text").GetString()=="corrected","translation generated/corrected text survives actual SQLite reopen");Check(chunks[1].GetProperty("status").GetString()=="failed"&&chunks[1].GetProperty("sourceBlockId").GetString()=="b","failed chunk state and source mapping survive SQLite reopen");Check(persisted.GetProperty("providerRevision").GetString()==new string('a',64),"safe provider fingerprint survives SQLite reopen");}
+
+// 流式编解码边界：拒绝歧义字段与超额元数据，完整保留Unicode/HTML样式纯文本和未来字段。
+using(var streamStore=new SnapshotStore(Path.Combine(testRoot,"streamed-codec"))){
+    using var duplicate=JsonDocument.Parse("{\"schemaVersion\":2,\"image\":{\"dataUrl\":\""+png+"\",\"dataUrl\":\""+png+"\",\"width\":1,\"height\":1},\"editor\":{}}");
+    await Reject(()=>streamStore.SaveAsync("duplicate-image",1,duplicate.RootElement),"duplicate image fields rejected before commit");
+    using var duplicateRoot=JsonDocument.Parse("{\"schemaVersion\":2,\"schemaVersion\":2,\"image\":null,\"editor\":{}}");
+    await Reject(()=>streamStore.SaveAsync("duplicate-root",1,duplicateRoot.RootElement),"duplicate envelope fields rejected");
+    var oversized=JsonSerializer.SerializeToElement(new{schemaVersion=2,image=(object?)null,editor=new{text=new string('文',800000)}});
+    await Reject(()=>streamStore.SaveAsync("oversized-metadata",1,oversized),"escaped UTF8 metadata bound enforced while streaming");
+    var future=JsonSerializer.SerializeToElement(new{schemaVersion=2,image=new{dataUrl=png,name="synthetic",width=1,height=1},editor=new{text="中文 </script> \"quoted\""},future=new{enabled=true}});
+    await streamStore.SaveAsync("future",1,future);var roundtrip=(await streamStore.LoadAsync("future")).Document;
+    Check(roundtrip.GetProperty("future").GetProperty("enabled").GetBoolean()&&roundtrip.GetProperty("editor").GetProperty("text").GetString()==future.GetProperty("editor").GetProperty("text").GetString(),"streaming preserves unknown metadata and literal Unicode/HTML/quotes");
+    Check(roundtrip.GetProperty("image").GetProperty("dataUrl").GetString()==png,"raw-generated Base64 stays byte exact");
+}
 
 // 重启后恢复不依赖服务对象内存，资产被改写后必须检出，不能返回被篡改的像素。
 using (var restarted = new SnapshotStore(Path.Combine(testRoot, "roundtrip")))

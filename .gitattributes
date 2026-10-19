@@ -1,0 +1,12 @@
+# Preserve exact upstream notice bytes used by native-license-sources.json.
+licenses/IPPICV-* -text
+licenses/Intel-ITT-* -text
+licenses/OpenCV-ITT-* -text
+licenses/OpenCV-OpenCL-* -text
+licenses/OpenCV-flatbuffers-* -text
+licenses/OpenCV-openexr-* -text
+licenses/OpenCV-openjpeg-* -text
+licenses/OpenCV-protobuf-* -text
+licenses/lib* -text
+licenses/zlib-* -text
+licenses/native-* -text

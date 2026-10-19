@@ -31,3 +31,12 @@ SBOM字段依据 [CycloneDX1.6官方schema](https://github.com/CycloneDX/specifi
 ## 0.4.0补充复核
 
 自包含.NET运行时10.0.13的实际pack许可和.NETCore第三方告知纳入dependency-licenses。stackback0.0.2已定位上游发布提交，仍缺完整正文；OpenCvSharp运行时所附FFmpeg插件等嵌入依赖的构建归属也需继续复核，详见docs/RELEASE-LICENSE-REVIEW.md。不得把SBOM生成成功当作全量许可审计完成。
+
+## 0.4.1 原生范围与补充告知
+
+OCR使用同版本OpenCvSharp4.runtime.win.slim，保留原始Paddle/ONNX CPU模型与算法；不携带未使用的FFmpeg插件。原生子组件的来源、正文和摘要见licenses/native-license-sources.json，保守静态构建清单/未关闭复核项见licenses/native-components.json及docs/RELEASE-LICENSE-REVIEW.md。
+
+This software is based in part on the work of the Independent JPEG Group.
+This product includes software developed by the University of California, Berkeley.
+
+自包含.NET、SDK目标框架、WebView2 SDK、ONNX及SQLite包告知继续携带；WebView2 Runtime和Visual C++ Runtime为外部环境要求，程序不自动安装。IPP原始EULA随包保留，不表示已替用户接受新条款或完成再分发审查。

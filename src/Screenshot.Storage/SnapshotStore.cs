@@ -56,7 +56,7 @@ public sealed partial class SnapshotStore : IDisposable
             entries.Add(new(reader.GetString(0),reader.GetInt64(1),reader.GetString(2),updated));
         }
         return entries;
-    },cancellationToken);
+    },cancellationToken,readOnly:true);
 
     /// <summary>仅在用户明确恢复时读取文档，并在返回前核对原图长度与 SHA256。</summary>
     public Task<SnapshotLoadResult> LoadAsync(string documentId,CancellationToken cancellationToken=default)
@@ -83,7 +83,7 @@ public sealed partial class SnapshotStore : IDisposable
             var document = SnapshotDocumentCodec.Restore(json,image);
             token.ThrowIfCancellationRequested(); transaction.Commit();
             return new SnapshotLoadResult(documentId,revision,document);
-        },cancellationToken);
+        },cancellationToken,readOnly:true);
     }
 
     /// <summary>只删除指定恢复；资产在提交后依据所有剩余引用清理。</summary>
@@ -107,14 +107,24 @@ public sealed partial class SnapshotStore : IDisposable
     }
 
     // SQLite 的异步 ADO 方法仍同步执行，因此显式放到后台，且不跨线程共享连接。
-    private async Task<T> RunAsync<T>(Func<CancellationToken,T> action,CancellationToken token)
+    private async Task<T> RunAsync<T>(Func<CancellationToken,T> action,CancellationToken token,bool readOnly=false)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed)!=0,this);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(token,_lifetime.Token); bool entered = false;
         try
         {
             await _gate.WaitAsync(linked.Token).ConfigureAwait(false); entered = true;
-            return await Task.Run(() => action(linked.Token),linked.Token).ConfigureAwait(false);
+            return await Task.Run(() => {
+                for(var attempt=0;;attempt++){
+                    linked.Token.ThrowIfCancellationRequested();
+                    try{return action(linked.Token);}
+                    // 写入进程被终止后，Windows可能短暂返回IOERR_TRUNCATE；仅幂等读最多重开两次。
+                    // 不重试写操作、数据库损坏、文件缺失或权限异常，也不删除WAL/SHM强行恢复。
+                    catch(SqliteException error)when(readOnly&&OperatingSystem.IsWindows()&&error.SqliteExtendedErrorCode==1546&&attempt<2){
+                        if(linked.Token.WaitHandle.WaitOne(25*(attempt+1)))linked.Token.ThrowIfCancellationRequested();
+                    }
+                }
+            },linked.Token).ConfigureAwait(false);
         }
         catch (SqliteException) when (linked.IsCancellationRequested) { throw new OperationCanceledException(linked.Token); }
         catch (SqliteException error) when (error.SqliteErrorCode is 5 or 6)
@@ -141,7 +151,12 @@ public sealed partial class SnapshotStore : IDisposable
         {
             connection.Open(); using var command = connection.CreateCommand();
             command.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;"; command.ExecuteNonQuery();
+            command.CommandText="PRAGMA user_version;";var observed=Convert.ToInt64(command.ExecuteScalar(),CultureInfo.InvariantCulture);
+            // 已初始化的库不为每次读取重复写入schema版本；真正的载入仍在下层持写保留锁保护资产。
+            if(observed==1)return connection;
+            if(observed!=0)throw new SnapshotStoreException("schema_unsupported","恢复数据库版本较新，请使用兼容版本应用，现有数据未修改。");
             using var transaction = connection.BeginTransaction(deferred:false); command.Transaction = transaction;
+            // 初次创建可与另一实例竞态，因此取得写锁后重新读取。
             command.CommandText = "PRAGMA user_version;"; long version = Convert.ToInt64(command.ExecuteScalar(),CultureInfo.InvariantCulture);
             if (version is not (0 or 1)) throw new SnapshotStoreException("schema_unsupported", "恢复数据库版本较新，请使用兼容版本应用，现有数据未修改。");
             command.CommandText = """

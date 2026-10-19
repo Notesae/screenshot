@@ -10,6 +10,8 @@ using Screenshot.Ocr;
 using CvPoint = OpenCvSharp.Point;
 using DrawingColor = System.Drawing.Color;
 
+if(args.Length==2&&args[0]=="--build-info"){try{await File.WriteAllTextAsync(Path.GetFullPath(args[1]),Cv2.GetBuildInformation());return 0;}catch(Exception error){Console.Error.WriteLine("FAIL native build metadata: "+error.GetType().Name);return 1;}}
+
 // 只使用内存生成的 PNG 和固定模型；不调用任何窗口、桌面或剪贴板接口。
 var modelDirectory = Path.GetFullPath(args.FirstOrDefault(a => !a.StartsWith("--")) ?? "models/pp-ocrv5-mobile");
 var runIntegration = args.Contains("--integration");

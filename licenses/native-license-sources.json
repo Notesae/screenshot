@@ -1,0 +1,121 @@
+{
+  "scope": "Conservative upstream build components; presence in static binary requires profile/link evidence, not inferred solely from package Apache label.",
+  "sources": [
+    {
+      "file": "OpenCV-openexr-2.3.0-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/opencv/opencv/fe38fc608f6acb8b68953438a62305d8318f4fcd/3rdparty/openexr/LICENSE",
+      "sha256": "14eba5f05238f57c77e94f0ebd29a0b3736ba0456ff990cda16e21b6903ac453",
+      "bytes": 1697
+    },
+    {
+      "file": "OpenCV-openjpeg-2.5.3-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/opencv/opencv/fe38fc608f6acb8b68953438a62305d8318f4fcd/3rdparty/openjpeg/LICENSE",
+      "sha256": "a6af136f3e15038a666b61f376612a07d9a4e48cb7c01adbf3e33b3f14ab49b6",
+      "bytes": 2112
+    },
+    {
+      "file": "OpenCV-protobuf-3.19.1-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/opencv/opencv/fe38fc608f6acb8b68953438a62305d8318f4fcd/3rdparty/protobuf/LICENSE",
+      "sha256": "6e5e117324afd944dcf67f36cf329843bc1a92229a8cd9bb573d7a83130fea7d",
+      "bytes": 1732
+    },
+    {
+      "file": "OpenCV-flatbuffers-25.9.23-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/opencv/opencv/fe38fc608f6acb8b68953438a62305d8318f4fcd/3rdparty/flatbuffers/LICENSE.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "bytes": 11358
+    },
+    {
+      "file": "libjpeg-turbo-3.1.3-LICENSE.md",
+      "url": "https://raw.githubusercontent.com/libjpeg-turbo/libjpeg-turbo/3.1.3/LICENSE.md",
+      "sha256": "2189dc45a8fe96204069f8124caa53a148dfdc193f50f584c6ca7849a6072872",
+      "bytes": 5620
+    },
+    {
+      "file": "libpng-1.6.55-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/pnggroup/libpng/v1.6.55/LICENSE",
+      "sha256": "bdb0a645ea18c60507d0368379b1ac5474b92255fcc2d115e07486a7672ba526",
+      "bytes": 5345
+    },
+    {
+      "file": "zlib-1.3.1-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/madler/zlib/v1.3.1/LICENSE",
+      "sha256": "845efc77857d485d91fb3e0b884aaa929368c717ae8186b66fe1ed2495753243",
+      "bytes": 1002
+    },
+    {
+      "file": "libwebp-1.6.0-COPYING.txt",
+      "url": "https://raw.githubusercontent.com/webmproject/libwebp/v1.6.0/COPYING",
+      "sha256": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf",
+      "bytes": 1496
+    },
+    {
+      "file": "libwebp-1.6.0-PATENTS.txt",
+      "url": "https://raw.githubusercontent.com/webmproject/libwebp/v1.6.0/PATENTS",
+      "sha256": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c",
+      "bytes": 1436
+    },
+    {
+      "file": "IPPICV-2022.2.0-ippicv_win_third-party-programs.txt",
+      "url": "https://raw.githubusercontent.com/opencv/opencv_3rdparty/c934a2a15a6df020446ac3dfa07e3acf72b63a8f/ippicv/ippicv_2022.2.0_win_intel64_20250730_general.zip",
+      "archiveMember": "ippicv_win/third-party-programs.txt",
+      "archiveSha256": "56c7bada1067982afd5dd43636f8a9b5a5b80447ec452b754252168cde9d8be8",
+      "sha256": "a0a246b67784450f7a1b99b244d00cbdb8c001aa9b13755ababf4a218431703c",
+      "bytes": 284
+    },
+    {
+      "file": "libjpeg-turbo-3.1.3-README.ijg.txt",
+      "url": "https://raw.githubusercontent.com/libjpeg-turbo/libjpeg-turbo/3.1.3/README.ijg",
+      "sha256": "75815e3bf6484201a3c3d17a1bbf10f2e8e3237f84df10a2357ea896db2a81d6",
+      "bytes": 12799
+    },
+    {
+      "file": "libtiff-4.7.1-LICENSE.md",
+      "url": "https://gitlab.com/libtiff/libtiff/-/raw/v4.7.1/LICENSE.md",
+      "sha256": "0e27c2382d7b8147972bbb746e04059a1152c8d0fda9d03ef1399d1a433c4ade",
+      "bytes": 2416
+    },
+    {
+      "file": "liblzma-5.8.2-COPYING.txt",
+      "url": "https://raw.githubusercontent.com/tukaani-project/xz/v5.8.2/COPYING",
+      "sha256": "616a3ad264ce29b8f1cb97e53037b139d406899ca8d1f799651e17bfa09830b8",
+      "bytes": 3119
+    },
+    {
+      "file": "liblzma-5.8.2-COPYING.0BSD.txt",
+      "url": "https://raw.githubusercontent.com/tukaani-project/xz/v5.8.2/COPYING.0BSD",
+      "sha256": "0b01625d853911cd0e2e088dcfb743261034a091bb379246cb25a14cc4c74bf1",
+      "bytes": 607
+    },
+    {
+      "file": "Intel-ITT-3.25.4-BSD-3-Clause.txt",
+      "url": "https://raw.githubusercontent.com/intel/ittapi/v3.25.4/LICENSES/BSD-3-Clause.txt",
+      "sha256": "cf48cdd9ed87c2031b68fb1b9f4cfb55d00dcf815b21a30bf8304aa1e5e6f76a",
+      "bytes": 1485
+    },
+    {
+      "file": "IPPICV-2022.2.0-EULA.rtf",
+      "url": "https://raw.githubusercontent.com/opencv/opencv_3rdparty/c934a2a15a6df020446ac3dfa07e3acf72b63a8f/ippicv/ippicv_2022.2.0_win_intel64_20250730_general.zip",
+      "archiveMember": "ippicv_win/EULA.rtf",
+      "archiveSha256": "56c7bada1067982afd5dd43636f8a9b5a5b80447ec452b754252168cde9d8be8",
+      "sha256": "37f11c79f36fb5e1b00aca31c1234a7435c2929d83e181ee802a349ca8571749",
+      "bytes": 68409
+    },
+    {
+      "file": "OpenCV-ITT-SOURCE-HEADER.txt",
+      "url": "https://raw.githubusercontent.com/opencv/opencv/fe38fc608f6acb8b68953438a62305d8318f4fcd/3rdparty/ittnotify/src/ittnotify/ittnotify_static.c",
+      "sourceSha256": "aff1cf1b96372bbf26d97488b9590c68bdd4a844215d8c0757a8cf95efa3e729",
+      "extraction": "complete leading copyright/license comment",
+      "sha256": "252c9f0235ab95538b588d9375b93f16374c5007f7d4f47d56645da3de9f195c",
+      "bytes": 107
+    },
+    {
+      "file": "OpenCV-OpenCL-HEADER-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/opencv/opencv/fe38fc608f6acb8b68953438a62305d8318f4fcd/3rdparty/include/opencl/1.2/CL/cl.h",
+      "sourceSha256": "a5465c2ed1a0687878c8f7aa25f94626d7cd3a3868163ecaa6e8b36d6ed52368",
+      "extraction": "complete leading copyright/license comment",
+      "sha256": "afd72960277ecedeba1453de25a39c7fe76235b16d361720f55ed4b2694f0b68",
+      "bytes": 1305
+    }
+  ]
+}

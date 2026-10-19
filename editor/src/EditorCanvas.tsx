@@ -6,6 +6,10 @@ import { annotationFromObject as serialize, annotationToObject as restore, patch
 
 export type CanvasHandle = { exportPng: (scale: number) => Promise<string>; add: (type: AnnotationKind) => void; remove: () => void; patchSelection: (change: {color: string; fontSize: number}) => boolean; interactionState: () => { editing: boolean; selected: boolean }; exitSelection: () => void };
 type Props = { document: ProjectDocument; onAnnotations: (objects: Annotation[], group?: string) => void; onError: (error: unknown) => void; fixedDisplayScale?: { x: number; y: number }; onReady?: () => void };
+// 每个底图都是renderBase私有canvas；替换/卸载时归零背板，避免等待GC回收大图像素。
+function releaseBackground(canvas:Canvas){
+  for(const object of canvas.getObjects())if(object instanceof FabricImage&&!object.selectable){const source=object.getElement();if(source instanceof HTMLCanvasElement)source.width=source.height=0;object.dispose();}
+}
 /** 保持真实像素尺寸，CSS 只缩放显示，不改变导出分辨率。 */
 export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanvas({ document: doc, onAnnotations, onError, fixedDisplayScale, onReady }, ref) {
   const element = useRef<HTMLCanvasElement>(null);
@@ -34,7 +38,11 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
       if (event.target.text.length > 5000) event.target.set({ text: event.target.text.slice(0, 5000) });
       changed(`annotation-text:${serialize(event.target).id}`);
     });
-    return () => { fabric.current = null; void canvas.dispose(); };
+    return () => {
+      fabric.current=null;releaseBackground(canvas);
+      const lower=canvas.lowerCanvasEl,upper=canvas.upperCanvasEl;
+      void canvas.dispose().finally(()=>{lower.width=lower.height=0;upper.width=upper.height=0;});
+    };
   }, []);
   useEffect(() => {
     let cancelled = false;
@@ -42,9 +50,9 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
     const canvas = fabric.current!;
     (async () => {
       const base = await renderBase(doc);
-      if (cancelled) return;
+      if (cancelled) {base.width=base.height=0;return;}
       updating.current = true;
-      canvas.clear(); canvas.setDimensions({ width: base.width, height: base.height });
+      releaseBackground(canvas);canvas.clear(); canvas.setDimensions({ width: base.width, height: base.height });
       canvas.add(new FabricImage(base, { originX: 'left', originY: 'top', selectable: false, evented: false }));
       // 底图异步渲染期间仍可删除或移动标注，恢复时读取最新文档，避免旧闭包复活对象。
       const annotations = current.current.editor.annotations;
@@ -91,12 +99,14 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
       if (scale === 1 && doc.editor.mode === 'raw' && !doc.editor.crop && !doc.editor.resize && !doc.editor.annotations.length && doc.image?.dataUrl.startsWith('data:image/png;base64,')) return doc.image.dataUrl;
       // 重排文字在目标倍率重新绘制，避免仅放大预览底图；标注仍由同一 Fabric 对象内核合成。
       const size = outputSize(doc.image, doc.editor, scale), base = await renderBase(doc, scale);
+      // 无标注时底图已经是目标像素，直接编码，避免额外Fabric画布及一次整图复制。
+      if(!doc.editor.annotations.length){try{return base.toDataURL('image/png');}finally{base.width=0;base.height=0;}}
       const output = new StaticCanvas(undefined, { width:size.width, height:size.height, enableRetinaScaling:false });
       try {
         output.add(new FabricImage(base, { originX:'left',originY:'top',scaleX:1/scale,scaleY:1/scale }));
         for (const annotation of doc.editor.annotations) output.add(restore(annotation));
         return output.toDataURL({ format:'png',multiplier:scale,enableRetinaScaling:false });
-      } finally { await output.dispose(); }
+      } finally { await output.dispose();base.width=0;base.height=0; }
     },
     add(type) {
       const canvas = fabric.current;
