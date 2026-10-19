@@ -19,3 +19,8 @@ export function overlayKeyAction(context: KeyContext): OverlayKeyAction {
   if (context.key.toLowerCase() === 'c' && (context.ctrl || context.meta) && !context.alt && !context.shift && !context.textInput && !context.fabricEditing && !context.textSelection) return 'copy-image';
   return 'ignore';
 }
+
+/** Delete is a document action only outside all text-editing contexts. */
+export function annotationKeyAction(context: KeyContext): 'delete' | 'ignore' {
+  return !context.composing && !context.textInput && !context.fabricEditing && !context.ctrl && !context.meta && !context.alt && !context.shift && context.selectedObject && ['Delete', 'Backspace'].includes(context.key) ? 'delete' : 'ignore';
+}

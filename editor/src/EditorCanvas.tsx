@@ -4,14 +4,15 @@ import { renderBase } from './render';
 import { outputSize, type Annotation, type AnnotationKind, type ProjectDocument } from './document';
 import { annotationFromObject as serialize, annotationToObject as restore, patchAnnotationObject } from './annotations';
 
+export type CanvasRenderStatus = 'loading' | 'ready' | 'error';
 export type CanvasHandle = { exportPng: (scale: number) => Promise<string>; add: (type: AnnotationKind) => void; remove: () => void; patchSelection: (change: {color: string; fontSize: number}) => boolean; interactionState: () => { editing: boolean; selected: boolean }; exitSelection: () => void };
-type Props = { document: ProjectDocument; onAnnotations: (objects: Annotation[], group?: string) => void; onError: (error: unknown) => void; fixedDisplayScale?: { x: number; y: number }; onReady?: () => void };
+type Props = { document: ProjectDocument; onAnnotations: (objects: Annotation[], group?: string) => void; onError: (error: unknown) => void; fixedDisplayScale?: { x: number; y: number }; onReady?: () => void; onRenderStatus?: (status: CanvasRenderStatus) => void };
 // 每个底图都是renderBase私有canvas；替换/卸载时归零背板，避免等待GC回收大图像素。
 function releaseBackground(canvas:Canvas){
   for(const object of canvas.getObjects())if(object instanceof FabricImage&&!object.selectable){const source=object.getElement();if(source instanceof HTMLCanvasElement)source.width=source.height=0;object.dispose();}
 }
 /** 保持真实像素尺寸，CSS 只缩放显示，不改变导出分辨率。 */
-export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanvas({ document: doc, onAnnotations, onError, fixedDisplayScale, onReady }, ref) {
+export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanvas({ document: doc, onAnnotations, onError, fixedDisplayScale, onReady, onRenderStatus }, ref) {
   const element = useRef<HTMLCanvasElement>(null);
   const wrapper = useRef<HTMLDivElement>(null);
   const fabric = useRef<Canvas | null>(null);
@@ -20,7 +21,7 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
   const [zoom, setZoom] = useState(1);
   const displayScale = fixedDisplayScale || { x: zoom, y: zoom };
   const [size, setSize] = useState({ width: 720, height: 480 });
-  const callbacks = useRef({ onAnnotations, onError }); callbacks.current = { onAnnotations, onError };
+  const callbacks = useRef({ onAnnotations, onError, onRenderStatus }); callbacks.current = { onAnnotations, onError, onRenderStatus };
   const current = useRef(doc); current.current = doc;
   const properties = JSON.stringify([doc.editor.mode, doc.editor.padding, doc.editor.radius, doc.editor.background, doc.editor.shadow, doc.editor.borderWidth, doc.editor.borderColor, doc.editor.lineSpacing, doc.editor.paragraphSpacing, doc.editor.text, doc.editor.title, doc.editor.fontSize, doc.editor.textWidth, doc.editor.translation, doc.editor.textLayout, doc.editor.crop, doc.editor.resize]);
   const latestProperties = useRef(properties); latestProperties.current = properties;
@@ -46,7 +47,7 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
   }, []);
   useEffect(() => {
     let cancelled = false;
-    loaded.current = false;
+    loaded.current = false; callbacks.current.onRenderStatus?.('loading');
     const canvas = fabric.current!;
     (async () => {
       const base = await renderBase(doc);
@@ -59,8 +60,8 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
       for (const a of annotations) canvas.add(restore(a));
       lastAnnotations.current = annotations;
       setSize({ width: base.width, height: base.height });
-      canvas.requestRenderAll(); updating.current = false; rendered.current = { image: doc.image, properties }; loaded.current = true;
-    })().catch(error => { if (!cancelled) callbacks.current.onError(error); });
+      canvas.requestRenderAll(); updating.current = false; rendered.current = { image: doc.image, properties }; loaded.current = true; callbacks.current.onRenderStatus?.('ready');
+    })().catch(error => { if (!cancelled) { callbacks.current.onRenderStatus?.('error'); callbacks.current.onError(error); } });
     return () => { cancelled = true; };
     // 标注已直接存在于 Fabric 中，逐字输入时重建会丢失编辑焦点。
   }, [doc.image, properties]);
@@ -93,7 +94,9 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
       const canvas = fabric.current;
       if (!canvas || !loaded.current || rendered.current?.image !== current.current.image || rendered.current?.properties !== latestProperties.current || lastAnnotations.current !== current.current.editor.annotations) throw new Error('画布正在更新，请稍后重试。');
       outputSize(current.current.image, current.current.editor, scale);
-      canvas.discardActiveObject(); canvas.renderAll();
+      // Static export is reconstructed from the model, so selection controls never enter PNG.
+      // Keep the active object selected for the user's next edit.
+      canvas.renderAll();
       // 未编辑的原样 PNG 跳过重编码，完整保留透明像素数据。
       const doc = current.current;
       if (scale === 1 && doc.editor.mode === 'raw' && !doc.editor.crop && !doc.editor.resize && !doc.editor.annotations.length && doc.image?.dataUrl.startsWith('data:image/png;base64,')) return doc.image.dataUrl;
