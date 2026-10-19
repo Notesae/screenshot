@@ -80,3 +80,10 @@ WGC 后端、窗口捕获、指定显示器/完整选区微调、自定义热键
 发布曾发现全局 RuntimeFrameworkVersion 将 .NET 补丁号 10.0.13 错用为 Windows SDK 制品版本，造成 NU1505/NU1102。已根据 SDK 10.0.102 的 FrameworkReference metadata 优先级，改为单独的 ScreenshotRuntimeVersion，仅固定 .NETCore/WindowsDesktop 与 apphost；Windows SDK 仍为 10.0.19041.57。修复提交 33ffb1e，隔离 Windows x64 自包含发布成功，runtimeconfig 与还原资产确认三个 .NET pack 均为 10.0.13。
 
 本批之外仍保留 C2 选区微调/窗口屏幕选择/自定义快捷键、A1 服务能力/任务取消重试/缓存用量、样式预设、现实 OCR 样本评估、干净机器安装与许可全量审计、签名/更新及所有 P1/P2。完整产品级门槛不因本批测试通过而自动完成。
+
+## 2026-10-19 本机恢复后的 OCR 隐私修复
+
+- 本机仓库为 `H:\work\screenshot`，从已提交的 `5f7c9b2` 恢复，未取得旧电脑的未提交草稿。Codex `list_projects` 已核实同名项目的保存路径为该仓库。
+- OCR 实色遮盖先映回裁剪原图，再缩放；旋转遮盖保守使用外接矩形并扩展采样边缘。文字卡片遮盖无可靠原图映射时拒绝 OCR，不上传原图。普通装饰、标注和冻结桌面不进入 OCR；可编辑项目与先前 OCR 文字仍可能包含敏感内容。
+- 本机前端 39 项测试通过，构建成功；16 组独立 headless Edge 合成回归通过，包含本地/云端 OCR 桥接 PNG 的实际遮盖像素及阻止歧义上传。没有真实服务、密钥、系统剪贴板或桌面输入。
+- `npm ci --ignore-scripts` 审计为 0 漏洞。Vite 主包 578.02 kB，仍有 500 kB 体积警告。新机 .NET SDK 尚在临时准备，原生整体验证待后续批次完成，未将旧机证据当成本机运行结果。

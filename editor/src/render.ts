@@ -1,4 +1,5 @@
 import { textLayout } from './textLayout';
+import { processingMasks } from './processingPrivacy';
 import { contentGeometry, outputSize, type ProjectDocument } from './document';
 import { parseImage, MAX_IMAGE_BYTES } from './document';
 import type { LoadedImage } from './bridge';
@@ -74,11 +75,21 @@ export async function normalizeImage(value: LoadedImage): Promise<LoadedImage> {
   return parseImage({ ...image, dataUrl });
 }
 
-/** OCR 使用裁剪/等比缩放后的图片内容，不包含背景、阴影或标注；原图引用保持不变。 */
-export async function imageForProcessing(document: ProjectDocument): Promise<LoadedImage> {
-  if (!document.image) throw new Error('请先载入图片。');
-  if (!document.editor.crop && !document.editor.resize) return document.image;
-  const editor = { ...document.editor, mode: 'raw' as const, annotations: [] };
-  const canvas = await renderBase({ ...document, editor });
-  return { dataUrl: canvas.toDataURL('image/png'), name: document.image.name, width: canvas.width, height: canvas.height };
+/** OCR 只用当前内容和实色隐私遮盖；装饰与其他标注不参与，原图仍供本地编辑。 */
+export async function imageForProcessing(doc: ProjectDocument): Promise<LoadedImage> {
+  if (!doc.image) throw new Error('请先载入图片。');
+  const masks = processingMasks(doc);
+  if (!doc.editor.crop && !doc.editor.resize && !masks.length) return doc.image;
+  const geometry = contentGeometry(doc.image, doc.editor);
+  // 在原始分辨率遮住信息后才进行任何重采样，避免缩放先把敏感像素混入边缘。
+  const editor = { ...doc.editor, mode: 'raw' as const, resize: null, annotations: [] };
+  const source = await renderBase({ ...doc, editor });
+  const ctx = source.getContext('2d')!;
+  for (const mask of masks) { ctx.fillStyle = mask.color; ctx.fillRect(mask.x, mask.y, mask.width, mask.height); }
+  let canvas = source;
+  if (doc.editor.resize) {
+    canvas = document.createElement('canvas'); canvas.width = geometry.width; canvas.height = geometry.height;
+    canvas.getContext('2d')!.drawImage(source, 0, 0, canvas.width, canvas.height);
+  }
+  return { dataUrl: canvas.toDataURL('image/png'), name: doc.image.name, width: canvas.width, height: canvas.height };
 }

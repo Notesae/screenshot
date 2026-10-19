@@ -179,6 +179,35 @@ async function e1Transforms(page, source) {
   checks.push('crop/resize retain source and overlay anchor; undo/redo restore dimensions; OCR sees only current crop and its result is undoable');
 }
 
+// 验证真正进入两种 OCR 桥接的 PNG 像素，而非仅验证遮盖模型。
+async function privacyChecks(page) {
+  await capture(page, 'privacy-cover'); await waitCanvas(page,80,60);
+  await page.getByRole('button',{name:'更多与完整工作台',exact:true}).click();
+  await page.getByRole('button',{name:'遮盖',exact:true}).click();
+  const saved = await saveDocument(page);
+  await page.getByRole('button',{name:'OCR',exact:true}).click();
+  for (const engine of ['local','cloud']) {
+    await page.getByLabel('识别方式',{exact:true}).selectOption(engine);
+    const method = engine === 'local' ? 'ocr.local' : 'ai.ocr';
+    const count = await page.evaluate(method=>window.__messages.filter(m=>m.method===method).length,method);
+    await page.getByRole('button',{name:engine==='local'?'本地识别文字':'云端识别文字',exact:true}).click();
+    await page.waitForFunction(({method,count})=>window.__messages.filter(m=>m.method===method).length>count,{method,count});
+    const data = await page.evaluate(method=>window.__messages.filter(m=>m.method===method).at(-1).payload.imageDataUrl,method);
+    assert.deepEqual((await imagePixel(page,data,30,20)).pixel,[48,51,46,255]);
+    assert.deepEqual((await imagePixel(page,saved.image.dataUrl,30,20)).pixel,[204,68,34,255]);
+    await page.waitForFunction(()=>!document.querySelector('.compact-progress'));
+    if(engine==='local') {
+      // 本地结果不切模式；云端结果进入文字卡片，因此放在最后。
+      assert.equal(await page.getByRole('textbox',{name:'可校对的译文',exact:true}).inputValue(),'');
+    }
+  }
+  const count=await page.evaluate(()=>window.__messages.filter(m=>m.method==='ai.ocr').length);
+  await page.getByRole('button',{name:'云端识别文字',exact:true}).click();
+  await page.getByRole('alert').filter({hasText:'无法对应原图'}).waitFor();
+  assert.equal(await page.evaluate(()=>window.__messages.filter(m=>m.method==='ai.ocr').length),count);
+  checks.push('local/cloud OCR payload pixels contain opaque covers while project retains source; ambiguous reflow covers block upload');
+}
+
 // E2/S1 只模拟桥接，不访问真实模型、数据库或外部服务。
 async function e2Checks(page) {
   await capture(page, 'e2-local'); await waitCanvas(page, 80, 60);
@@ -356,6 +385,7 @@ async function emptyTextRecovery(page) {
   await releaseDecodes(page); await page.waitForFunction(() => !document.querySelector('.compact-overlay') && document.querySelector('.workspace-bar strong')?.textContent === '合成测试.png');
   assert.equal(await page.getByRole('alert').count(), 0); checks.push('user workbench restoration invalidates pending capture without a timeout warning');
   await e1Checks(page, source);
+  await privacyChecks(page);
   await e2Checks(page);
   assert.deepEqual(errors, []);
   const evidence = { headless: true, syntheticOnly: true, nativeCalls: false, clipboardAccess: false, checks };
