@@ -6,15 +6,16 @@ import { baseRenderKey } from './renderIdentity';
 import { outputSize, type Annotation, type AnnotationKind, type ProjectDocument } from './document';
 import { annotationFromObject as serialize, annotationToObject as restore, patchAnnotationObject } from './annotations';
 
+export type CanvasSelection = Pick<Annotation, 'id' | 'type' | 'color' | 'fontSize'>;
 export type CanvasRenderStatus = 'loading' | 'ready' | 'error';
 export type CanvasHandle = { exportPng: (scale: number) => Promise<string>; add: (type: AnnotationKind) => void; remove: () => void; patchSelection: (change: {color: string; fontSize: number}) => boolean; interactionState: () => { editing: boolean; selected: boolean }; exitSelection: () => void };
-type Props = { document: ProjectDocument; onAnnotations: (objects: Annotation[], group?: string) => void; onError: (error: unknown) => void; fixedDisplayScale?: { x: number; y: number }; onReady?: () => void; onRenderStatus?: (status: CanvasRenderStatus) => void };
+type Props = { document: ProjectDocument; onAnnotations: (objects: Annotation[], group?: string) => void; onError: (error: unknown) => void; fixedDisplayScale?: { x: number; y: number }; onReady?: () => void; onRenderStatus?: (status: CanvasRenderStatus) => void; onSelection?: (selection:CanvasSelection|null)=>void };
 // 每个底图都是renderBase私有canvas；替换/卸载时归零背板，避免等待GC回收大图像素。
 function releaseBackground(canvas:Canvas){
   for(const object of canvas.getObjects())if(object instanceof FabricImage&&!object.selectable){const source=object.getElement();if(source instanceof HTMLCanvasElement)source.width=source.height=0;object.dispose();}
 }
 /** 保持真实像素尺寸，CSS 只缩放显示，不改变导出分辨率。 */
-export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanvas({ document: doc, onAnnotations, onError, fixedDisplayScale, onReady, onRenderStatus }, ref) {
+export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanvas({ document: doc, onAnnotations, onError, fixedDisplayScale, onReady, onRenderStatus, onSelection }, ref) {
   const element = useRef<HTMLCanvasElement>(null);
   const wrapper = useRef<HTMLDivElement>(null);
   const fabric = useRef<Canvas | null>(null);
@@ -26,26 +27,40 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
   const actualZoom = manualZoom ?? zoom;
   const displayScale = fixedDisplayScale || { x: actualZoom, y: actualZoom };
   const [size, setSize] = useState({ width: 720, height: 480 });
-  const callbacks = useRef({ onAnnotations, onError, onRenderStatus }); callbacks.current = { onAnnotations, onError, onRenderStatus };
+  const callbacks = useRef({ onAnnotations, onError, onRenderStatus, onSelection }); callbacks.current = { onAnnotations, onError, onRenderStatus, onSelection };
   const current = useRef(doc); current.current = doc;
   const properties = baseRenderKey(doc.editor);
   const latestProperties = useRef(properties); latestProperties.current = properties;
   const rendered = useRef<{ image: ProjectDocument['image']; properties: string } | null>(null);
   const lastAnnotations = useRef<Annotation[]>([]);
+  const selectedStyle = useRef<CanvasSelection|null>(null);
+  function publishSelection() {
+    if (updating.current) return;
+    const object = fabric.current?.getActiveObject(), annotation = object ? serialize(object) : null;
+    const next = annotation ? { id:annotation.id,type:annotation.type,color:annotation.color,fontSize:annotation.fontSize } : null;
+    if (JSON.stringify(next) === JSON.stringify(selectedStyle.current)) return;
+    selectedStyle.current = next; callbacks.current.onSelection?.(next);
+  }
+  // 稳定ID使样式重绘及撤销保留同一选择；删除或新文档不自动选择别的对象。
+  function restoreObjects(canvas:Canvas, annotations:Annotation[], selectedId?:string) {
+    for (const a of annotations) { const object=restore(a);canvas.add(object);if(selectedId&&a.id===selectedId)canvas.setActiveObject(object); }
+  }
+
   useEffect(() => {
     const canvas = new Canvas(element.current!, { enableRetinaScaling: false, preserveObjectStacking: true, selection: false, selectionKey: undefined });
     fabric.current = canvas;
     const changed = (group?: string) => {
-      if (updating.current || !loaded.current) return;
+      if (fabric.current !== canvas || updating.current || !loaded.current) return;
       const objects = canvas.getObjects().filter(o => o.selectable).map(serialize);
       lastAnnotations.current = objects; callbacks.current.onAnnotations(objects, group);
     };
+    canvas.on('selection:created', publishSelection);canvas.on('selection:updated', publishSelection);canvas.on('selection:cleared', publishSelection);
     canvas.on('object:modified', () => changed()); canvas.on('text:changed', event => {
       if (event.target.text.length > 5000) event.target.set({ text: event.target.text.slice(0, 5000) });
       changed(`annotation-text:${serialize(event.target).id}`);
     });
     return () => {
-      fabric.current=null;releaseBackground(canvas);
+      fabric.current=null;publishSelection();releaseBackground(canvas);
       const lower=canvas.lowerCanvasEl,upper=canvas.upperCanvasEl;
       void canvas.dispose().finally(()=>{lower.width=lower.height=0;upper.width=upper.height=0;});
     };
@@ -57,15 +72,16 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
     (async () => {
       const base = await renderBase(doc);
       if (cancelled) {base.width=base.height=0;return;}
+      const selectedId = canvas.getActiveObject() ? serialize(canvas.getActiveObject()!).id : undefined;
       updating.current = true;
       releaseBackground(canvas);canvas.clear(); canvas.setDimensions({ width: base.width, height: base.height });
       canvas.add(new FabricImage(base, { originX: 'left', originY: 'top', selectable: false, evented: false }));
       // 底图异步渲染期间仍可删除或移动标注，恢复时读取最新文档，避免旧闭包复活对象。
       const annotations = current.current.editor.annotations;
-      for (const a of annotations) canvas.add(restore(a));
+      restoreObjects(canvas,annotations,selectedId);
       lastAnnotations.current = annotations;
       setSize({ width: base.width, height: base.height });
-      canvas.requestRenderAll(); updating.current = false; rendered.current = { image: doc.image, properties }; loaded.current = true; callbacks.current.onRenderStatus?.('ready');
+      canvas.requestRenderAll(); updating.current = false; rendered.current = { image: doc.image, properties }; loaded.current = true; publishSelection();callbacks.current.onRenderStatus?.('ready');
     })().catch(error => { if (!cancelled) { callbacks.current.onRenderStatus?.('error'); callbacks.current.onError(error); } });
     return () => { cancelled = true; };
     // 标注已直接存在于 Fabric 中，逐字输入时重建会丢失编辑焦点。
@@ -74,10 +90,11 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
   useEffect(() => {
     const canvas = fabric.current;
     if (!canvas || !loaded.current || doc.editor.annotations === lastAnnotations.current) return;
+    const selectedId = canvas.getActiveObject() ? serialize(canvas.getActiveObject()!).id : undefined;
     updating.current = true; canvas.discardActiveObject();
     canvas.remove(...canvas.getObjects().filter(object => object.selectable));
-    for (const annotation of doc.editor.annotations) canvas.add(restore(annotation));
-    lastAnnotations.current = doc.editor.annotations; canvas.requestRenderAll(); updating.current = false;
+    restoreObjects(canvas,doc.editor.annotations,selectedId);
+    lastAnnotations.current = doc.editor.annotations; canvas.requestRenderAll(); updating.current = false;publishSelection();
   }, [doc.editor.annotations]);
   useEffect(() => {
     if (fixedDisplayScale) return;
@@ -136,7 +153,7 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
       if (!canvas || !loaded.current || !object || !/^#[0-9a-f]{6}$/i.test(change.color) || !Number.isFinite(change.fontSize) || change.fontSize < 8 || change.fontSize > 240) return false;
       patchAnnotationObject(object, change); canvas.requestRenderAll();
       const objects = canvas.getObjects().filter(o => o.selectable).map(serialize);
-      lastAnnotations.current = objects; callbacks.current.onAnnotations(objects); return true;
+      lastAnnotations.current = objects; callbacks.current.onAnnotations(objects);publishSelection(); return true;
     },
     interactionState() {
       const object = fabric.current?.getActiveObject();

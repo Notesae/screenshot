@@ -52,3 +52,26 @@ describe('in-place capture geometry', () => {
     expect(() => parseCapture({ image, overlay: { ...overlay, selection: { ...overlay.selection, x: -3000 } } })).toThrow();
   });
 });
+
+describe('shared compact docking',()=>{
+  const one:OverlayMetadata={desktopBounds:{x:0,y:0,width:1280,height:800},selection:{x:600,y:80,width:240,height:120},screens:[{bounds:{x:0,y:0,width:1280,height:800},primary:true}]};
+  const intersects=(a:{x:number;y:number;width:number;height:number},b:{x:number;y:number;width:number;height:number})=>Math.max(0,Math.min(a.x+a.width,b.x+b.width)-Math.max(a.x,b.x))*Math.max(0,Math.min(a.y+a.height,b.y+b.height)-Math.max(a.y,b.y));
+  it('docks into free side space without covering the image, toolbar or recovery status',()=>{
+    const a=overlayLayout(one,{width:1280,height:800},{width:240,height:120},0,{width:560,height:46,statusHeight:42,panelOpen:true}),p={...a.panel,height:a.panel.maxHeight};
+    expect(intersects(p,a.toolbar)).toBe(0);expect(intersects(p,a.status)).toBe(0);expect(intersects(p,a.frame)).toBe(0);expect(a.panel.maxHeight).toBeGreaterThanOrEqual(400);
+  });
+  it('keeps a bottom-edge toolbar and its status outside the original content',()=>{
+    const edge={...one,selection:{x:1090,y:650,width:160,height:100}},a=overlayLayout(edge,{width:1280,height:800},{width:160,height:100},0,{width:560,height:46,statusHeight:42,panelOpen:true});
+    expect(intersects(a.toolbar,a.frame)).toBe(0);expect(intersects(a.status,a.frame)).toBe(0);expect(a.status.y+a.status.height).toBeLessThan(650);expect(a.frame).toEqual({x:1090,y:650,width:160,height:100});
+  });
+  it('bounds wrapped tools, status and panels on a short monitor without changing pixel mapping',()=>{
+    const a=overlayLayout(one,{width:640,height:240},{width:240,height:120},0,{width:560,height:140,statusHeight:44,panelOpen:true});
+    for(const b of [a.toolbar,a.status,{...a.panel,height:a.panel.maxHeight}]){expect(b.x).toBeGreaterThanOrEqual(0);expect(b.y).toBeGreaterThanOrEqual(0);expect(b.x+b.width).toBeLessThanOrEqual(640);expect(b.y+b.height).toBeLessThanOrEqual(240);}
+    expect(a.scale).toEqual({x:.5,y:.3});expect(a.frame.x).toBe(300);expect(intersects({...a.panel,height:a.panel.maxHeight},a.status)).toBe(0);
+  });
+});
+
+it('reserves a usable short-monitor panel rather than centering a button behind its heading',()=>{
+ const a=overlayLayout(overlay,{width:1120,height:360},{width:176,height:156},48,{width:560,height:80,statusHeight:42,panelOpen:true});
+ expect(a.panel.maxHeight).toBeGreaterThanOrEqual(120);expect(a.panel.y+a.panel.maxHeight<=a.toolbar.y-8||a.panel.y>=a.status.y+a.status.height+8).toBe(true);
+});

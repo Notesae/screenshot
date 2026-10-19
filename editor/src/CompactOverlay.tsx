@@ -4,7 +4,7 @@ import { StyleTools } from './StyleTools';
 import { TextTools, CaptureBackendSelector, type TextToolsProps } from './TextTools';
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { ArrowDownToLine, Check, Copy, Frame, Languages, Maximize2, MoreHorizontal, ScanText, Sparkles, Shield, Trash2, Type, X } from 'lucide-react';
-import { EditorCanvas, type CanvasHandle, type CanvasRenderStatus } from './EditorCanvas';
+import { EditorCanvas, type CanvasHandle, type CanvasRenderStatus, type CanvasSelection } from './EditorCanvas';
 import { outputSize, type ContentResize, type SourceCrop, type EditorState, type ProjectDocument } from './document';
 import { native, type Settings, type PresentationResult } from './bridge';
 import { overlayLayout, type OverlayMetadata } from './overlay';
@@ -12,6 +12,7 @@ import { overlayKeyAction } from './keyboard';
 import { AnnotationPalette, HistoryButtons, TransformPanel } from './EditControls';
 
 type Props = {
+  selection:CanvasSelection|null;onSelection:(selection:CanvasSelection|null)=>void;
   recoveryState: RecoveryView;
   renderStatus: CanvasRenderStatus; onRenderStatus: (status: CanvasRenderStatus) => void;
   skipReady:boolean;onFiles:(files:FileList|null)=>Promise<void>;onCapture:(method:string,payload?:object)=>void;
@@ -46,14 +47,14 @@ export function CompactOverlay(props: Props) {
   const editor = doc.editor;
   let output = { width: doc.image?.width || 1, height: doc.image?.height || 1 };
   try { output = outputSize(doc.image, editor); } catch { /* 画布会显示尺寸错误，工具仍可用于缩短文字。 */ }
-  const layout = overlayLayout(metadata, viewport, output, editor.mode === 'beauty' ? editor.padding : 0, tools, editor.mode === 'reflow' ? undefined : editor.crop || (editor.resize ? { x: 0, y: 0 } : undefined));
+  const layout = overlayLayout(metadata, viewport, output, editor.mode === 'beauty' ? editor.padding : 0, {...tools,statusHeight,panelOpen:Boolean(panel)}, editor.mode === 'reflow' ? undefined : editor.crop || (editor.resize ? { x: 0, y: 0 } : undefined));
 
   useEffect(() => {
     const resize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
     window.addEventListener('resize', resize);
-    const observer = new ResizeObserver(entries => setTools(size => ({ ...size, height: entries[0].target.getBoundingClientRect().height })));
+    const observer = new ResizeObserver(entries => setTools(size => ({ ...size, height: Math.max(entries[0].target.getBoundingClientRect().height, entries[0].target.scrollHeight+2) })));
     if (toolbar.current) observer.observe(toolbar.current);
-    const statusObserver = new ResizeObserver(entries => setStatusHeight(entries[0].target.getBoundingClientRect().height));
+    const statusObserver = new ResizeObserver(entries => setStatusHeight(Math.max(entries[0].target.getBoundingClientRect().height,entries[0].target.scrollHeight+2)));
     if (statusBar.current) statusObserver.observe(statusBar.current);
     return () => { window.removeEventListener('resize', resize); observer.disconnect(); statusObserver.disconnect(); };
   }, []);
@@ -89,9 +90,9 @@ export function CompactOverlay(props: Props) {
   return <div className="compact-overlay" aria-label="截图选区编辑" style={dragging?{pointerEvents:'auto'}:undefined} onDragOver={event=>{if(Array.from(event.dataTransfer.types).includes('Files')){event.preventDefault();setDragging(true);}}} onDrop={event=>{event.preventDefault();event.stopPropagation();setDragging(false);void props.onFiles(event.dataTransfer.files);}}>
     {dragging&&<div className="compact-drop" role="status">松开图片，在原位编辑；原始导出像素保持不变。</div>}
     <div className="compact-canvas" style={{ left: layout.frame.x, top: layout.frame.y, width: layout.frame.width, height: layout.frame.height }}>
-      <EditorCanvas ref={canvasRef} document={doc} onRenderStatus={props.onRenderStatus} fixedDisplayScale={layout.scale} onReady={() => setCanvasReady(true)} onAnnotations={(annotations, group) => update({ annotations }, group)} onError={props.onError}/>
+      <EditorCanvas ref={canvasRef} document={doc} onSelection={props.onSelection} onRenderStatus={props.onRenderStatus} fixedDisplayScale={layout.scale} onReady={() => setCanvasReady(true)} onAnnotations={(annotations, group) => update({ annotations }, group)} onError={props.onError}/>
     </div>
-    <div className="compact-toolbar" role="toolbar" aria-label="截图工具" ref={toolbar} style={{ left: layout.toolbar.x, top: layout.toolbar.y, width: layout.toolbar.width }}>
+    <div className="compact-toolbar" role="toolbar" aria-label="截图工具" ref={toolbar} style={{ left: layout.toolbar.x, top: layout.toolbar.y, width: layout.toolbar.width, maxHeight:layout.toolbar.height }}>
       <HistoryButtons canUndo={props.canUndo} canRedo={props.canRedo} undo={props.undo} redo={props.redo}/>
       <button title="添加文字标注" aria-label="添加文字标注" onClick={() => canvasRef.current?.add('text')}><Type/></button><button title="添加矩形标注" aria-label="添加矩形标注" onClick={() => canvasRef.current?.add('rect')}><Frame/></button><button title="实色遮盖敏感信息" aria-label="添加实色遮盖" onClick={() => canvasRef.current?.add('cover')}><Shield/></button><span className="compact-divider"/>
       <button className={panel === 'beauty' ? 'active' : ''} aria-expanded={panel === 'beauty'} aria-controls="compact-options" onClick={event => { update({ mode: 'beauty' }); togglePanel('beauty', event.currentTarget); }}><Sparkles/>美化</button>
@@ -103,9 +104,9 @@ export function CompactOverlay(props: Props) {
       <div className="compact-panel-heading"><strong>{panel === 'beauty' ? '美化选区' : panel === 'text' ? '文字与翻译' : '更多操作'}</strong><button aria-label="关闭选项" onClick={closePanel}><X/></button></div>
       {panel === 'beauty' && <><StyleTools editor={editor} update={update} onError={props.onError}/><div className="swatches">{colors.map(color => <button key={color} aria-label={`背景 ${color}`} style={{ background: color }} className={editor.background === color ? 'active' : ''} onClick={() => update({ background: color })}>{editor.background === color && <Check size={14}/>}</button>)}</div><CompactRange label="留白" value={editor.padding} max={200} onChange={padding => update({ padding })}/><CompactRange label="圆角" value={editor.radius} max={100} onChange={radius => update({ radius })}/><label className="checkbox-row"><input type="checkbox" checked={editor.shadow} onChange={event => update({ shadow: event.target.checked })}/>柔和阴影</label><button className="compact-secondary" onClick={() => update({ mode: 'raw' })}>恢复原样</button></>}
       {panel === 'text' && <TextTools {...props.textTools} compact/>}
-      {panel === 'more' && <><CaptureControls onStart={props.clearNotice} backend={props.captureBackend} disabled={!!busy} onCapture={props.onCapture} onError={props.onError}/><CaptureBackendSelector backend={props.captureBackend} disabled={!!busy} onChange={props.onCaptureBackend}/>{props.recoveryPanel}<div className="compact-size">选区 {doc.image?.width} × {doc.image?.height} 像素</div><AnnotationPalette canvasRef={canvasRef} onError={props.onError}/><button className="compact-secondary" onClick={() => canvasRef.current?.remove()}><Trash2/>删除选中标注</button><TransformPanel document={doc} onTransform={props.onTransform}/><label className="control-label" htmlFor="compact-scale">导出倍率</label><select id="compact-scale" value={props.scale} onChange={event => props.setScale(Number(event.target.value))}><option value={1}>1× 当前尺寸</option><option value={2}>2× 尺寸</option></select><button className="compact-secondary" disabled={!!busy} onClick={props.onSaveProject}>保存可编辑项目</button><button className="compact-secondary" disabled={!!busy} onClick={() => props.onPresentation('workbench')}><Maximize2/>完整工作台</button></>}
+      {panel === 'more' && <><CaptureControls onStart={props.clearNotice} backend={props.captureBackend} disabled={!!busy} onCapture={props.onCapture} onError={props.onError}/><CaptureBackendSelector backend={props.captureBackend} disabled={!!busy} onChange={props.onCaptureBackend}/>{props.recoveryPanel}<div className="compact-size">选区 {doc.image?.width} × {doc.image?.height} 像素</div><AnnotationPalette selection={props.selection} disabled={props.renderStatus!=='ready'} canvasRef={canvasRef} onError={props.onError}/><button className="compact-secondary" onClick={() => canvasRef.current?.remove()}><Trash2/>删除选中标注</button><TransformPanel document={doc} onTransform={props.onTransform}/><label className="control-label" htmlFor="compact-scale">导出倍率</label><select id="compact-scale" value={props.scale} onChange={event => props.setScale(Number(event.target.value))}><option value={1}>1× 当前尺寸</option><option value={2}>2× 尺寸</option></select><button className="compact-secondary" disabled={!!busy} onClick={props.onSaveProject}>保存可编辑项目</button><button className="compact-secondary" disabled={!!busy} onClick={() => props.onPresentation('workbench')}><Maximize2/>完整工作台</button></>}
     </section>}
-    <div ref={statusBar} className="compact-status-bar" style={{left:layout.toolbar.x,width:layout.toolbar.width,top:layout.toolbar.y + tools.height + 8 + statusHeight <= viewport.height - 8 ? layout.toolbar.y + tools.height + 8 : Math.max(8,layout.toolbar.y - statusHeight - 8)}}><RecoveryStatus state={props.recoveryState}/>{(busy || aiBusy || props.renderStatus === 'loading') && <div className="compact-progress" role="status"><span className="spinner"/>{busy || aiBusy || '画布更新中'}…{aiBusy && <button className="task-cancel" onClick={props.textTools.onCancelOcr}>取消任务</button>}</div>}</div>
+    <div ref={statusBar} className="compact-status-bar" style={{left:layout.status.x,width:layout.status.width,top:layout.status.y,maxHeight:layout.status.height}}><RecoveryStatus state={props.recoveryState}/>{(busy || aiBusy || props.renderStatus === 'loading') && <div className="compact-progress" role="status"><span className="spinner"/>{busy || aiBusy || '画布更新中'}…{aiBusy && <button className="task-cancel" onClick={props.textTools.onCancelOcr}>取消任务</button>}</div>}</div>
     {props.notice && <div className={`compact-notice ${props.notice.error ? 'error' : ''}`} role={props.notice.error ? 'alert' : 'status'} style={{ left: layout.screen.x + 12, top: layout.screen.y + 12, maxWidth: Math.max(80, layout.screen.width - 24) }}><span>{props.notice.text}</span><button aria-label="关闭提示" onClick={props.clearNotice}><X/></button></div>}
   </div>;
 }

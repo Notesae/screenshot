@@ -112,3 +112,7 @@ Bridge and project schemas are unchanged. CPU OCR uses the same fixed models and
 ## 0.4.3 editor workflow
 
 Bridge/project schemas remain unchanged. Workbench zoom/scroll is view-only; capture overlay keeps its physical mapping. Source/translation fields invisible in the current mode no longer rebuild the base image, while document history, autosave and export validation still use the current document. Empty OCR never clears prior corrected work.
+
+## 0.4.4 editing refinement
+
+No bridge or project schema change. Selection/property drafts remain view state; supported annotations retain their stable identity across style redraw and history synchronization. Compact tools, status and options share one bounded docking model without changing capture coordinates or export pixels.
