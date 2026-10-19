@@ -8,7 +8,8 @@ namespace Screenshot.App;
 // 单个显示器的物理像素范围；不将某一显示器的 DPI 套用于整个桌面。
 public sealed record CaptureScreen(PixelRect Bounds, bool Primary);
 // 仅含几何元数据，冻结桌面像素不会进入编辑器、项目或 AI 请求。
-public sealed record CaptureOverlay(string CaptureId, PixelRect DesktopBounds, PixelRect Selection, IReadOnlyList<CaptureScreen> Screens);
+public sealed record CaptureOverlay(string CaptureId, PixelRect DesktopBounds, PixelRect Selection, IReadOnlyList<CaptureScreen> Screens,
+    string Backend = "gdi", string ColorMode = "sdr", bool SupportsHdr = false);
 // 发往编辑器的捕获数据，只含选区像素和定位紧凑画布所需的几何信息。
 public sealed record CaptureEnvelope(LoadedImage Image, CaptureOverlay Overlay);
 
@@ -17,7 +18,8 @@ public sealed record CapturedFrame(LoadedImage Image, [property: JsonIgnore] Bit
     PixelRect DesktopBounds, PixelRect Selection, IReadOnlyList<CaptureScreen> Screens)
 {
     public string CaptureId { get; } = Guid.NewGuid().ToString("N");
-    public CaptureEnvelope ToEnvelope() => new(Image, new(CaptureId, DesktopBounds, Selection, Screens));
+    public string Backend { get; init; } = "gdi";
+    public CaptureEnvelope ToEnvelope() => new(Image, new(CaptureId, DesktopBounds, Selection, Screens, Backend));
 }
 
 // 工作台、就地覆盖层与隐藏状态；隐藏仍保留 WebView 中的编辑文档。

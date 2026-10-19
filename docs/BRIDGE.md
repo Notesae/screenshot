@@ -35,9 +35,29 @@ User cancellation returns null (or saved:false); it is not an exception.
 `PublicProvider = { id, name, kind, model, baseUrl, hasApiKey }`.
 Provider kinds are `openai-compatible` and `ollama`. No API key is returned to JavaScript or included in project documents. HTTP adapters execute only in the native process after explicit OCR/translate actions.
 
-Project documents use `{ schemaVersion:1, image:LoadedImage|null, editor:object }`. The editor validates its own version and value bounds before restoring. No executable code or network image URLs are accepted as project image sources.
+Project documents use `{ schemaVersion:2, image:LoadedImage|null, editor:object }`; v1 remains readable and is upgraded in memory. The editor validates its own version and value bounds before restoring. No executable code or network image URLs are accepted as project image sources.
 
-The current native capture backend reports `backend:"gdi", colorMode:"sdr", supportsHdr:false`. Local UI/capture operations share one gate; AI requests use a separate gate. Public metadata/settings reads remain available. A running AI request does not prevent saving/copying an existing document or importing another image; the editor rejects stale AI results after a document switch or text edit.
+The default native capture backend reports `backend:"wgc", colorMode:"sdr", supportsHdr:false`. GDI is an explicit compatibility option; failures never silently change backend. Local UI/capture operations share one gate; cloud AI and local OCR requests use a separate gate. Public metadata/settings reads and OCR cancellation remain available. A running inference request does not prevent saving/copying an existing document or importing another image; the editor rejects stale results after a document or revision change.
+
+## P0 additions
+
+`capture.screen` and `capture.region` accept `{backend?:"wgc"|"gdi",target?:{kind:"desktop"|"monitor"|"window",handle?:string,area?:"window"|"client"},timeoutMs?:number}`. Native handles are nonzero decimal or `0x` strings, never JS numbers. Desktop is the default; monitor/window require an explicit valid handle. Timeout is 100–30000 ms (default 8000). Capture overlay metadata also reports the actual `backend`, `colorMode:"sdr"`, and `supportsHdr:false`. WGC uses BGRA8; HDR fidelity is not claimed. Availability is checked on capture without enumerating targets during app.info.
+
+| Method | Payload | Result |
+|---|---|---|
+| capture.settings | {} | {backend:"wgc"\|"gdi"} |
+| capture.configure | {backend:"wgc"\|"gdi"} | same; shared process default for toolbar, tray and hotkey, reset on app restart |
+| ocr.status | {} | {available,modelVersion,message,missingFiles:string[]} |
+| ocr.local | {imageDataUrl:string} | OcrDocument |
+| ocr.cancel | {} | {cancelled:boolean}; inference request completes with cancelled error |
+| recovery.save | {documentId:string,revision:number,document:ProjectDocument} | {saved,stale,documentId,revision,cleanupPending} |
+| recovery.list | {} | {items:{documentId,revision,name,updatedAtUtc}[]} |
+| recovery.load | {documentId:string} | {documentId,revision,document:ProjectDocument} |
+| recovery.delete | {documentId:string} | {deleted:boolean,cleanupPending?:boolean} |
+
+`OcrDocument = {modelVersion,imageWidth,imageHeight,blocks:{id,polygon:{x,y}[],text,confidence:number|null,order}[],text}`. Coordinates refer to the cropped/resized content PNG supplied to OCR, with no annotations, decoration or frozen desktop. Local OCR accepts only PNG, with a 20 MB / 32 million pixel limit and further bounded line/block limits. No network fallback or runtime model download occurs. available confirms fixed model hashes; native CPU runtime is loaded lazily at first explicit recognition.
+
+Recovery has a dedicated serialized SQLite transaction queue and does not take the native dialog or inference lane. Revision is nonnegative and monotonically increasing per document ID; equal/older saves cannot overwrite a newer snapshot. Assets are addressed by SHA256 and reconstructed only after validation. Load/delete accept IDs, never paths. Recovery stores original images and OCR text in the user's local profile; it is not an encrypted vault. List shows metadata only; restoring content requires an explicit selection. Capacity cleanup may evict the oldest snapshots. A cleanupPending result means the snapshot committed successfully but asset deletion will be retried later.
 
 Capture success prepares a hidden native overlay. The editor maps geometry using viewport width/desktop width and viewport height/desktop height independently, commits its compact canvas, then acknowledges captureId with presentation.ready. Stale acknowledgements must not show a dismissed overlay or replace a newer capture. Workbench/dismiss clear the frozen backdrop and pending capture. Cancelling a new selection preserves the prior presentation/document. The frontend consumes Escape for IME/text editing or an open property panel before requesting dismissal; native Escape must not preempt this routing.
 

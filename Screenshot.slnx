@@ -3,4 +3,8 @@
   <Project Path="src/Screenshot.AI/Screenshot.AI.csproj" />
   <Project Path="src/Screenshot.App.Tests/Screenshot.App.Tests.csproj" />
   <Project Path="tests/Screenshot.AI.Tests/Screenshot.AI.Tests.csproj" />
+  <Project Path="src/Screenshot.Ocr/Screenshot.Ocr.csproj" />
+  <Project Path="tests/Screenshot.Ocr.Tests/Screenshot.Ocr.Tests.csproj" />
+  <Project Path="src/Screenshot.Storage/Screenshot.Storage.csproj" />
+  <Project Path="tests/Screenshot.Storage.Tests/Screenshot.Storage.Tests.csproj" />
 </Solution>

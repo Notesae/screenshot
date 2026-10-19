@@ -15,7 +15,7 @@ try {
         if ($LASTEXITCODE) { throw 'Editor build failed.' }
     } finally { Pop-Location }
     # 固定已核实的受维护运行时补丁，避免旧 SDK 默认附带较早的自包含运行时。
-    & dotnet publish src/Screenshot.App/Screenshot.App.csproj -c Release -r win-x64 --self-contained true "-p:RuntimeFrameworkVersion=$RuntimeVersion" --artifacts-path (Join-Path $taskRoot 'artifacts/publish-build') -o $Output
+    & dotnet publish src/Screenshot.App/Screenshot.App.csproj -c Release -r win-x64 --self-contained true "-p:RuntimeFrameworkVersion=$RuntimeVersion" --maxcpucount:1 --artifacts-path (Join-Path $taskRoot 'artifacts/publish-build') -o $Output
     if ($LASTEXITCODE) { throw 'Windows publish failed.' }
     Write-Output "Runnable output: $Output"
 } finally { Pop-Location }

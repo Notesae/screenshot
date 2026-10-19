@@ -40,7 +40,8 @@ void Project(string json)
     NativeImages.ValidateProject(document.RootElement);
 }
 Project("{\"schemaVersion\":1,\"image\":null,\"editor\":{}}"); checks++;
-Reject(() => Project("{\"schemaVersion\":2,\"image\":null,\"editor\":{}}"), "unknown schema rejected");
+Project("{\"schemaVersion\":2,\"image\":null,\"editor\":{}}"); checks++;
+Reject(() => Project("{\"schemaVersion\":3,\"image\":null,\"editor\":{}}"), "unknown schema rejected");
 Reject(() => Project("{\"schemaVersion\":1,\"image\":{\"dataUrl\":\"https://example.com/image.png\"},\"editor\":{}}"), "remote project image rejected");
 Reject(() => Project("{\"schemaVersion\":1,\"editor\":{}}"), "missing project image field rejected");
 // 模拟长时间 AI 请求，确认本地流程独立可用且同类操作仍不能重入。
@@ -61,6 +62,15 @@ open!.Dispose(); ocr!.Dispose();
 Check(gate.TryEnter("ai.translate", out var translate), "AI lane released after completion");
 Check(gate.TryEnter("capture.region", out var capture), "native capture and AI may coexist");
 capture!.Dispose(); translate!.Dispose();
+// 本地 OCR 与 HTTP AI 共享重任务门控，状态、取消和自身串行的恢复服务无需占原生门控。
+Check(gate.TryEnter("ocr.local", out var localOcr), "local OCR acquires AI lane");
+Check(!gate.TryEnter("ai.ocr", out _) && !gate.TryEnter("ai.translate", out _), "local OCR blocks concurrent HTTP AI tasks");
+Check(gate.TryEnter("image.save", out var nativeDuringOcr), "local save remains available during local OCR");
+foreach (var method in new[] { "ocr.status", "ocr.cancel", "capture.settings", "capture.configure", "recovery.save", "recovery.list", "recovery.load", "recovery.delete" })
+    Check(gate.TryEnter(method, out var bypass) && bypass is null, "status cancel and queued services bypass busy native and AI lanes: " + method);
+nativeDuringOcr!.Dispose(); localOcr!.Dispose();
+Check(gate.TryEnter("ai.translate", out var httpAi) && !gate.TryEnter("ocr.local", out _), "HTTP AI prevents simultaneous local OCR");
+httpAi!.Dispose();
 // 全部覆盖层生命周期检查使用合成像素，不实例化窗口、不访问桌面或剪贴板。
 var desktopPixels = new byte[4 * 2 * 4];
 var backdrop = BitmapSource.Create(4, 2, 96, 96, PixelFormats.Bgra32, null, desktopPixels, 16);
@@ -139,7 +149,8 @@ Check(presentation.TryDismiss(newerFrame.CaptureId) && presentation.Mode == Pres
 Check(presentation.TryDismiss(null) && presentation.Mode == PresentationMode.Hidden, "unscoped dismiss allowed when already hidden");
 var adjusted = OverlayWindowGeometry.FitClient(new PixelRect(-1920, -240, 3840, 1440), new PixelRect(-1920, -240, 3840, 1440), new PixelRect(-1912, -232, 3824, 1424));
 Check(adjusted == new PixelRect(-1928, -248, 3856, 1456), "physical client alignment accounts for borders without applying a screen DPI");
-Console.WriteLine($"PASS {checks} native boundary, PNG roundtrip, capture geometry, request concurrency and overlay lifecycle checks");
+checks += await CapturePipelineTests.RunAsync();
+Console.WriteLine($"PASS {checks} native boundary, PNG roundtrip, capture geometry, request concurrency, overlay lifecycle and fake-frame capture checks");
 }
 catch (Exception exception)
 {

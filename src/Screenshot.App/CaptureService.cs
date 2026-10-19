@@ -5,6 +5,8 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using System.Windows.Media.Imaging;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Screenshot.App;
 // 定义可替换的捕获后端，同时公开实际色彩能力供编辑器和验证记录使用。
@@ -12,7 +14,7 @@ public interface ICaptureBackend
 {
     string Id { get; }
     bool SupportsHdr { get; }
-    CapturedFrame? Capture(bool region);
+    Task<CapturedFrame?> CaptureAsync(CaptureRequest request, CancellationToken token);
 }
 
 // GDI SDR 兼容基线；后续 WGC 实现可替换此后端，不宣称支持 HDR。
@@ -22,8 +24,14 @@ public sealed class GdiCaptureBackend : ICaptureBackend
     public bool SupportsHdr => false;
     [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
     // 先冻结整个虚拟桌面，再按用户选区裁剪，确保覆盖层不进入截图。
-    public CapturedFrame? Capture(bool region)
+    public Task<CapturedFrame?> CaptureAsync(CaptureRequest request, CancellationToken token) => Task.FromResult(CaptureCore(request, token));
+
+    // GDI 仅保留原桌面兼容流程，目标类型不支持时明确拒绝而不是伪装 WGC 能力。
+    private CapturedFrame? CaptureCore(CaptureRequest request, CancellationToken token)
     {
+        token.ThrowIfCancellationRequested();
+        if (request.Target.Kind != CaptureTargetKind.Desktop) throw new CaptureException("capture_target_unsupported", "GDI 兼容模式目前仅支持桌面与区域截图。");
+        var region = request.Region;
         var bounds = new Rectangle(GetSystemMetrics(76), GetSystemMetrics(77), GetSystemMetrics(78), GetSystemMetrics(79));
         if (bounds.Width <= 0 || bounds.Height <= 0 || (long)bounds.Width * bounds.Height > 100_000_000) throw new InvalidOperationException("桌面尺寸无效或过大。");
         using var frozen = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppArgb);
@@ -43,7 +51,8 @@ public sealed class GdiCaptureBackend : ICaptureBackend
         var screens = new System.Collections.Generic.List<CaptureScreen>();
         foreach (var screen in Screen.AllScreens)
             screens.Add(new(new(screen.Bounds.X, screen.Bounds.Y, screen.Bounds.Width, screen.Bounds.Height), screen.Primary));
-        return new(image, backdrop, desktop, selected, screens);
+        token.ThrowIfCancellationRequested();
+        return new(image, backdrop, desktop, selected, screens) { Backend = Id };
     }
     private static BitmapSource ReadFrozenBitmap(Bitmap bitmap)
     {
@@ -58,13 +67,15 @@ internal sealed class RegionOverlay : Form
 {
     private readonly Bitmap _frozen;
     private readonly Rectangle _desktop;
+    private readonly PixelRect _allowedSelection;
     private Point? _start;
     private Point _end;
     public PixelRect Selection { get; private set; }
     // 关闭自动缩放，令窗口客户区与冻结图片保持相同的像素尺寸。
-    public RegionOverlay(Bitmap frozen, Rectangle desktop)
+    public RegionOverlay(Bitmap frozen, Rectangle desktop, PixelRect? allowedSelection = null)
     {
         _frozen = frozen; _desktop = desktop;
+        _allowedSelection = allowedSelection ?? new(desktop.X, desktop.Y, desktop.Width, desktop.Height);
         AutoScaleMode = AutoScaleMode.None; FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.Manual; Bounds = desktop;
         TopMost = true; ShowInTaskbar = false; DoubleBuffered = true; KeyPreview = true;
@@ -87,7 +98,7 @@ internal sealed class RegionOverlay : Form
         base.OnMouseUp(e); if (_start is null || e.Button != MouseButtons.Left) return;
         _end = e.Location; Capture = false;
         var start = _start.Value;
-        Selection = CaptureGeometry.Selection(start.X + _desktop.X, start.Y + _desktop.Y, _end.X + _desktop.X, _end.Y + _desktop.Y, new(_desktop.X, _desktop.Y, _desktop.Width, _desktop.Height));
+        Selection = CaptureGeometry.Selection(start.X + _desktop.X, start.Y + _desktop.Y, _end.X + _desktop.X, _end.Y + _desktop.Y, _allowedSelection);
         if (Selection.Width < 2 || Selection.Height < 2) { _start = null; Invalidate(); return; }
         DialogResult = DialogResult.OK; Close();
     }
@@ -100,7 +111,7 @@ internal sealed class RegionOverlay : Form
         e.Graphics.FillRectangle(shade, ClientRectangle);
         if (_start is { } start)
         {
-            var rect = CaptureGeometry.Selection(start.X, start.Y, _end.X, _end.Y, new(0, 0, _frozen.Width, _frozen.Height));
+            var rect = CaptureGeometry.Selection(start.X, start.Y, _end.X, _end.Y, new(_allowedSelection.X - _desktop.X, _allowedSelection.Y - _desktop.Y, _allowedSelection.Width, _allowedSelection.Height));
             if (rect.Width > 0 && rect.Height > 0)
             {
                 var box = new Rectangle(rect.X, rect.Y, rect.Width, rect.Height);

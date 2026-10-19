@@ -1,5 +1,5 @@
 {
-  "modelVersion": "pp-ocrv5-mobile-rapidocr-v3.10.0",
+  "modelVersion": "PP-OCRv5-mobile/RapidOCR-v3.10.0",
   "license": "Apache-2.0",
   "dictionary": { "source": "recognizer.metadata.character", "entries": 18383, "classes": 18385, "ctcBlankIndex": 0, "appendSpace": true },
   "registryRevision": "7cfd3d9ef786a2e538ca30df700325e72e85b5f5",

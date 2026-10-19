@@ -97,7 +97,7 @@ public static class NativeImages
     // 原生边界校验版本、编辑状态和图片来源；具体编辑参数仍由编辑器校验。
     internal static void ValidateProject(JsonElement document)
     {
-        if (document.ValueKind != JsonValueKind.Object || !document.TryGetProperty("schemaVersion", out var version) || !version.TryGetInt32(out var number) || number != 1 || !document.TryGetProperty("editor", out var editor) || editor.ValueKind != JsonValueKind.Object)
+        if (document.ValueKind != JsonValueKind.Object || !document.TryGetProperty("schemaVersion", out var version) || !version.TryGetInt32(out var number) || number is not (1 or 2) || !document.TryGetProperty("editor", out var editor) || editor.ValueKind != JsonValueKind.Object)
             throw new InvalidOperationException("不支持的项目格式或版本。");
         if (!document.TryGetProperty("image", out var image)) throw new InvalidOperationException("项目缺少图片字段。");
         if (image.ValueKind == JsonValueKind.Null) return;

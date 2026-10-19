@@ -17,9 +17,12 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: editor/package-lock.json
-      - name: Build and automated checks
+      - name: Prepare pinned local OCR models explicitly
         shell: pwsh
-        run: ./scripts/verify.ps1
+        run: ./scripts/prepare-ocr-models.ps1
+      - name: Build and automated checks with synthetic OCR inference
+        shell: pwsh
+        run: ./scripts/verify.ps1 -WithOcrIntegration
       - name: Publish portable Windows x64 directory
         shell: pwsh
         run: ./scripts/publish.ps1 -SkipRestore

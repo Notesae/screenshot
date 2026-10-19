@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -10,13 +11,18 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
 using Screenshot.AI;
+using Screenshot.Ocr;
+using Screenshot.Storage;
 
 namespace Screenshot.App;
 // 承载本地编辑器，将受信任的桥接请求分发到 Windows 原生能力。
 public partial class MainWindow : Window
 {
     private readonly AiService _ai = new();
-    private readonly ICaptureBackend _capture = new GdiCaptureBackend();
+    private readonly IReadOnlyDictionary<string, ICaptureBackend> _captureBackends = new Dictionary<string, ICaptureBackend>
+    {
+        ["wgc"] = new WgcCaptureBackend(), ["gdi"] = new GdiCaptureBackend()
+    };
     private readonly CancellationTokenSource _lifetime = new();
     private readonly JsonSerializerOptions _json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     private readonly RequestGate _requests = new();
@@ -60,7 +66,7 @@ public partial class MainWindow : Window
                 tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose(); _trayIcon = null;
             }
             if (_hotkeyRegistered) UnregisterHotKey(new WindowInteropHelper(this).Handle, HotkeyId);
-            _source?.RemoveHook(WindowMessage); Editor.Dispose(); _ai.Dispose(); _lifetime.Dispose();
+            _source?.RemoveHook(WindowMessage); Editor.Dispose(); _ai.Dispose(); DisposeLocalFeatures(); _lifetime.Dispose();
         };
     }
     // 托盘仅提供恢复、复用现有门控截图和退出，不创建第二个编辑器实例。
@@ -146,14 +152,14 @@ public partial class MainWindow : Window
         if (!_ready || !_requests.TryEnter("capture.region", out var lease)) return;
         try
         {
-            var image = await CaptureAsync(true);
+            var image = await CaptureAsync(CaptureRequest.Default(true) with { Backend = _captureBackend });
             if (image is not null) Post(new { @event = "image.loaded", payload = image });
         }
         catch (Exception exception) { Status.Text = "截图失败：" + exception.Message; }
         finally { lease?.Dispose(); }
     }
     // 成功时保留冻结背景并准备隐藏的覆盖层；取消时恢复原呈现，不修改编辑文档。
-    private async Task<CaptureEnvelope?> CaptureAsync(bool region)
+    private async Task<CaptureEnvelope?> CaptureAsync(CaptureRequest request)
     {
         var wasVisible = IsVisible;
         var previousWindowState = WindowState;
@@ -165,7 +171,8 @@ public partial class MainWindow : Window
         {
             // 等待桌面合成器移除宿主画面，避免应用自身进入截图。
             await Task.Delay(180, _lifetime.Token);
-            var frame = _capture.Capture(region);
+            if (!_captureBackends.TryGetValue(request.Backend, out var backend)) throw new CaptureException("invalid_capture_backend", "不支持的截图后端。");
+            var frame = await backend.CaptureAsync(request, _lifetime.Token);
             if (frame is null) return null;
             if (!_presentation.IsSelecting) { completed = true; return null; }
             PrepareOverlay(frame);
@@ -309,7 +316,10 @@ public partial class MainWindow : Window
             var result = await ExecuteAsync(method, payload);
             Post(new { id, ok = true, result });
         }
+        catch (CaptureException exception) { if (id is not null) Failure(id, exception.Code, exception.Message); }
         catch (AiProviderException exception) { if (id is not null) Failure(id, exception.Code, exception.Message); }
+        catch (LocalOcrException exception) { if (id is not null) Failure(id, exception.Code, exception.Message); }
+        catch (SnapshotStoreException exception) { if (id is not null) Failure(id, exception.Code, exception.Message); }
         catch (OperationCanceledException) { if (id is not null) Failure(id, "cancelled", "操作已取消。"); }
         catch (Exception exception) { if (id is not null) Failure(id, "operation_failed", exception is JsonException ? "请求格式无效。" : exception.Message); }
         finally { lease?.Dispose(); }
@@ -319,11 +329,24 @@ public partial class MainWindow : Window
     {
         switch (method)
         {
-            case "app.info": return new { version = "0.1.0", platform = "windows", presentation = _presentation.Mode.ToString().ToLowerInvariant(), capture = new { backend = _capture.Id, colorMode = "sdr", supportsHdr = _capture.SupportsHdr }, capabilities = new[] { "image.open", "image.paste", "capture.screen", "capture.region", "image.save", "image.copy", "project.open", "project.save", "ai.ocr", "ai.translate", "presentation.workbench", "presentation.dismiss", "presentation.ready" } };
+            case "app.info": return new { version = "0.2.0", platform = "windows", presentation = _presentation.Mode.ToString().ToLowerInvariant(), capture = new { backend = _captureBackend, colorMode = "sdr", supportsHdr = false, availableBackends = new[] { "wgc", "gdi" }, targets = new[] { "desktop", "monitor", "window" }, availability = "checked-on-capture" }, capabilities = new[] { "image.open", "image.paste", "capture.screen", "capture.region", "capture.settings", "capture.configure", "image.save", "image.copy", "project.open", "project.save", "ai.ocr", "ai.translate", "ocr.local", "ocr.cancel", "ocr.status", "recovery.save", "recovery.list", "recovery.load", "recovery.delete", "presentation.workbench", "presentation.dismiss", "presentation.ready" } };
             case "image.open": return NativeImages.Open(this);
             case "image.paste": return NativeImages.Paste();
-            case "capture.screen": return await CaptureAsync(false);
-            case "capture.region": return await CaptureAsync(true);
+            case "capture.screen": return await CaptureAsync(ParseCaptureRequest(payload, false));
+            case "capture.region": return await CaptureAsync(ParseCaptureRequest(payload, true));
+            case "capture.settings": return new { backend = _captureBackend };
+            case "capture.configure":
+                var backend = RequiredString(payload, "backend");
+                if (backend is not ("wgc" or "gdi")) throw new CaptureException("invalid_capture_backend", "请选择 WGC 或 GDI 兼容后端。");
+                _captureBackend = backend;
+                return new { backend = _captureBackend };
+            case "ocr.status": return await Task.Run(_localOcr.GetStatus, _lifetime.Token);
+            case "ocr.local": return await RecognizeLocalAsync(RequiredString(payload, "imageDataUrl"));
+            case "ocr.cancel": _ocrCancellation?.Cancel(); return new { cancelled = _ocrCancellation is not null };
+            case "recovery.save": return await SaveRecoveryAsync(payload);
+            case "recovery.list": return new { items = await RunRecoveryAsync(store => store.ListAsync(_lifetime.Token)) };
+            case "recovery.load": return await RunRecoveryAsync(store => store.LoadAsync(RequiredString(payload, "documentId"), _lifetime.Token));
+            case "recovery.delete": return await RunRecoveryAsync(store => store.DeleteAsync(RequiredString(payload, "documentId"), _lifetime.Token));
             case "presentation.workbench":
                 var workbenchCaptureId = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("captureId", out _) ? RequiredString(payload, "captureId") : null;
                 var accepted = _presentation.TryShowWorkbench(workbenchCaptureId);
