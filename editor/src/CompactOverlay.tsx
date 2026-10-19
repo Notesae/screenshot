@@ -41,7 +41,7 @@ export function CompactOverlay(props: Props) {
   const [tools, setTools] = useState({ width: 560, height: 44 });
   const [canvasReady, setCanvasReady] = useState(false),[dragging,setDragging]=useState(false);
   useEffect(()=>{const enter=(event:DragEvent)=>{if(Array.from(event.dataTransfer?.types||[]).includes('Files'))setDragging(true);};const leave=(event:DragEvent)=>{if(!event.relatedTarget)setDragging(false);};const drop=()=>setDragging(false);window.addEventListener('dragenter',enter);window.addEventListener('dragleave',leave);window.addEventListener('drop',drop);return()=>{window.removeEventListener('dragenter',enter);window.removeEventListener('dragleave',leave);window.removeEventListener('drop',drop);};},[]);
-  const toolbar = useRef<HTMLDivElement>(null), statusBar = useRef<HTMLDivElement>(null), readySent = useRef(false), composing = useRef(false);
+  const toolbar = useRef<HTMLDivElement>(null), statusContent = useRef<HTMLDivElement>(null), readySent = useRef(false), composing = useRef(false);
   const [statusHeight, setStatusHeight] = useState(34);
   const latest = useRef({ props, panel }); latest.current = { props, panel };
   const editor = doc.editor;
@@ -54,8 +54,14 @@ export function CompactOverlay(props: Props) {
     window.addEventListener('resize', resize);
     const observer = new ResizeObserver(entries => setTools(size => ({ ...size, height: Math.max(entries[0].target.getBoundingClientRect().height, entries[0].target.scrollHeight+2) })));
     if (toolbar.current) observer.observe(toolbar.current);
-    const statusObserver = new ResizeObserver(entries => setStatusHeight(Math.max(entries[0].target.getBoundingClientRect().height,entries[0].target.scrollHeight+2)));
-    if (statusBar.current) statusObserver.observe(statusBar.current);
+    // 观察未受 maxHeight 限制的内容；只观察外框会漏掉新增任务行的自然高度。
+    const statusObserver = new ResizeObserver(() => {
+      const content = statusContent.current; if (!content?.parentElement) return;
+      const style = getComputedStyle(content.parentElement);
+      const insets = [style.paddingTop, style.paddingBottom, style.borderTopWidth, style.borderBottomWidth].reduce((sum, value) => sum + parseFloat(value), 0);
+      setStatusHeight(Math.ceil(content.getBoundingClientRect().height + insets));
+    });
+    if (statusContent.current) statusObserver.observe(statusContent.current);
     return () => { window.removeEventListener('resize', resize); observer.disconnect(); statusObserver.disconnect(); };
   }, []);
   useEffect(() => {
@@ -106,7 +112,7 @@ export function CompactOverlay(props: Props) {
       {panel === 'text' && <TextTools {...props.textTools} compact/>}
       {panel === 'more' && <><CaptureControls onStart={props.clearNotice} backend={props.captureBackend} disabled={!!busy} onCapture={props.onCapture} onError={props.onError}/><CaptureBackendSelector backend={props.captureBackend} disabled={!!busy} onChange={props.onCaptureBackend}/>{props.recoveryPanel}<div className="compact-size">选区 {doc.image?.width} × {doc.image?.height} 像素</div><AnnotationPalette selection={props.selection} disabled={props.renderStatus!=='ready'} canvasRef={canvasRef} onError={props.onError}/><button className="compact-secondary" onClick={() => canvasRef.current?.remove()}><Trash2/>删除选中标注</button><TransformPanel document={doc} onTransform={props.onTransform}/><label className="control-label" htmlFor="compact-scale">导出倍率</label><select id="compact-scale" value={props.scale} onChange={event => props.setScale(Number(event.target.value))}><option value={1}>1× 当前尺寸</option><option value={2}>2× 尺寸</option></select><button className="compact-secondary" disabled={!!busy} onClick={props.onSaveProject}>保存可编辑项目</button><button className="compact-secondary" disabled={!!busy} onClick={() => props.onPresentation('workbench')}><Maximize2/>完整工作台</button></>}
     </section>}
-    <div ref={statusBar} className="compact-status-bar" style={{left:layout.status.x,width:layout.status.width,top:layout.status.y,maxHeight:layout.status.height}}><RecoveryStatus state={props.recoveryState}/>{(busy || aiBusy || props.renderStatus === 'loading') && <div className="compact-progress" role="status"><span className="spinner"/>{busy || aiBusy || '画布更新中'}…{aiBusy && <button className="task-cancel" onClick={props.textTools.onCancelOcr}>取消任务</button>}</div>}</div>
+    <div className="compact-status-bar" style={{left:layout.status.x,width:layout.status.width,top:layout.status.y,maxHeight:layout.status.height}}><div ref={statusContent}><RecoveryStatus state={props.recoveryState}/>{(busy || aiBusy || props.renderStatus === 'loading') && <div className="compact-progress" role="status"><span className="spinner"/>{busy || aiBusy || '画布更新中'}…{aiBusy && <button className="task-cancel" onClick={props.textTools.onCancelOcr}>取消任务</button>}</div>}</div></div>
     {props.notice && <div className={`compact-notice ${props.notice.error ? 'error' : ''}`} role={props.notice.error ? 'alert' : 'status'} style={{ left: layout.screen.x + 12, top: layout.screen.y + 12, maxWidth: Math.max(80, layout.screen.width - 24) }}><span>{props.notice.text}</span><button aria-label="关闭提示" onClick={props.clearNotice}><X/></button></div>}
   </div>;
 }

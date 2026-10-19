@@ -56,6 +56,7 @@ jobs:
           node editor/scripts/product-audit.cjs artifacts/qa/product/current --verify
           node editor/scripts/refinement-audit.cjs artifacts/qa/product/refinement --verify
           node editor/scripts/product-performance.cjs artifacts/qa/product/performance.json --verify
+          node editor/scripts/delivery-audit.cjs artifacts/qa/product/delivery --verify
       - uses: actions/upload-artifact@v4
         if: always()
         with:

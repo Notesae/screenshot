@@ -87,3 +87,11 @@ html.capture-overlay,html.capture-overlay body,html.capture-overlay #root{backgr
 .compact-toolbar,.compact-status-bar{overflow:auto;overscroll-behavior:contain}.compact-panel{overscroll-behavior:contain}
 
 .compact-panel{scroll-padding-block:64px 18px}.field-error{font-size:11px;line-height:1.6;color:#9a3a24;margin:6px 0}
+
+/* 窄侧栏保留可读换行，原生 select 的固有宽度不能撑开校对网格。 */
+.compact-panel .text-tools,.compact-panel .ocr-correction{min-width:0;grid-template-columns:minmax(0,1fr)}
+.compact-panel .text-tools>*,.compact-panel .ocr-correction>*{min-width:0}
+.compact-panel .text-tools{overflow-wrap:anywhere}
+.compact-panel .text-tools select{min-width:0}
+.compact-panel .text-tools .control-label select{width:100%}
+.compact-panel .text-tools button{white-space:normal}
