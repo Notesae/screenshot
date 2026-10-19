@@ -17,4 +17,11 @@
     <Content Include="../../THIRD-PARTY-NOTICES.md"><Link>THIRD-PARTY-NOTICES.md</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
     <Content Include="../../licenses/*"><Link>licenses/%(Filename)%(Extension)</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
   </ItemGroup>
+  <!-- WindowsDesktop 引用由 SDK 后导入；执行阶段仅固定 .NET 运行时，不污染 Windows SDK 制品版本。 -->
+  <Target Name="PinScreenshotRuntimeFrameworks" BeforeTargets="ProcessFrameworkReferences" Condition="'$(ScreenshotRuntimeVersion)' != ''">
+    <ItemGroup>
+      <FrameworkReference Update="Microsoft.NETCore.App;Microsoft.WindowsDesktop.App;Microsoft.WindowsDesktop.App.WPF;Microsoft.WindowsDesktop.App.WindowsForms" RuntimeFrameworkVersion="$(ScreenshotRuntimeVersion)" />
+      <KnownAppHostPack Update="Microsoft.NETCore.App" Condition="'%(KnownAppHostPack.TargetFramework)' == 'net10.0'" AppHostPackVersion="$(ScreenshotRuntimeVersion)" />
+    </ItemGroup>
+  </Target>
 </Project>
