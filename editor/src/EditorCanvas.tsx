@@ -60,7 +60,9 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
       changed(`annotation-text:${serialize(event.target).id}`);
     });
     return () => {
-      fabric.current=null;publishSelection();releaseBackground(canvas);
+      fabric.current=null;
+      // 错误可能发生在同步重建中；卸载必须绕过事件抑制，清掉跨文档的旧选择。
+      selectedStyle.current=null;callbacks.current.onSelection?.(null);releaseBackground(canvas);
       const lower=canvas.lowerCanvasEl,upper=canvas.upperCanvasEl;
       void canvas.dispose().finally(()=>{lower.width=lower.height=0;upper.width=upper.height=0;});
     };
@@ -82,7 +84,7 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
       lastAnnotations.current = annotations;
       setSize({ width: base.width, height: base.height });
       canvas.requestRenderAll(); updating.current = false; rendered.current = { image: doc.image, properties }; loaded.current = true; publishSelection();callbacks.current.onRenderStatus?.('ready');
-    })().catch(error => { if (!cancelled) { callbacks.current.onRenderStatus?.('error'); callbacks.current.onError(error); } });
+    })().catch(error => { if (!cancelled) { updating.current=false;publishSelection();callbacks.current.onRenderStatus?.('error'); callbacks.current.onError(error); } });
     return () => { cancelled = true; };
     // 标注已直接存在于 Fabric 中，逐字输入时重建会丢失编辑焦点。
   }, [doc.image, properties]);
