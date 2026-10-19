@@ -81,7 +81,7 @@ async function installMock(page) {
           if (accepted && target !== 'overlay') window.__currentCaptureId = null; window.__hotkey={enabled:true,ctrl:true,alt:false,shift:true,key:'S'};window.__snapSettings={snapWindows:true,windowArea:'window'};window.__providerRevision='a'.repeat(64);
           result = { accepted, presentation: accepted ? target : active ? 'overlay' : 'workbench', captureId: window.__currentCaptureId };
         }
-        setTimeout(() => window.__emit(result ? { id: request.id, ok: true, result } : { id: request.id, ok: false, error: { code: 'MOCK', message: '测试未模拟此操作' } }), 0);
+        setTimeout(() => window.__emit(result ? { id: request.id, ok: true, result } : { id: request.id, ok: false, error: { code: 'MOCK', message: '测试未模拟此操作' } }), ['image.copy','project.save'].includes(request.method)?75:0);
       },
     };
     window.chrome = window.chrome || {};
@@ -116,11 +116,14 @@ async function releaseDecodes(page) { await page.evaluate(() => window.__heldDec
 async function returnWorkbench(page) {
   if(!await page.getByRole('button',{name:'完整工作台',exact:true}).isVisible())await page.getByRole('button', { name: '更多与完整工作台', exact: true }).click();
   await page.getByRole('button', { name: '完整工作台', exact: true }).click(); await page.locator('.app').waitFor();
+  await page.waitForFunction(()=>Array.from(document.querySelectorAll('.top-actions button')).some(b=>b.textContent.trim()==='保存项目'&&!b.disabled));
 }
 async function copied(page) {
   const count = await page.evaluate(() => window.__messages.filter(message => message.method === 'image.copy').length);
   await page.getByRole('button', { name: '复制', exact: true }).click();
   await page.waitForFunction(previous => window.__messages.filter(message => message.method === 'image.copy').length > previous, count);
+  // 请求入队早于mock回包；等待复制按钮解除本地忙状态，不能把其当成复制已完成。
+  await page.waitForFunction(()=>Array.from(document.querySelectorAll('.compact-toolbar button')).some(b=>b.textContent.trim()==='复制'&&!b.disabled));
   return page.evaluate(() => window.__messages.filter(message => message.method === 'image.copy').at(-1).payload.dataUrl);
 }
 async function escape(page, target) { await (target || page.locator('.compact-toolbar')).dispatchEvent('keydown', { key: 'Escape', bubbles: true }); }
@@ -131,6 +134,7 @@ async function saveDocument(page) {
   const count = await page.evaluate(() => window.__messages.filter(message => message.method === 'project.save').length);
   await page.getByRole('button', { name: await page.locator('.app').count()?'保存项目':'保存可编辑项目', exact: true }).click();
   await page.waitForFunction(previous => window.__messages.filter(message => message.method === 'project.save').length > previous, count);
+  await page.waitForFunction(()=>Array.from(document.querySelectorAll('button')).some(b=>['保存项目','保存可编辑项目'].includes(b.textContent.trim())&&!b.disabled));
   return page.evaluate(() => window.__messages.filter(message => message.method === 'project.save').at(-1).payload.document);
 }
 async function waitCanvas(page, width, height) { await page.waitForFunction(({width,height}) => { const canvas = document.querySelector('.lower-canvas'); return canvas && canvas.width === width && canvas.height === height; }, { width, height }); }
@@ -532,6 +536,7 @@ async function emptyTextRecovery(page) {
   await page.getByRole('button', { name: '复制到剪贴板', exact: true }).click();
   await page.waitForFunction(previous => window.__messages.filter(message => message.method === 'image.copy').length > previous, copyCount);
   assert.equal(await page.evaluate(() => window.__messages.filter(message => message.method === 'image.copy').at(-1).payload.dataUrl), beautified);
+  await page.waitForFunction(()=>{const button=document.querySelector('.copy-button');return button&&!button.disabled;});
   checks.push('workbench shares document, annotations and identical edited export');
 
   await capture(page, 'headless-b'); await page.locator('.compact-toolbar').waitFor();
