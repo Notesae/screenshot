@@ -54,7 +54,7 @@ jobs:
         run: |
           $env:PLAYWRIGHT_MODULE = (Resolve-Path artifacts/headless-tools/node_modules/playwright).Path
           node editor/scripts/product-audit.cjs artifacts/qa/product/current --verify
-          node editor/scripts/product-performance.cjs artifacts/qa/product/performance.json
+          node editor/scripts/product-performance.cjs artifacts/qa/product/performance.json --verify
       - uses: actions/upload-artifact@v4
         if: always()
         with:

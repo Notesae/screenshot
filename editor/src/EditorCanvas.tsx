@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import { Canvas, StaticCanvas, FabricImage, Textbox } from 'fabric';
+import { Minus, Plus } from 'lucide-react';
 import { renderBase } from './render';
+import { baseRenderKey } from './renderIdentity';
 import { outputSize, type Annotation, type AnnotationKind, type ProjectDocument } from './document';
 import { annotationFromObject as serialize, annotationToObject as restore, patchAnnotationObject } from './annotations';
 
@@ -19,11 +21,14 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
   const updating = useRef(false);
   const loaded = useRef(false);
   const [zoom, setZoom] = useState(1);
-  const displayScale = fixedDisplayScale || { x: zoom, y: zoom };
+  const [manualZoom, setManualZoom] = useState<number | null>(null);
+  const viewport = useRef<HTMLDivElement>(null);
+  const actualZoom = manualZoom ?? zoom;
+  const displayScale = fixedDisplayScale || { x: actualZoom, y: actualZoom };
   const [size, setSize] = useState({ width: 720, height: 480 });
   const callbacks = useRef({ onAnnotations, onError, onRenderStatus }); callbacks.current = { onAnnotations, onError, onRenderStatus };
   const current = useRef(doc); current.current = doc;
-  const properties = JSON.stringify([doc.editor.mode, doc.editor.padding, doc.editor.radius, doc.editor.background, doc.editor.shadow, doc.editor.borderWidth, doc.editor.borderColor, doc.editor.lineSpacing, doc.editor.paragraphSpacing, doc.editor.text, doc.editor.title, doc.editor.fontSize, doc.editor.textWidth, doc.editor.translation, doc.editor.textLayout, doc.editor.crop, doc.editor.resize]);
+  const properties = baseRenderKey(doc.editor);
   const latestProperties = useRef(properties); latestProperties.current = properties;
   const rendered = useRef<{ image: ProjectDocument['image']; properties: string } | null>(null);
   const lastAnnotations = useRef<Annotation[]>([]);
@@ -78,7 +83,7 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
     if (fixedDisplayScale) return;
     const observer = new ResizeObserver(entries => {
       const box = entries[0].contentRect;
-      setZoom(Math.min(1, (box.width - 64) / size.width, (box.height - 64) / size.height));
+      setZoom(Math.max(.01, Math.min(1, (box.width - 64) / size.width, (box.height - 64) / size.height)));
     });
     if (wrapper.current) observer.observe(wrapper.current);
     return () => observer.disconnect();
@@ -94,8 +99,7 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
       const canvas = fabric.current;
       if (!canvas || !loaded.current || rendered.current?.image !== current.current.image || rendered.current?.properties !== latestProperties.current || lastAnnotations.current !== current.current.editor.annotations) throw new Error('画布正在更新，请稍后重试。');
       outputSize(current.current.image, current.current.editor, scale);
-      // Static export is reconstructed from the model, so selection controls never enter PNG.
-      // Keep the active object selected for the user's next edit.
+      // 导出独立从模型重建，不含选择手柄；保留活动对象供下一步编辑。
       canvas.renderAll();
       // 未编辑的原样 PNG 跳过重编码，完整保留透明像素数据。
       const doc = current.current;
@@ -145,5 +149,16 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
       canvas?.requestRenderAll();
     },
   }), [size]);
-  return <div className="canvas-workspace" ref={wrapper}><div className="canvas-sheet" style={{ width: size.width * displayScale.x, height: size.height * displayScale.y }}><canvas ref={element}/></div><span className="zoom-label">{Math.round(displayScale.x * 100)}% · {size.width} × {size.height} px</span></div>;
+  // 缩放仅改变 CSS 视图，不修改文档尺寸、历史或导出像素。大画布从左上开始可滚动访问。
+  const steps = [.1, .25, .5, .75, 1, 1.5, 2];
+  function changeZoom(next: number | null) { setManualZoom(next); viewport.current?.scrollTo({ left:0, top:0 }); }
+  function stepZoom(direction: -1 | 1) {
+    const candidates = direction > 0 ? steps : [...steps].reverse();
+    changeZoom(candidates.find(value => direction > 0 ? value > actualZoom + .001 : value < actualZoom - .001) ?? actualZoom);
+  }
+  const sheet = <div className="canvas-sheet" style={{ width:size.width * displayScale.x, height:size.height * displayScale.y }}><canvas ref={element}/></div>;
+  return <div className="canvas-workspace" ref={wrapper}>{fixedDisplayScale ? sheet : <>
+    <div className="canvas-viewport" ref={viewport} tabIndex={0} aria-label="可滚动画布"><div className="canvas-surface" style={{width:size.width * displayScale.x + 64,height:size.height * displayScale.y + 64}}>{sheet}</div></div>
+    <div className="canvas-zoom" role="group" aria-label="画布缩放"><button aria-label="缩小画布" disabled={actualZoom <= .1} onClick={() => stepZoom(-1)}><Minus size={14}/></button><select aria-label="画布缩放比例" value={manualZoom ?? 'fit'} onChange={event => changeZoom(event.target.value === 'fit' ? null : Number(event.target.value))}><option value="fit">适应窗口 · {Math.round(zoom * 100)}%</option>{steps.map(value => <option key={value} value={value}>{Math.round(value * 100)}%</option>)}</select><button aria-label="放大画布" disabled={actualZoom >= 2} onClick={() => stepZoom(1)}><Plus size={14}/></button><span className="zoom-label">{size.width} × {size.height} px</span></div>
+  </>}</div>;
 });

@@ -1,4 +1,5 @@
 import type { EditorState } from './document';
+import { wrapParagraph } from './wrapText';
 export type TextLayoutMode = 'source' | 'translated' | 'parallel' | 'stacked';
 export type TextSection = { label: string; lines: string[]; offsets: number[]; height: number; x: number; y: number; width: number };
 let measureContext: CanvasRenderingContext2D | null | undefined;
@@ -11,13 +12,8 @@ function wrap(text: string, width: number, font: number, lineHeight: number, gap
   const push = (line: string) => { lines.push(line); offsets.push(y); y += lineHeight; };
   text.split('\n').forEach((paragraph,index) => {
     if (index) y += gap;
-    let line = '';
-    for (const char of paragraph.replace(/\t/g,'    ')) {
-      const measured = measureContext ? measureContext.measureText(line + char).width : [...line,char].length * font;
-      if (line && measured > width) { push(line); line = ''; }
-      line += char;
-    }
-    push(line);
+    const measure = (text: string) => measureContext ? measureContext.measureText(text).width : [...text].length * font;
+    for (const line of wrapParagraph(paragraph.replace(/\t/g,'    '), width, measure)) push(line);
   });
   return { lines, offsets, height:y };
 }

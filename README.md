@@ -64,6 +64,7 @@ npm run dev -- --host 127.0.0.1
 - [后续任务分工与验收](docs/TASKS.md)
 - [框架实现决定](docs/DECISIONS.md)
 - [测试证据、未测项与阶段限制](docs/VALIDATION.md)
+- [0.4.3 三轮产品审查、截图与性能证据](docs/PRODUCT-REVIEW-0.4.3.md)
 - [原生通信契约](docs/BRIDGE.md)
 - [实施分工](docs/superpowers/plans/2026-10-19-application-framework.md)
 

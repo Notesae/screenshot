@@ -108,3 +108,7 @@ Windows中断写入后观测到的SQLite IOERR_TRUNCATE（1546）仅对Load/List
 ## 0.4.2 native source profile
 
 Bridge and project schemas are unchanged. CPU OCR uses the same fixed models and algorithms with a traceable minimal source-built OpenCvSharp native library. Production PNG decoding verifies the normal lazy loading path in tests; benchmarks select explicit native handles only inside an isolated Vendor-profile test executable. No desktop or provider inputs are added.
+
+## 0.4.3 editor workflow
+
+Bridge/project schemas remain unchanged. Workbench zoom/scroll is view-only; capture overlay keeps its physical mapping. Source/translation fields invisible in the current mode no longer rebuild the base image, while document history, autosave and export validation still use the current document. Empty OCR never clears prior corrected work.

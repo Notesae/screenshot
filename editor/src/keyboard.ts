@@ -20,7 +20,7 @@ export function overlayKeyAction(context: KeyContext): OverlayKeyAction {
   return 'ignore';
 }
 
-/** Delete is a document action only outside all text-editing contexts. */
+/** 删除键只在所有文字编辑上下文之外操作文档对象。 */
 export function annotationKeyAction(context: KeyContext): 'delete' | 'ignore' {
   return !context.composing && !context.textInput && !context.fabricEditing && !context.ctrl && !context.meta && !context.alt && !context.shift && context.selectedObject && ['Delete', 'Backspace'].includes(context.key) ? 'delete' : 'ignore';
 }
