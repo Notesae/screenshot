@@ -1,0 +1,63 @@
+<Window x:Class="Screenshot.App.ProviderSettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="OCR 与翻译服务商" Width="820" Height="730" MinWidth="720" MinHeight="660"
+        WindowStartupLocation="CenterOwner" Background="#F5F7FA" FontFamily="Microsoft YaHei UI">
+    <Window.Resources>
+        <Style TargetType="TextBox"><Setter Property="Padding" Value="8,6"/><Setter Property="Margin" Value="0,5,0,12"/></Style>
+        <Style TargetType="Button"><Setter Property="Padding" Value="12,7"/><Setter Property="Margin" Value="0,0,8,0"/></Style>
+        <Style TargetType="Label"><Setter Property="Padding" Value="0"/></Style>
+    </Window.Resources>
+    <Grid Margin="24">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <StackPanel Margin="0,0,0,20">
+            <TextBlock Text="OCR 与翻译服务商" FontSize="24" FontWeight="SemiBold"/>
+            <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" Foreground="#425166"
+                       Text="配置仅保存在当前 Windows 账户。保存设置不会发送图片或测试网络；点击编辑器中的 OCR / 翻译后，内容才会发送到所选服务。"/>
+        </StackPanel>
+        <Grid Grid.Row="1" x:Name="SettingsForm">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="220"/><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+                    <Button Content="添加 OpenAI 兼容服务" Click="AddOpenAi_Click" Margin="0,0,0,8"/>
+                    <Button Content="添加 Ollama 本机服务" Click="AddOllama_Click" Margin="0"/>
+                </StackPanel>
+                <ListBox x:Name="ProviderList" DisplayMemberPath="Name" SelectionChanged="ProviderList_SelectionChanged" Padding="4" AutomationProperties.Name="已配置服务商"/>
+            </DockPanel>
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <Label Content="服务名称" Target="{Binding ElementName=ProviderName}"/>
+                    <TextBox x:Name="ProviderName" MaxLength="100"/>
+                    <Label Content="接口协议" Target="{Binding ElementName=ProviderKind}"/>
+                    <ComboBox x:Name="ProviderKind" Margin="0,5,0,12" Padding="8,6" SelectedIndex="0">
+                        <ComboBoxItem Content="OpenAI 兼容 Chat Completions" Tag="openai-compatible"/>
+                        <ComboBoxItem Content="Ollama /api/chat" Tag="ollama"/>
+                    </ComboBox>
+                    <Label Content="服务基础地址" Target="{Binding ElementName=ProviderBaseUrl}"/>
+                    <TextBox x:Name="ProviderBaseUrl" MaxLength="2048"/>
+                    <TextBlock TextWrapping="Wrap" Foreground="#425166" Margin="0,-5,0,12"
+                               Text="OpenAI 兼容示例：https://api.example.com/v1；Ollama 示例：http://localhost:11434。请勿填写完整聊天接口路径。远程地址必须使用 HTTPS。"/>
+                    <Label Content="模型名称（OCR 需支持图像输入）" Target="{Binding ElementName=ProviderModel}"/>
+                    <TextBox x:Name="ProviderModel" MaxLength="200"/>
+                    <Label Content="API 密钥" Target="{Binding ElementName=ApiKey}"/>
+                    <PasswordBox x:Name="ApiKey" Padding="8,6" Margin="0,5,0,5" MaxLength="8192"/>
+                    <TextBlock x:Name="KeyState" TextWrapping="Wrap" Foreground="#425166" Margin="0,0,0,10"/>
+                    <CheckBox x:Name="ClearKey" Content="清除已保存的密钥（保存后生效）" Margin="0,0,0,12"/>
+                    <CheckBox x:Name="MakeDefault" Content="设为默认服务商" Margin="0,0,0,16"/>
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="SaveButton" Content="保存服务商" Click="Save_Click"/>
+                        <Button x:Name="DeleteButton" Content="删除服务商" Click="Delete_Click"/>
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+        <Grid Grid.Row="2" Margin="0,18,0,0">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock x:Name="Status" TextWrapping="Wrap" Foreground="#9B2C20"/>
+                <TextBlock Margin="0,8,12,0" TextWrapping="Wrap" Foreground="#425166" Text="本地 ONNX OCR 尚不可用；此版本不会自动下载模型。不同服务商的识别质量、隐私政策与费用由其提供方决定。"/>
+            </StackPanel>
+            <Button Grid.Column="1" Content="关闭" IsCancel="True" VerticalAlignment="Bottom" Margin="12,0,0,0"/>
+        </Grid>
+    </Grid>
+</Window>

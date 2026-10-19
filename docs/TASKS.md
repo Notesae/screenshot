@@ -6,8 +6,8 @@
 
 | 执行者 | 负责路径/模块 | 本阶段交付 |
 |---|---|---|
-| native_host | src/Screenshot.App（设置窗口除外）、src/Screenshot.App.Tests | WPF/WebView2、受限桥、GDI 基线捕获、原生文件/剪贴板和热键 |
-| editor | editor | 文档模型、Fabric、原样/美化/重排、导出、OCR/翻译操作入口 |
+| native_host | src/Screenshot.App（设置窗口除外）、src/Screenshot.App.Tests | WPF/WebView2、受限桥、GDI 基线捕获、冻结背景原位层与生命周期、原生文件/剪贴板和热键 |
+| editor | editor | 文档模型、Fabric、原样/美化/重排、原位紧凑工具条与坐标映射、导出、OCR/翻译操作入口 |
 | ai_providers | src/Screenshot.AI、ProviderSettingsWindow、tests/Screenshot.AI.Tests | 两类 HTTP 协议、DPAPI 设置、模拟 HTTP 测试 |
 | integrator | 根配置、scripts、docs、CI、仓库集成 | 来源归档、契约审查、构建/实机验证、提交与推送 |
 

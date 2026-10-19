@@ -13,8 +13,14 @@ output/
 !.env.example
 .worktrees/
 TestResults/
+*.tsbuildinfo
 *.screenshot.json
 *.png
 *.jpg
 *.jpeg
 *.webp
+providers.json
+WebView2/
+*.pfx
+*.p12
+*.pem

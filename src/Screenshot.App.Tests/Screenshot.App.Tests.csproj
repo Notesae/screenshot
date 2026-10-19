@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
+  <ItemGroup><Compile Include="../Screenshot.App/BridgePolicy.cs" Link="BridgePolicy.cs" /><Compile Include="../Screenshot.App/NativeImages.cs" Link="NativeImages.cs" /><Compile Include="../Screenshot.App/RequestGate.cs" Link="RequestGate.cs" /><Compile Include="../Screenshot.App/CapturePresentation.cs" Link="CapturePresentation.cs" /></ItemGroup>
+</Project>

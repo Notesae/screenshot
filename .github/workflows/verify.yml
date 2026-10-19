@@ -1,0 +1,31 @@
+name: Verify Windows framework
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: editor/package-lock.json
+      - name: Build and automated checks
+        shell: pwsh
+        run: ./scripts/verify.ps1
+      - name: Publish portable Windows x64 directory
+        shell: pwsh
+        run: ./scripts/publish.ps1 -SkipRestore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Screenshot-win-x64
+          path: artifacts/Screenshot-win-x64/
+          if-no-files-found: error
+          retention-days: 14
