@@ -7,7 +7,7 @@ describe('project trust boundary', () => {
     expect(parseDocument({ schemaVersion: 1, image, editor: defaultEditor() }).image).toEqual(image);
   });
   it('rejects remote images and unsupported versions', () => {
-    expect(() => parseDocument({ schemaVersion: 2, image, editor: defaultEditor() })).toThrow();
+    expect(() => parseDocument({ schemaVersion: 3, image, editor: defaultEditor() })).toThrow();
     expect(() => parseDocument({ schemaVersion: 1, image: { ...image, dataUrl: 'https://example.com/a.png' }, editor: defaultEditor() })).toThrow();
   });
   it('rejects oversized dimensions, invalid controls and executable objects', () => {

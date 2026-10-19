@@ -19,6 +19,12 @@ describe('in-place capture geometry', () => {
     expect(beauty.frame.y + 48 * beauty.scale.y).toBe(raw.frame.y);
     expect(beauty.frame.width).toBe(448);
   });
+  it('moves a cropped content anchor by its source offset before applying beauty padding', () => {
+    const layout = overlayLayout(overlay, { width: 2240, height: 900 }, { width: 296, height: 246 }, 48, { width: 560, height: 44 }, { x: 40, y: 20 });
+    expect(layout.frame.x).toBe(210 + 20 - 24);
+    expect(layout.frame.y).toBe(125 + 12.5 - 30);
+    expect(layout.selection.width).toBe(100);
+  });
   it('recomputes position on resize and clamps tools to the selected secondary screen', () => {
     const layout = overlayLayout(overlay, { width: 1120, height: 360 }, { width: 800, height: 600 }, 0, { width: 560, height: 80 });
     expect(layout.selection.x).toBe(105);

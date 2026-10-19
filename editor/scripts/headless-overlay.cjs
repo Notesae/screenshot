@@ -41,7 +41,7 @@ async function installMock(page) {
       postMessage(request) {
         window.__messages.push(request);
         if (request.method === 'presentation.ready' && window.__holdReady) { window.__heldReady.push(request); return; }
-        const results = { 'settings.read': { providers: [{ id: 'synthetic', name: '模拟服务', kind: 'ollama', model: 'test', baseUrl: 'http://127.0.0.1:0', hasApiKey: false }], defaultProviderId: 'synthetic' }, 'image.open': window.__openImage, 'image.copy': { copied: true }, 'image.save': { saved: true }, 'ai.ocr': { text: '仅用于无头测试的合成文字' } };
+        const results = { 'settings.read': { providers: [{ id: 'synthetic', name: '模拟服务', kind: 'ollama', model: 'test', baseUrl: 'http://127.0.0.1:0', hasApiKey: false }], defaultProviderId: 'synthetic' }, 'image.open': window.__openImage, 'image.copy': { copied: true }, 'image.save': { saved: true }, 'project.save': { saved: true }, 'ai.ocr': { text: '仅用于无头测试的合成文字' } };
         let result = results[request.method];
         if (request.method.startsWith('presentation.')) {
           const active = window.__currentCaptureId;
@@ -93,6 +93,75 @@ async function copied(page) {
   return page.evaluate(() => window.__messages.filter(message => message.method === 'image.copy').at(-1).payload.dataUrl);
 }
 async function escape(page, target) { await (target || page.locator('.compact-toolbar')).dispatchEvent('keydown', { key: 'Escape', bubbles: true }); }
+async function imagePixel(page, dataUrl, x = 30, y = 25) {
+  return page.evaluate(({ dataUrl, x, y }) => new Promise(resolve => { const image = new Image(); image.onload = () => { const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height; const ctx = canvas.getContext('2d'); ctx.drawImage(image, 0, 0); resolve({ width: image.width, height: image.height, pixel: [...ctx.getImageData(x, y, 1, 1).data] }); }; image.src = dataUrl; }), { dataUrl, x, y });
+}
+async function saveDocument(page) {
+  const count = await page.evaluate(() => window.__messages.filter(message => message.method === 'project.save').length);
+  await page.getByRole('button', { name: '保存可编辑项目', exact: true }).click();
+  await page.waitForFunction(previous => window.__messages.filter(message => message.method === 'project.save').length > previous, count);
+  return page.evaluate(() => window.__messages.filter(message => message.method === 'project.save').at(-1).payload.document);
+}
+async function waitCanvas(page, width, height) { await page.waitForFunction(({width,height}) => { const canvas = document.querySelector('.lower-canvas'); return canvas && canvas.width === width && canvas.height === height; }, { width, height }); }
+// E1 像素与历史仅使用合成素材，所有 native 调用均为页面内存 mock。
+async function e1Checks(page, source) {
+  await capture(page, 'e1-history'); await page.locator('.compact-toolbar').waitFor(); await waitCanvas(page, 80, 60);
+  assert.equal(await page.getByRole('button', { name: '撤销', exact: true }).isDisabled(), true);
+  await page.getByRole('button', { name: '更多与完整工作台', exact: true }).click();
+  await page.getByRole('button', { name: '遮盖', exact: true }).click(); await escape(page);
+  // CDP 输入仅发送到本脚本新建的 headless 页面，不移动系统鼠标或窗口焦点。
+  await page.setViewportSize({ width: 4480, height: 1440 });
+  await page.waitForFunction(() => Math.abs(document.querySelector('.compact-canvas').getBoundingClientRect().x - 420) < .1);
+  const bounds = await page.locator('.compact-canvas').boundingBox();
+  await page.mouse.move(bounds.x + 40, bounds.y + 27); await page.mouse.down(); await page.mouse.move(bounds.x + 48, bounds.y + 33, { steps: 5 }); await page.mouse.up();
+  await page.getByRole('button', { name: '更多与完整工作台', exact: true }).click();
+  let moved = await saveDocument(page); closeEnough(moved.editor.annotations[0].left, 24); closeEnough(moved.editor.annotations[0].top, 18);
+  await page.getByRole('button', { name: '撤销', exact: true }).click(); moved = await saveDocument(page); closeEnough(moved.editor.annotations[0].left, 16); closeEnough(moved.editor.annotations[0].top, 12);
+  await escape(page);
+  await page.setViewportSize({ width: 1120, height: 360 });
+  await page.waitForFunction(() => Math.abs(document.querySelector('.compact-canvas').getBoundingClientRect().x - 105) < .1);
+  assert.deepEqual((await imagePixel(page, await copied(page))).pixel, [48, 51, 46, 255]);
+  await page.getByRole('button', { name: '撤销', exact: true }).click(); assert.equal(await copied(page), source);
+  await page.getByRole('button', { name: '重做', exact: true }).click(); assert.deepEqual((await imagePixel(page, await copied(page))).pixel, [48, 51, 46, 255]);
+  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await page.getByRole('button', { name: '更多与完整工作台', exact: true }).click();
+  await page.getByRole('button', { name: '箭头', exact: true }).click();
+  assert.equal(await page.getByRole('button', { name: '重做', exact: true }).isDisabled(), true);
+  await page.getByRole('button', { name: '高亮', exact: true }).click(); await page.getByRole('button', { name: '遮盖', exact: true }).click();
+  await page.getByLabel('标注颜色', { exact: true }).fill('#112233'); await page.getByRole('button', { name: '应用到选中标注', exact: true }).click();
+  const annotated = await saveDocument(page);
+  assert.equal(annotated.schemaVersion, 2); assert.deepEqual(annotated.editor.annotations.map(a => a.type), ['arrow', 'highlight', 'cover']); assert.equal(annotated.editor.annotations.at(-1).color, '#112233');
+  await escape(page); assert.deepEqual((await imagePixel(page, await copied(page))).pixel, [17, 34, 51, 255]);
+  await page.getByRole('button', { name: '撤销', exact: true }).click(); assert.deepEqual((await imagePixel(page, await copied(page))).pixel, [48, 51, 46, 255]);
+  checks.push('new annotations serialize safely; cover PNG is opaque; properties undo and new edits clear redo');
+  await e1Transforms(page, source);
+}
+// 原图被裁为右侧绿色区域，再缩放；输出和OCR均不得带回裁掉的红色区域。
+async function e1Transforms(page, source) {
+  await capture(page, 'e1-transform'); await waitCanvas(page, 80, 60);
+  await page.getByRole('button', { name: '更多与完整工作台', exact: true }).click();
+  for (const [key, value] of Object.entries({ x: 40, y: 10, width: 40, height: 40 })) await page.getByLabel(`裁剪${key}`, { exact: true }).fill(String(value));
+  await page.getByRole('button', { name: '应用裁剪', exact: true }).click(); await waitCanvas(page, 40, 40);
+  const cropFrame = await page.locator('.compact-canvas').boundingBox(); closeEnough(cropFrame.x, 115); closeEnough(cropFrame.y, 52.5);
+  let exported = await imagePixel(page, await copied(page), 10, 10); assert.equal(exported.width, 40); assert.equal(exported.height, 40); assert.deepEqual(exported.pixel, [68, 136, 85, 255]);
+  await page.getByLabel('缩放宽度', { exact: true }).fill('20'); await page.getByRole('button', { name: '应用缩放', exact: true }).click(); await waitCanvas(page, 20, 20);
+  exported = await imagePixel(page, await copied(page), 10, 10); assert.equal(exported.width, 20); assert.equal(exported.height, 20);
+  const transformed = await saveDocument(page); assert.equal(transformed.image.dataUrl, source); assert.deepEqual(transformed.editor.resize, { width: 20, height: 20 });
+  await page.getByRole('button', { name: '撤销', exact: true }).click(); await waitCanvas(page, 40, 40);
+  await page.getByRole('button', { name: '撤销', exact: true }).click(); await waitCanvas(page, 80, 60); assert.equal(await copied(page), source);
+  await page.getByRole('button', { name: '重做', exact: true }).click(); await waitCanvas(page, 40, 40);
+  await page.getByRole('button', { name: '重做', exact: true }).click(); await waitCanvas(page, 20, 20); await escape(page);
+  await page.getByRole('button', { name: 'OCR', exact: true }).click(); await page.waitForFunction(() => window.__messages.some(message => message.method === 'ai.ocr'));
+  const payload = await page.evaluate(() => window.__messages.filter(message => message.method === 'ai.ocr').at(-1).payload.imageDataUrl);
+  exported = await imagePixel(page, payload, 10, 10); assert.equal(exported.width, 20); assert.equal(exported.height, 20); assert.deepEqual(exported.pixel, [68, 136, 85, 255]);
+  await page.waitForFunction(() => document.querySelector('#compact-text')?.value === '仅用于无头测试的合成文字');
+  await page.getByRole('button', { name: '撤销', exact: true }).click(); await waitCanvas(page, 20, 20); assert.equal(await page.locator('#compact-text').inputValue(), '');
+  const prevented = await page.locator('#compact-text').evaluate(input => { const event = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }); input.dispatchEvent(event); return event.defaultPrevented; });
+  assert.equal(prevented, false); await waitCanvas(page, 20, 20);
+  await page.locator('.compact-toolbar').dispatchEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }); await waitCanvas(page, 40, 40);
+  await page.locator('.compact-toolbar').dispatchEvent('keydown', { key: 'y', ctrlKey: true, bubbles: true, cancelable: true }); await waitCanvas(page, 20, 20);
+  checks.push('crop/resize retain source and overlay anchor; undo/redo restore dimensions; OCR sees only current crop and its result is undoable');
+}
 
 (async () => {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -191,6 +260,7 @@ async function escape(page, target) { await (target || page.locator('.compact-to
   await page.evaluate(() => window.__emit({ event: 'presentation.changed', payload: { presentation: 'workbench', reason: 'user_workbench', invalidatedCaptureId: 'tray-during-decode' } }));
   await releaseDecodes(page); await page.waitForFunction(() => !document.querySelector('.compact-overlay') && document.querySelector('.workspace-bar strong')?.textContent === '合成测试.png');
   assert.equal(await page.getByRole('alert').count(), 0); checks.push('user workbench restoration invalidates pending capture without a timeout warning');
+  await e1Checks(page, source);
   assert.deepEqual(errors, []);
   const evidence = { headless: true, syntheticOnly: true, nativeCalls: false, clipboardAccess: false, checks };
   const evidencePath = path.resolve(__dirname, '../output/headless-overlay.json'); fs.mkdirSync(path.dirname(evidencePath), { recursive: true }); fs.writeFileSync(evidencePath, JSON.stringify(evidence, null, 2) + '\n');

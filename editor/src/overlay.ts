@@ -43,11 +43,12 @@ function selectedScreen(overlay: OverlayMetadata) {
 }
 
 /** 独立映射 X/Y，不使用主屏 DPI；美化只向外扩张，原选区内容锚点保持不变。 */
-export function overlayLayout(overlay: OverlayMetadata, viewport: Size, output: Size, padding: number, tools: Size = { width: 560, height: 44 }) {
+export function overlayLayout(overlay: OverlayMetadata, viewport: Size, output: Size, padding: number, tools: Size = { width: 560, height: 44 }, crop?: { x: number; y: number }) {
   if (![viewport.width, viewport.height, output.width, output.height].every(n => Number.isFinite(n) && n > 0) || !Number.isFinite(padding) || padding < 0) throw new Error('编辑区域尺寸无效。');
   const desktop = overlay.desktopBounds, scale = { x: viewport.width / desktop.width, y: viewport.height / desktop.height };
   const map = (r: PixelRect): PixelRect => ({ x: (r.x - desktop.x) * scale.x, y: (r.y - desktop.y) * scale.y, width: r.width * scale.x, height: r.height * scale.y });
-  const selection = map(overlay.selection), screen = map(selectedScreen(overlay));
+  const physicalSelection = crop ? { x: overlay.selection.x + crop.x, y: overlay.selection.y + crop.y, width: output.width - padding * 2, height: output.height - padding * 2 } : overlay.selection;
+  const selection = map(physicalSelection), screen = map(selectedScreen({ ...overlay, selection: physicalSelection }));
   const frame = { x: selection.x - padding * scale.x, y: selection.y - padding * scale.y, width: output.width * scale.x, height: output.height * scale.y };
   const margin = Math.min(12, screen.width / 4, screen.height / 4);
   const toolWidth = Math.min(tools.width, screen.width - margin * 2), toolHeight = Math.min(tools.height, screen.height - margin * 2);

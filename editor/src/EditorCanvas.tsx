@@ -1,19 +1,11 @@
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
-import { Canvas, FabricImage, Textbox, Rect, type FabricObject } from 'fabric';
-import { FONT, renderBase } from './render';
-import { outputSize, type Annotation, type ProjectDocument } from './document';
+import { Canvas, FabricImage, Textbox } from 'fabric';
+import { renderBase } from './render';
+import { outputSize, type Annotation, type AnnotationKind, type ProjectDocument } from './document';
+import { annotationFromObject as serialize, annotationToObject as restore, patchAnnotationObject } from './annotations';
 
-export type CanvasHandle = { exportPng: (scale: number) => Promise<string>; add: (type: 'text' | 'rect') => void; remove: () => void; interactionState: () => { editing: boolean; selected: boolean }; exitSelection: () => void };
-type Props = { document: ProjectDocument; onAnnotations: (objects: Annotation[]) => void; onError: (error: unknown) => void; fixedDisplayScale?: { x: number; y: number }; onReady?: () => void };
-// 从 Fabric 提取受支持的几何与文字属性，供项目白名单校验。
-function serialize(object: FabricObject): Annotation {
-  return { type: object instanceof Textbox ? 'text' : 'rect', left: object.left, top: object.top, width: Math.max(1, object.width), height: Math.max(1, object.height), scaleX: object.scaleX, scaleY: object.scaleY, angle: object.angle, text: object instanceof Textbox ? object.text : '', color: String(object instanceof Textbox ? object.fill : object.stroke), fontSize: object instanceof Textbox ? object.fontSize : 26 };
-}
-// 只重建文字与矩形，禁止缩放翻转，保证保存后的几何可还原。
-function restore(a: Annotation): FabricObject {
-  const props = { originX: 'left' as const, originY: 'top' as const, left: a.left, top: a.top, width: a.width, height: a.height, scaleX: a.scaleX, scaleY: a.scaleY, angle: a.angle, cornerColor: '#b4432c', borderColor: '#b4432c', transparentCorners: false, lockScalingFlip: true };
-  return a.type === 'text' ? new Textbox(a.text, { ...props, fontFamily: FONT, fontSize: a.fontSize, fill: a.color, splitByGrapheme: true }) : new Rect({ ...props, fill: 'transparent', stroke: a.color, strokeWidth: 3, strokeUniform: true });
-}
+export type CanvasHandle = { exportPng: (scale: number) => Promise<string>; add: (type: AnnotationKind) => void; remove: () => void; patchSelection: (change: {color: string; fontSize: number}) => boolean; interactionState: () => { editing: boolean; selected: boolean }; exitSelection: () => void };
+type Props = { document: ProjectDocument; onAnnotations: (objects: Annotation[], group?: string) => void; onError: (error: unknown) => void; fixedDisplayScale?: { x: number; y: number }; onReady?: () => void };
 /** 保持真实像素尺寸，CSS 只缩放显示，不改变导出分辨率。 */
 export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanvas({ document: doc, onAnnotations, onError, fixedDisplayScale, onReady }, ref) {
   const element = useRef<HTMLCanvasElement>(null);
@@ -26,19 +18,22 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
   const [size, setSize] = useState({ width: 720, height: 480 });
   const callbacks = useRef({ onAnnotations, onError }); callbacks.current = { onAnnotations, onError };
   const current = useRef(doc); current.current = doc;
-  const properties = JSON.stringify([doc.editor.mode, doc.editor.padding, doc.editor.radius, doc.editor.background, doc.editor.shadow, doc.editor.text, doc.editor.title, doc.editor.fontSize, doc.editor.textWidth]);
+  const properties = JSON.stringify([doc.editor.mode, doc.editor.padding, doc.editor.radius, doc.editor.background, doc.editor.shadow, doc.editor.text, doc.editor.title, doc.editor.fontSize, doc.editor.textWidth, doc.editor.crop, doc.editor.resize]);
   const latestProperties = useRef(properties); latestProperties.current = properties;
   const rendered = useRef<{ image: ProjectDocument['image']; properties: string } | null>(null);
   const lastAnnotations = useRef<Annotation[]>([]);
   useEffect(() => {
     const canvas = new Canvas(element.current!, { enableRetinaScaling: false, preserveObjectStacking: true, selection: false, selectionKey: undefined });
     fabric.current = canvas;
-    const changed = () => {
-      if (updating.current) return;
+    const changed = (group?: string) => {
+      if (updating.current || !loaded.current) return;
       const objects = canvas.getObjects().filter(o => o.selectable).map(serialize);
-      lastAnnotations.current = objects; callbacks.current.onAnnotations(objects);
+      lastAnnotations.current = objects; callbacks.current.onAnnotations(objects, group);
     };
-    canvas.on('object:modified', changed); canvas.on('text:changed', changed);
+    canvas.on('object:modified', () => changed()); canvas.on('text:changed', event => {
+      if (event.target.text.length > 5000) event.target.set({ text: event.target.text.slice(0, 5000) });
+      changed(`annotation-text:${serialize(event.target).id}`);
+    });
     return () => { fabric.current = null; void canvas.dispose(); };
   }, []);
   useEffect(() => {
@@ -60,7 +55,16 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
     })().catch(error => { if (!cancelled) callbacks.current.onError(error); });
     return () => { cancelled = true; };
     // 标注已直接存在于 Fabric 中，逐字输入时重建会丢失编辑焦点。
-  }, [doc.image, doc.editor.mode, doc.editor.padding, doc.editor.radius, doc.editor.background, doc.editor.shadow, doc.editor.text, doc.editor.title, doc.editor.fontSize, doc.editor.textWidth]);
+  }, [doc.image, properties]);
+  // 撤销/重做仅变更标注时同步模型，正常文本输入复用现有对象以保留 IME 焦点。
+  useEffect(() => {
+    const canvas = fabric.current;
+    if (!canvas || !loaded.current || doc.editor.annotations === lastAnnotations.current) return;
+    updating.current = true; canvas.discardActiveObject();
+    canvas.remove(...canvas.getObjects().filter(object => object.selectable));
+    for (const annotation of doc.editor.annotations) canvas.add(restore(annotation));
+    lastAnnotations.current = doc.editor.annotations; canvas.requestRenderAll(); updating.current = false;
+  }, [doc.editor.annotations]);
   useEffect(() => {
     if (fixedDisplayScale) return;
     const observer = new ResizeObserver(entries => {
@@ -79,18 +83,18 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
     async exportPng(scale) {
       // 同时核对模型与已渲染版本，防止快速切换样式时导出上一帧。
       const canvas = fabric.current;
-      if (!canvas || !loaded.current || rendered.current?.image !== current.current.image || rendered.current?.properties !== latestProperties.current) throw new Error('画布正在更新，请稍后重试。');
+      if (!canvas || !loaded.current || rendered.current?.image !== current.current.image || rendered.current?.properties !== latestProperties.current || lastAnnotations.current !== current.current.editor.annotations) throw new Error('画布正在更新，请稍后重试。');
       outputSize(current.current.image, current.current.editor, scale);
       canvas.discardActiveObject(); canvas.renderAll();
       // 未编辑的原样 PNG 跳过重编码，完整保留透明像素数据。
       const doc = current.current;
-      if (scale === 1 && doc.editor.mode === 'raw' && !doc.editor.annotations.length && doc.image?.dataUrl.startsWith('data:image/png;base64,')) return doc.image.dataUrl;
+      if (scale === 1 && doc.editor.mode === 'raw' && !doc.editor.crop && !doc.editor.resize && !doc.editor.annotations.length && doc.image?.dataUrl.startsWith('data:image/png;base64,')) return doc.image.dataUrl;
       return canvas.toDataURL({ format: 'png', multiplier: scale, enableRetinaScaling: false });
     },
     add(type) {
       const canvas = fabric.current;
       if (!canvas || !loaded.current || lastAnnotations.current.length >= 100) return;
-      const object = restore({ type, left: size.width * .2, top: size.height * .2, width: Math.min(240, size.width * .6), height: Math.min(140, size.height * .5), scaleX: 1, scaleY: 1, angle: 0, text: '双击编辑文字', color: '#b4432c', fontSize: 26 });
+      const object = restore({ id: crypto.randomUUID(), type, left: size.width * .2, top: size.height * .2, width: Math.min(240, size.width * .6), height: type === 'arrow' ? 24 : Math.min(140, size.height * .5), scaleX: 1, scaleY: 1, angle: 0, text: '双击编辑文字', color: type === 'cover' ? '#30332e' : type === 'highlight' ? '#ffe066' : '#b4432c', fontSize: 26 });
       canvas.add(object); canvas.setActiveObject(object); canvas.requestRenderAll();
       const objects = canvas.getObjects().filter(o => o.selectable).map(serialize);
       lastAnnotations.current = objects; callbacks.current.onAnnotations(objects);
@@ -98,9 +102,17 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
     remove() {
       const canvas = fabric.current;
       if (!canvas) return;
+      const removedIds = new Set(canvas.getActiveObjects().map(object => serialize(object).id));
       canvas.remove(...canvas.getActiveObjects()); canvas.discardActiveObject(); canvas.requestRenderAll();
-      const objects = canvas.getObjects().filter(o => o.selectable).map(serialize);
+      const objects = loaded.current ? canvas.getObjects().filter(o => o.selectable).map(serialize) : current.current.editor.annotations.filter(annotation => !removedIds.has(annotation.id));
       lastAnnotations.current = objects; callbacks.current.onAnnotations(objects);
+    },
+    patchSelection(change) {
+      const canvas = fabric.current, object = canvas?.getActiveObject();
+      if (!canvas || !loaded.current || !object || !/^#[0-9a-f]{6}$/i.test(change.color) || !Number.isFinite(change.fontSize) || change.fontSize < 8 || change.fontSize > 240) return false;
+      patchAnnotationObject(object, change); canvas.requestRenderAll();
+      const objects = canvas.getObjects().filter(o => o.selectable).map(serialize);
+      lastAnnotations.current = objects; callbacks.current.onAnnotations(objects); return true;
     },
     interactionState() {
       const object = fabric.current?.getActiveObject();

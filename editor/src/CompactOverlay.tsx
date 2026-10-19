@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ArrowDownToLine, Check, Copy, Frame, Languages, Maximize2, MoreHorizontal, ScanText, Settings2, Sparkles, Trash2, Type, X } from 'lucide-react';
 import { EditorCanvas, type CanvasHandle } from './EditorCanvas';
-import { outputSize, type EditorState, type ProjectDocument } from './document';
+import { outputSize, type ContentResize, type SourceCrop, type EditorState, type ProjectDocument } from './document';
 import { native, type Settings, type PresentationResult } from './bridge';
 import { overlayLayout, type OverlayMetadata } from './overlay';
 import { overlayKeyAction } from './keyboard';
+import { AnnotationPalette, HistoryButtons, TransformPanel } from './EditControls';
 
 type Props = {
   document: ProjectDocument; metadata: OverlayMetadata; canvasRef: RefObject<CanvasHandle | null>;
-  update: (change: Partial<EditorState>) => void; onExport: (copy?: boolean) => void;
+  update: (change: Partial<EditorState>, group?: string) => void; onExport: (copy?: boolean) => void;
+  canUndo: boolean; canRedo: boolean; undo: () => void; redo: () => void;
+  onTransform: (crop: SourceCrop | null, resize: ContentResize | null) => void;
   onAi: (kind: 'ocr' | 'translate') => void; onPresentation: (mode: 'workbench' | 'hidden') => void;
   onConfigure: () => void; onSaveProject: () => void; onError: (error: unknown) => void;
   busy: string; aiBusy: string; settings: Settings; providerId: string; setProviderId: (id: string) => void;
@@ -30,7 +33,7 @@ export function CompactOverlay(props: Props) {
   const editor = doc.editor;
   let output = { width: doc.image?.width || 1, height: doc.image?.height || 1 };
   try { output = outputSize(doc.image, editor); } catch { /* 画布会显示尺寸错误，工具仍可用于缩短文字。 */ }
-  const layout = overlayLayout(metadata, viewport, output, editor.mode === 'beauty' ? editor.padding : 0, tools);
+  const layout = overlayLayout(metadata, viewport, output, editor.mode === 'beauty' ? editor.padding : 0, tools, editor.mode === 'reflow' ? undefined : editor.crop || (editor.resize ? { x: 0, y: 0 } : undefined));
 
   useEffect(() => {
     const resize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
@@ -70,9 +73,10 @@ export function CompactOverlay(props: Props) {
 
   return <div className="compact-overlay" aria-label="截图选区编辑">
     <div className="compact-canvas" style={{ left: layout.frame.x, top: layout.frame.y, width: layout.frame.width, height: layout.frame.height }}>
-      <EditorCanvas ref={canvasRef} document={doc} fixedDisplayScale={layout.scale} onReady={() => setCanvasReady(true)} onAnnotations={annotations => update({ annotations })} onError={props.onError}/>
+      <EditorCanvas ref={canvasRef} document={doc} fixedDisplayScale={layout.scale} onReady={() => setCanvasReady(true)} onAnnotations={(annotations, group) => update({ annotations }, group)} onError={props.onError}/>
     </div>
     <div className="compact-toolbar" role="toolbar" aria-label="截图工具" ref={toolbar} style={{ left: layout.toolbar.x, top: layout.toolbar.y, width: layout.toolbar.width }}>
+      <HistoryButtons canUndo={props.canUndo} canRedo={props.canRedo} undo={props.undo} redo={props.redo}/>
       <button title="添加文字标注" aria-label="添加文字标注" onClick={() => canvasRef.current?.add('text')}><Type/></button><button title="添加矩形标注" aria-label="添加矩形标注" onClick={() => canvasRef.current?.add('rect')}><Frame/></button><span className="compact-divider"/>
       <button className={panel === 'beauty' ? 'active' : ''} aria-expanded={panel === 'beauty'} onClick={() => { update({ mode: 'beauty' }); setPanel(panel === 'beauty' ? null : 'beauty'); }}><Sparkles/>美化</button>
       <button disabled={!!busy || !!aiBusy} onClick={() => { setPanel('text'); props.onAi('ocr'); }}><ScanText/>OCR</button><button className={panel === 'text' ? 'active' : ''} aria-expanded={panel === 'text'} onClick={() => setPanel(panel === 'text' ? null : 'text')}><Languages/>翻译</button><span className="compact-divider"/>
@@ -83,7 +87,7 @@ export function CompactOverlay(props: Props) {
       <div className="compact-panel-heading"><strong>{panel === 'beauty' ? '美化选区' : panel === 'text' ? '文字与翻译' : '更多操作'}</strong><button aria-label="关闭选项" onClick={() => setPanel(null)}><X/></button></div>
       {panel === 'beauty' && <><div className="swatches">{colors.map(color => <button key={color} aria-label={`背景 ${color}`} style={{ background: color }} className={editor.background === color ? 'active' : ''} onClick={() => update({ background: color })}>{editor.background === color && <Check size={14}/>}</button>)}</div><CompactRange label="留白" value={editor.padding} max={200} onChange={padding => update({ padding })}/><CompactRange label="圆角" value={editor.radius} max={100} onChange={radius => update({ radius })}/><label className="checkbox-row"><input type="checkbox" checked={editor.shadow} onChange={event => update({ shadow: event.target.checked })}/>柔和阴影</label><button className="compact-secondary" onClick={() => update({ mode: 'raw' })}>恢复原样</button></>}
       {panel === 'text' && <><label className="control-label" htmlFor="compact-provider">AI 服务</label><div className="compact-provider"><select id="compact-provider" value={props.providerId} onChange={event => props.setProviderId(event.target.value)}><option value="">请先配置服务</option>{props.settings.providers.map(provider => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</select><button title="服务设置" aria-label="服务设置" disabled={!!busy} onClick={props.onConfigure}><Settings2/></button></div><p className="compact-privacy">只有点击识别或翻译，才将选区图片或文字发给所选服务。</p><button className="wide-button" disabled={!!busy || !!aiBusy} onClick={() => props.onAi('ocr')}><ScanText/>识别选区文字</button><label className="control-label compact-content-label" htmlFor="compact-text">文字校对</label><textarea id="compact-text" value={editor.text} maxLength={20000} placeholder="输入文字或识别后校对" onChange={event => update({ text: event.target.value })}/><div className="translate-row"><select aria-label="目标语言" value={props.targetLanguage} onChange={event => props.setTargetLanguage(event.target.value)}><option>简体中文</option><option>English</option><option>日本語</option><option>한국어</option></select><button disabled={!!busy || !!aiBusy || !editor.text.trim()} onClick={() => props.onAi('translate')}><Languages/>翻译</button></div><button className="compact-secondary" onClick={() => update({ mode: editor.mode === 'reflow' ? 'raw' : 'reflow' })}>{editor.mode === 'reflow' ? '返回原图' : '生成文字卡片'}</button><p className="compact-privacy">本地 ONNX 模型尚未安装；识别和译文请校对。</p></>}
-      {panel === 'more' && <><div className="compact-size">选区 {doc.image?.width} × {doc.image?.height} 像素</div><label className="control-label" htmlFor="compact-scale">导出倍率</label><select id="compact-scale" value={props.scale} onChange={event => props.setScale(Number(event.target.value))}><option value={1}>1× 原尺寸</option><option value={2}>2× 尺寸</option></select><button className="compact-secondary" onClick={() => canvasRef.current?.remove()}><Trash2/>删除选中标注</button><button className="compact-secondary" disabled={!!busy} onClick={props.onSaveProject}>保存可编辑项目</button><button className="compact-secondary" disabled={!!busy} onClick={() => props.onPresentation('workbench')}><Maximize2/>完整工作台</button></>}
+      {panel === 'more' && <><div className="compact-size">选区 {doc.image?.width} × {doc.image?.height} 像素</div><AnnotationPalette canvasRef={canvasRef} onError={props.onError}/><button className="compact-secondary" onClick={() => canvasRef.current?.remove()}><Trash2/>删除选中标注</button><TransformPanel document={doc} onTransform={props.onTransform}/><label className="control-label" htmlFor="compact-scale">导出倍率</label><select id="compact-scale" value={props.scale} onChange={event => props.setScale(Number(event.target.value))}><option value={1}>1× 当前尺寸</option><option value={2}>2× 尺寸</option></select><button className="compact-secondary" disabled={!!busy} onClick={props.onSaveProject}>保存可编辑项目</button><button className="compact-secondary" disabled={!!busy} onClick={() => props.onPresentation('workbench')}><Maximize2/>完整工作台</button></>}
     </section>}
     {(busy || aiBusy) && <div className="compact-progress" role="status" style={{ left: layout.toolbar.x, top: Math.max(8, layout.toolbar.y - 27) }}><span className="spinner"/>{busy || aiBusy}…</div>}
     {props.notice && <div className={`compact-notice ${props.notice.error ? 'error' : ''}`} role={props.notice.error ? 'alert' : 'status'} style={{ left: layout.screen.x + 12, top: layout.screen.y + 12, maxWidth: Math.max(80, layout.screen.width - 24) }}><span>{props.notice.text}</span><button aria-label="关闭提示" onClick={props.clearNotice}><X/></button></div>}

@@ -1,4 +1,4 @@
-import { outputSize, type ProjectDocument } from './document';
+import { contentGeometry, outputSize, type ProjectDocument } from './document';
 import { parseImage, MAX_IMAGE_BYTES } from './document';
 import type { LoadedImage } from './bridge';
 
@@ -46,16 +46,17 @@ export async function renderBase(doc: ProjectDocument): Promise<HTMLCanvasElemen
   if (!image) return canvas;
   const source = await loadImage(image.dataUrl);
   if (source.naturalWidth !== image.width || source.naturalHeight !== image.height) throw new Error('图片尺寸与项目记录不符。');
+  const content = contentGeometry(image, editor);
   const padding = editor.mode === 'beauty' ? editor.padding : 0;
   if (editor.mode === 'beauty') {
     ctx.fillStyle = editor.background; ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.save();
     if (editor.shadow) { ctx.shadowColor = '#30271c55'; ctx.shadowBlur = Math.min(padding * .5, 32); ctx.shadowOffsetY = Math.min(padding * .2, 12); }
-    ctx.fillStyle = '#faf5eb'; ctx.beginPath(); ctx.roundRect(padding, padding, image.width, image.height, Math.min(editor.radius, image.width / 2, image.height / 2)); ctx.fill();
+    ctx.fillStyle = '#faf5eb'; ctx.beginPath(); ctx.roundRect(padding, padding, content.width, content.height, Math.min(editor.radius, content.width / 2, content.height / 2)); ctx.fill();
     ctx.restore();
-    ctx.beginPath(); ctx.roundRect(padding, padding, image.width, image.height, Math.min(editor.radius, image.width / 2, image.height / 2)); ctx.clip();
+    ctx.beginPath(); ctx.roundRect(padding, padding, content.width, content.height, Math.min(editor.radius, content.width / 2, content.height / 2)); ctx.clip();
   }
-  ctx.drawImage(source, padding, padding);
+  ctx.drawImage(source, content.crop.x, content.crop.y, content.crop.width, content.crop.height, padding, padding, content.width, content.height);
   return canvas;
 }
 
@@ -81,4 +82,13 @@ export async function normalizeImage(value: LoadedImage): Promise<LoadedImage> {
   const dataUrl = canvas.toDataURL('image/png');
   if (dataUrl.length > MAX_IMAGE_BYTES * 1.4) throw new Error('规范化后的 PNG 超过 24 MB，请选择较小图片。');
   return parseImage({ ...image, dataUrl });
+}
+
+/** OCR 使用裁剪/等比缩放后的图片内容，不包含背景、阴影或标注；原图引用保持不变。 */
+export async function imageForProcessing(document: ProjectDocument): Promise<LoadedImage> {
+  if (!document.image) throw new Error('请先载入图片。');
+  if (!document.editor.crop && !document.editor.resize) return document.image;
+  const editor = { ...document.editor, mode: 'raw' as const, annotations: [] };
+  const canvas = await renderBase({ ...document, editor });
+  return { dataUrl: canvas.toDataURL('image/png'), name: document.image.name, width: canvas.width, height: canvas.height };
 }
