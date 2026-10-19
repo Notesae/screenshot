@@ -12,7 +12,7 @@ User cancellation returns null (or saved:false); it is not an exception.
 
 | Method | Payload | Result |
 |---|---|---|
-| app.info | {} | { version, platform, capabilities: string[] } |
+| app.info | {} | { version, platform, capture:{backend,colorMode,supportsHdr}, capabilities: string[] } |
 | image.open | {} | LoadedImage or null |
 | image.paste | {} | LoadedImage or null |
 | capture.screen | {} | LoadedImage or null |
@@ -30,3 +30,5 @@ User cancellation returns null (or saved:false); it is not an exception.
 Provider kinds are `openai-compatible` and `ollama`. No API key is returned to JavaScript or included in project documents. HTTP adapters execute only in the native process after explicit OCR/translate actions.
 
 Project documents use `{ schemaVersion:1, image:LoadedImage|null, editor:object }`. The editor validates its own version and value bounds before restoring. No executable code or network image URLs are accepted as project image sources.
+
+The current native capture backend reports `backend:"gdi", colorMode:"sdr", supportsHdr:false`. Local UI/capture operations share one gate; AI requests use a separate gate. Public metadata/settings reads remain available. A running AI request does not prevent saving/copying an existing document or importing another image; the editor rejects stale AI results after a document switch or text edit.

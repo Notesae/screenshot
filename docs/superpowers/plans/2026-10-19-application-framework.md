@@ -10,14 +10,14 @@
 
 ## Global constraints
 
-- Follow docs/SCOPE.md and docs/BRIDGE.md; never claim the unavailable source remainder has been implemented.
+- Follow docs/SCOPE.md and docs/BRIDGE.md; the complete evaluation is archived as source material, not a claim that the full product is implemented.
 - Work in the isolated clone at D:\codex\2026-10-19\task\screenshot; preserve the original F: directory.
 - Do not call real paid APIs, expose keys, or commit private captures or task exports.
 - Build and test before stage commits; run the actual Windows host before final delivery.
 
 ## Task 1: Documentation and integration (integrator)
 
-- [ ] Persist the exact available source preview and its truncation boundary.
+- [x] Persist the available source preview, then supplement it with the complete source received through the supported cloud conversation interface.
 - [ ] Create solution, build/test scripts, CI, readme, validation matrix and task handoffs.
 - [ ] Review every worker diff and verify native/editor contracts match.
 
