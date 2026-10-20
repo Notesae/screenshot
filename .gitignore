@@ -28,3 +28,6 @@ WebView2/
 *.onnx.data
 models/.downloads/
 models/**/.downloads/
+
+__pycache__/
+*.pyc

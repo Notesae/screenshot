@@ -44,13 +44,17 @@ public partial class MainWindow : Window
     // 只在工作台中记录窗口布局，覆盖层尺寸不会覆盖用户原来的工作台位置。
     private sealed record WorkbenchPlacement(Rect Bounds, WindowState State, WindowStyle Style, ResizeMode ResizeMode, bool Topmost, bool ShowInTaskbar, double MinWidth, double MinHeight);
     // 绑定窗口生命周期，注册全局快捷键，并在关闭时释放原生资源。
-    public MainWindow()
+    private readonly TermsStartup _terms;
+    internal static MainWindow Create(TermsStartup terms) { terms.RequireAccepted(); return new MainWindow(terms); }
+    private MainWindow(TermsStartup terms)
     {
+        _terms = terms; terms.RequireAccepted();
         InitializeComponent();
         Editor.DefaultBackgroundColor = System.Drawing.Color.Transparent;
         Loaded += async (_, _) => await InitializeEditorAsync();
         SourceInitialized += (_, _) =>
         {
+            _terms.RequireAccepted();
             var handle = new WindowInteropHelper(this).Handle;
             _source = HwndSource.FromHwnd(handle); _source.AddHook(WindowMessage);
             var loaded=_hotkeyStore.Load();_hotkeyLoadMessage=loaded.Message;
@@ -70,6 +74,7 @@ public partial class MainWindow : Window
         };
     }
     // 托盘仅提供恢复、复用现有门控截图和退出，不创建第二个编辑器实例。
+    private void ShowTerms(object sender, RoutedEventArgs e) => new TermsWindow(_terms, reviewOnly: true) { Owner = this }.ShowDialog();
     private void InitializeTray()
     {
         var menu = new System.Windows.Forms.ContextMenuStrip();
@@ -149,7 +154,7 @@ public partial class MainWindow : Window
     // 快捷键复用本地操作门控；捕获完成后以事件将图片送给编辑器。
     private async Task CaptureFromHotkeyAsync()
     {
-        if (!_ready || !_requests.TryEnter("capture.region", out var lease)) return;
+        if (!_terms.IsAuthorized || !_ready || !_requests.TryEnter("capture.region", out var lease)) return;
         try
         {
             var image = await CaptureAsync(CaptureRequest.Default(true) with { Backend = _captureBackend, SnapWindows=_snapWindows, SnapClientArea=_snapClientArea });
@@ -327,9 +332,10 @@ public partial class MainWindow : Window
     // 仅允许协议列明的命令；文件、剪贴板、捕获及密钥相关操作留在原生进程。
     private async Task<object?> ExecuteAsync(string method, JsonElement payload)
     {
+        _terms.RequireAccepted();
         switch (method)
         {
-            case "app.info": return new { version = "0.4.2", platform = "windows", presentation = _presentation.Mode.ToString().ToLowerInvariant(), capture = new { backend = _captureBackend, colorMode = "sdr", supportsHdr = false, availableBackends = new[] { "wgc", "gdi" }, targets = new[] { "desktop", "monitor", "window" }, availability = "checked-on-capture" }, capabilities = new[] { "image.open", "image.paste", "capture.screen", "capture.region", "capture.current", "capture.monitors", "capture.settings", "capture.configure", "hotkey.read", "hotkey.configure", "image.save", "image.copy", "text.copy", "project.open", "project.save", "ai.ocr", "ai.translate", "ocr.local", "ocr.cancel", "ocr.status", "ai.cancel", "ai.usage", "ai.test", "recovery.save", "recovery.list", "recovery.load", "recovery.delete", "recovery.usage", "recovery.deleteMany", "presentation.workbench", "presentation.dismiss", "presentation.ready" } };
+            case "app.info": return new { version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "unknown", platform = "windows", presentation = _presentation.Mode.ToString().ToLowerInvariant(), capture = new { backend = _captureBackend, colorMode = "sdr", supportsHdr = false, availableBackends = new[] { "wgc", "gdi" }, targets = new[] { "desktop", "monitor", "window" }, availability = "checked-on-capture" }, capabilities = new[] { "image.open", "image.paste", "capture.screen", "capture.region", "capture.current", "capture.monitors", "capture.settings", "capture.configure", "hotkey.read", "hotkey.configure", "image.save", "image.copy", "text.copy", "project.open", "project.save", "ai.ocr", "ai.translate", "ocr.local", "ocr.cancel", "ocr.status", "ai.cancel", "ai.usage", "ai.test", "recovery.save", "recovery.list", "recovery.load", "recovery.delete", "recovery.usage", "recovery.deleteMany", "presentation.workbench", "presentation.dismiss", "presentation.ready" } };
             case "image.open": return NativeImages.Open(this);
             case "image.paste": return NativeImages.Paste();
             case "capture.monitors": return ReadCaptureMonitors();

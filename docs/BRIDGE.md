@@ -116,3 +116,8 @@ Bridge/project schemas remain unchanged. Workbench zoom/scroll is view-only; cap
 ## 0.4.4 editing refinement
 
 No bridge or project schema change. Selection/property drafts remain view state; supported annotations retain their stable identity across style redraw and history synchronization. Compact tools, status and options share one bounded docking model without changing capture coordinates or export pixels.
+
+
+## 0.4.6 native startup precondition
+
+No editor/bridge exists before the native terms gate succeeds. Decline/close/write failure exits before main-host creation, WebView, global hotkey registration or native/provider services. Existing receipts match both terms version and the complete packaged legal digest. Every bridge dispatch and hotkey capture additionally requires this startup authorization. app.info reports the actual assembly version rather than a separate literal. There is no bridge command to accept terms; acceptance stays with the real native user, and is not included in projects or network calls.

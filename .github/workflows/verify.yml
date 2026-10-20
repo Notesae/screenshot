@@ -1,6 +1,7 @@
 name: Verify Windows framework
 on:
   push:
+    branches: ['**']
   pull_request:
 concurrency:
   group: screenshot-verify-${{ github.ref }}
@@ -84,6 +85,11 @@ jobs:
       - name: Publish portable Windows x64 directory
         shell: pwsh
         run: ./scripts/publish.ps1 -SkipRestore
+      - name: Verify packaged consent catalog with the native policy (no application launch)
+        shell: pwsh
+        run: |
+          dotnet artifacts/verify-source/bin/Screenshot.App.Tests/release/Screenshot.App.Tests.dll --terms-package artifacts/Screenshot-win-x64
+          if ($LASTEXITCODE) { throw 'Native packaged terms verification failed.' }
       - uses: actions/upload-artifact@v4
         with:
           name: Screenshot-win-x64

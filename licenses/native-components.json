@@ -59,7 +59,7 @@
     "Orbbec"
   ],
   "manualReviewGaps": [
-    "Microsoft SDK redistribution requirements for product/distributor/end-user terms remain a release decision; the two runtime files are explicitly listed by the official REDIST.",
+    "Publisher confirmed Notesae attribution and applicable SDK distribution obligations for 0.4.6; local end-user terms gate is implemented. Full legal sufficiency review and clean-machine acceptance remain incomplete.",
     "stackback 0.0.2 is development-only and upstream omits complete license text; it is not included as runtime code."
   ],
   "historicalVendorManifest": "licenses/vendor-native-components-0.4.1.json",

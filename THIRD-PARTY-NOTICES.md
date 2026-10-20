@@ -9,6 +9,7 @@
 | Microsoft.Data.Sqlite | 10.0.13 | [MIT](https://github.com/dotnet/efcore/blob/main/LICENSE.txt)，通过 SQLitePCLRaw 使用 SQLite |
 | SQLitePCLRaw | 2.1.13 | [Apache-2.0](https://github.com/ericsink/SQLitePCL.raw/blob/main/LICENSE.TXT)，保留 [NOTICE](https://github.com/ericsink/SQLitePCL.raw/blob/main/NOTICE.TXT) |
 | SQLite | 由固定 SQLitePCLRaw 包携带 | [公共领域声明](https://www.sqlite.org/copyright.html)；不能将绑定库与数据库引擎许可证混为一项 |
+| C#/WinRT runtime | 2.2.0 | `licenses/CsWinRT-LICENSE.txt`（MIT）；官方包net8.0 WinRT.Runtime.dll与当前运行时逐字节相同，来源/摘要见`licenses/cswinrt-license-sources.json`。不改变其他SDK文件许可 |
 | Windows SDK .NET targeting pack | 10.0.19041.57 | [Microsoft Windows SDK 标准条款](https://aka.ms/WinSDKLicenseURL)，用户已明确授权复用及 CI 还原；不把开发 targeting pack 当作完整 SDK 分发 |
 | WebView2 SDK | 1.0.3179.45 | [Microsoft 官方包及许可](https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.3179.45)；运行机仍需 WebView2 Runtime |
 | React / TypeScript / Vite / Fabric / Vitest | 以 editor/package-lock.json 为准 | 各 npm 包随附许可证；Fabric 7.4.0、Vitest 4.1.12 |
@@ -48,3 +49,5 @@ This product includes software developed by the University of California, Berkel
 旧版18份告知与 vendor 清单保留作历史/回退材料，不代表全部进入当前 DLL。本次没有改变已发布0.3.0或已交付0.4.0/0.4.1包。
 
 Windows SDK 官方 LICENSE 和 REDIST 原文、URL及摘要在 licenses/Windows-SDK-* 和 windows-sdk-license-sources.json。官方 NET8.0 小节明确列出 Microsoft.Windows.SDK.NET.dll、WinRT.Runtime.dll，解决所选文件清单映射；产品/分发方/最终用户条款仍需独立决定，本次未接受新协议，也未给出全量法律许可通过结论。stackback0.0.2仅用于开发工具链，缺完整上游许可正文的记录继续保留。
+
+0.4.6发行方已确认以Notesae署名和适用SDK分发责任，使用条款与首次本地确认流程见legal/；SDK原文、REDIST和适用中文告知继续保留。此技术落实不代表全部法律审查完备，其他待复核项仍见docs/RELEASE-LICENSE-REVIEW.md。

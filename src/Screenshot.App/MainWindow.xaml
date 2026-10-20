@@ -2,7 +2,7 @@
   <Grid>
     <Image x:Name="FrozenBackdrop" Stretch="Fill" IsHitTestVisible="False" Visibility="Collapsed" RenderOptions.BitmapScalingMode="NearestNeighbor" />
     <DockPanel>
-      <Border x:Name="StatusBar" DockPanel.Dock="Bottom" Background="#EEF2F6" Padding="14,5"><TextBlock x:Name="Status" Text="正在启动本地编辑器…" Foreground="#42526B" FontSize="12" /></Border>
+      <Border x:Name="StatusBar" DockPanel.Dock="Bottom" Background="#EEF2F6" Padding="14,5"><DockPanel><Button DockPanel.Dock="Right" Content="使用条款" Padding="10,0" Margin="12,0,0,0" Click="ShowTerms"/><TextBlock x:Name="Status" Text="正在启动本地编辑器…" Foreground="#42526B" FontSize="12" /></DockPanel></Border>
       <wv:WebView2CompositionControl x:Name="Editor" />
     </DockPanel>
   </Grid>

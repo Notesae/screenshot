@@ -1,0 +1,17 @@
+{
+  "package": "Microsoft.Windows.CsWinRT",
+  "version": "2.2.0",
+  "packageUrl": "https://api.nuget.org/v3-flatcontainer/microsoft.windows.cswinrt/2.2.0/microsoft.windows.cswinrt.2.2.0.nupkg",
+  "packageSha256": "a89df04f86c1671fcf30ccd6f5cc78eb189a29daa19f3d92d00987d4b3fc3b63",
+  "sourceCommit": "8649ee3eeb2445ca2a36d80d878ef60b96a6c65d",
+  "license": "MIT",
+  "licenseFile": "CsWinRT-LICENSE.txt",
+  "licenseSha256": "9906940f61b1f0b533fa7d99baf55178b2808fbe113ea51dfbfad8572ccd5f2b",
+  "binary": {
+    "file": "WinRT.Runtime.dll",
+    "packagePath": "lib/net8.0/WinRT.Runtime.dll",
+    "bytes": 528944,
+    "sha256": "bcf3a14e8712a90837fc5c0d8c8a24696af2bd7f74e9767597ec81ededfb23db"
+  },
+  "scope": "Byte-identical alternate official MIT source for WinRT.Runtime.dll only; does not relicense Microsoft.Windows.SDK.NET.dll or any other SDK component."
+}

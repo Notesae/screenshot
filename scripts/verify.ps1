@@ -16,6 +16,10 @@ try {
         & npm.cmd run build
         if ($LASTEXITCODE) { throw 'Editor build failed.' }
     } finally { Pop-Location }
+    & node (Join-Path $PSScriptRoot 'terms-audit.cjs')
+    if ($LASTEXITCODE) { throw 'Terms/startup source audit failed.' }
+    & python (Join-Path $PSScriptRoot 'test-release-prerelease.py')
+    if ($LASTEXITCODE) { throw 'Synthetic release state checks failed.' }
     # 隔离构建输出，避免覆盖用户可能仍在运行的应用文件。
     $buildRoot = Join-Path $taskRoot ('artifacts/verify-'+$NativeRuntime.ToLowerInvariant())
     if($NativeRuntime -eq 'Source'){& node (Join-Path $PSScriptRoot 'verify-native-runtime.cjs');if($LASTEXITCODE){throw 'Native provenance verification failed.'}}

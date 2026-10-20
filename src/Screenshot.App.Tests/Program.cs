@@ -7,6 +7,15 @@ using System.Windows.Media.Imaging;
 try
 {
 // 以无外部依赖的断言验证原生信任边界、像素保真和请求并发契约。
+if (args.Length == 2 && args[0] == "--terms-package")
+{
+    var agreement = TermsAgreement.Load(args[1]);
+    using var expectedLegal = JsonDocument.Parse(System.IO.File.ReadAllText(System.IO.Path.Combine(args[1], "legal/package-legal.json")));
+    if (expectedLegal.RootElement.GetProperty("digest").GetString() != agreement.Digest || expectedLegal.RootElement.GetProperty("version").GetString() != agreement.Version || expectedLegal.RootElement.GetProperty("documents").GetInt32() != agreement.Documents.Count)
+        throw new Exception("Packaged legal catalog differs from native policy.");
+    Console.WriteLine(JsonSerializer.Serialize(new { agreement.Version, agreement.Digest, documents = agreement.Documents.Count, accepted = false, hostStarted = false }));
+    return;
+}
 var checks = 0;
 void Check(bool condition, string label) { if (!condition) throw new Exception(label); checks++; }
 Check(BridgePolicy.IsTrustedSource("https://app.screenshot.local/"), "local origin accepted");
@@ -158,6 +167,7 @@ using(var oldTask=inference.Begin("old",CancellationToken.None)) {
 using(var newTask=inference.Begin("new",CancellationToken.None)) {
     Check(!inference.Cancel("old")&&!newTask.Token.IsCancellationRequested,"late cancellation cannot cancel newer task");
 }
+checks += TermsTests.Run();
 checks += HotkeyTests.Run();
 checks += CaptureTargetsTests.Run();
 checks += RegionSelectionTests.Run();

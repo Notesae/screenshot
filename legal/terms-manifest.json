@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "version": "2026-10-20.1",
+  "documents": [
+    {
+      "title": "使用条款",
+      "file": "legal/TERMS.zh-CN.txt",
+      "sha256": "7179730e33b8878483aa5ec1c54e7abecf78af9f16ad6e388726e4b604c99a55"
+    },
+    {
+      "title": "版权声明",
+      "file": "legal/COPYRIGHT.txt",
+      "sha256": "a0d968400799be89c0f8268dccb2495c005ca6f28bb91976d5823a9e00b627a3"
+    },
+    {
+      "title": "第三方告知",
+      "file": "THIRD-PARTY-NOTICES.md",
+      "sha256": "3d046112a92690362c876877d16d199d3a4f62b5a28567cdbbebf96eda7eb0eb"
+    },
+    {
+      "title": "Windows SDK许可原文",
+      "file": "licenses/Windows-SDK-LICENSE.rtf",
+      "sha256": "dd07eb178e00c6bba4148457fc00ff77cd4887eb521d504186fe59c9ec8bbe62"
+    },
+    {
+      "title": "Windows SDK官方可分发清单",
+      "file": "licenses/Windows-SDK-REDIST.md",
+      "sha256": "ff4dc82936ef9e8449927a3d06ee1fca801933c1464ceee60fa14003eb656dd0"
+    },
+    {
+      "title": "Windows SDK适用告知",
+      "file": "licenses/Windows-SDK-NOTICE.zh-CN.txt",
+      "sha256": "f2019539c67f9af7208d7b9084a5d1ad82355ba518d8be5691025815594a9798"
+    },
+    {
+      "title": "C#/WinRT MIT许可",
+      "file": "licenses/CsWinRT-LICENSE.txt",
+      "sha256": "9906940f61b1f0b533fa7d99baf55178b2808fbe113ea51dfbfad8572ccd5f2b"
+    },
+    {
+      "title": "C#/WinRT来源记录",
+      "file": "licenses/cswinrt-license-sources.json",
+      "sha256": "3966167f32db839f7b37813a5b634c2cf4d434c54138da3eb448cb311d06ca91"
+    }
+  ]
+}

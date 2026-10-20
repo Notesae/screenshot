@@ -5,7 +5,7 @@
     <UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable><ImplicitUsings>disable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <AssemblyName>Screenshot</AssemblyName><Version>0.4.5</Version>
+    <AssemblyName>Screenshot</AssemblyName><Version>0.4.6</Version><Copyright>© 2026 Notesae</Copyright>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3179.45" />
@@ -16,6 +16,7 @@
     <Content Include="../../models/pp-ocrv5-mobile/*"><Link>models/pp-ocrv5-mobile/%(Filename)%(Extension)</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
     <Content Include="../../scripts/diagnose-portable.ps1"><Link>diagnose-portable.ps1</Link><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
     <Content Include="../../THIRD-PARTY-NOTICES.md"><Link>THIRD-PARTY-NOTICES.md</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
+    <Content Include="../../legal/*"><Link>legal/%(Filename)%(Extension)</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
     <Content Include="../../licenses/*"><Link>licenses/%(Filename)%(Extension)</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
   </ItemGroup>
   <!-- WindowsDesktop 引用由 SDK 后导入；执行阶段仅固定 .NET 运行时，不污染 Windows SDK 制品版本。 -->

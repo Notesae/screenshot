@@ -1,0 +1,14 @@
+Windows SDK 适用告知
+Microsoft.Windows.SDK.NET.Ref 10.0.19041.57
+Copyright © Microsoft Corporation. All rights reserved.
+
+Microsoft.Windows.SDK.NET.dll 来自 lib/net8.0，供本应用调用 Windows Runtime 捕获、帧池、Direct3D 和图像接口。
+本应用按 Windows SDK 原文及官方 REDIST 所列条件分发未修改文件；本中文告知不替代或改写官方许可。
+原文：Windows-SDK-LICENSE.rtf；官方清单：Windows-SDK-REDIST.md。
+官方许可：https://aka.ms/WinSDKLicenseURL
+官方清单：https://learn.microsoft.com/en-us/legal/windows-sdk/redist
+
+许可第2.a.i–iii规定可分发文件、发行要求与限制；第7、14–15节规定适用范围、免责与责任限制。保留微软原有权利声明，不暗示微软背书。
+发行方已确认其适用发行责任；最终使用者须自行确认应用使用条款和适用组件限制。本告知不宣称全面法律审查已完成。
+
+WinRT.Runtime.dll 虽同由此 targeting pack 还原，但另有 Microsoft.Windows.CsWinRT 2.2.0 官方 MIT 包内逐字节相同来源。MIT 原文见 CsWinRT-LICENSE.txt，精确来源及 SHA256 见 cswinrt-license-sources.json。其他组件的独立许可权利不受本告知削减。
