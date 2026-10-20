@@ -35,6 +35,8 @@ jobs:
         shell: pwsh
         run: ./scripts/verify.ps1 -WithOcrIntegration
       - name: Compare source and vendor native runtime on synthetic CPU OCR
+        id: native_quality
+        continue-on-error: true
         shell: pwsh
         run: ./scripts/native-quality.ps1
       - uses: actions/upload-artifact@v4
@@ -85,6 +87,12 @@ jobs:
           path: artifacts/qa/redesign/
           if-no-files-found: error
           retention-days: 14
+      # 保留性能失败，同时让后续独立合成回归提供证据；失败不能进入打包候选。
+      - name: Require native comparison before packaging
+        if: always()
+        shell: pwsh
+        run: |
+          if ('${{ steps.native_quality.outcome }}' -ne 'success') { throw 'Native comparison failed or is inconclusive; packaging remains blocked.' }
       - name: Publish portable Windows x64 directory
         shell: pwsh
         run: ./scripts/publish.ps1 -SkipRestore
