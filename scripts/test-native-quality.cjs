@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict');
 const {comparePaired,PROTOCOL,SCENARIOS}=require('./compare-native-quality.cjs');
 const hash='a'.repeat(64);let checks=0;
-function fixture(ratio=1,drift=false){
+function fixture(ratio=1,drift=false,speed=()=>1){
  const workers=['vendor','source'].map((profile,i)=>({kind:'ready',protocol:2,profile,pid:101+i,nativeSha256:hash,nativeBytes:100,frequency:1000000,
   modelVersion:'fixed-test',tieredCompilation:'0',inputHashes:Object.fromEntries(SCENARIOS.map(n=>[n,hash])),buildInfo:'To be built: core imgcodecs imgproc\nIntel IPP: NO\nOpenCL: NO\nTrace: NO'}));
  const samples=[];let tick=100000;
@@ -17,7 +17,7 @@ function fixture(ratio=1,drift=false){
    const order=block%2?['source','vendor','vendor','source']:['vendor','source','source','vendor'];
    for(let slot=0;slot<4;slot++){
     const factor=typeof ratio==='function'?ratio(block):ratio;
-    sample(order[slot],scenario,'sample',block,slot,100*(drift?Math.exp((block*4+slot)*.01):1)*(order[slot]==='source'?factor:1));
+    sample(order[slot],scenario,'sample',block,slot,100*speed((block*4+slot)/48)*(drift?Math.exp((block*4+slot)*.01):1)*(order[slot]==='source'?factor:1));
    }
   }
  }
@@ -30,7 +30,13 @@ check('log-linear time drift cancels within ABBA/BAAB blocks',()=>{for(const s o
 check('real 30% regression still fails while drifting',()=>{for(const s of comparePaired(fixture(1.3,true)).scenarios)assert.equal(s.status,'regression');});
 check('interval crossing unchanged 15% gate is inconclusive',()=>{for(const s of comparePaired(fixture(i=>i<9?1.1:1.3)).scenarios)assert.equal(s.status,'inconclusive');});
 check('no hidden relaxation just below/above threshold',()=>{assert.equal(comparePaired(fixture(1.149)).performanceReviewRequired,false);assert.equal(comparePaired(fixture(1.151)).performanceReviewRequired,true);});
-check('old grouped median can falsely regress under a speed step',()=>{const oldVendor=[...Array(5).fill(100),...Array(5).fill(100),...Array(5).fill(130)],oldSource=[...Array(5).fill(100),...Array(5).fill(130),...Array(5).fill(130)];const median=a=>[...a].sort((a,b)=>a-b)[7];assert.equal(median(oldSource)/median(oldVendor),1.3);assert.equal(comparePaired(fixture()).performanceReviewRequired,false);});
+check('same machine-speed steps falsely fail old grouping but pass short pairing',()=>{
+ const speed=t=>[1,1,1.3,1,1.3,1.3][Math.min(5,Math.floor(t*6))],old={vendor:[],source:[]},order=['vendor','source','source','vendor','vendor','source'];
+ for(let i=0;i<30;i++)old[order[Math.floor(i/5)]].push(100*speed(i/30));
+ const median=a=>[...a].sort((a,b)=>a-b)[7];assert.equal(median(old.source)/median(old.vendor),1.3);
+ assert.equal(comparePaired(fixture(1,false,speed)).performanceReviewRequired,false);
+ assert.equal(comparePaired(fixture(1.3,false,speed)).performanceReviewRequired,true);
+});
 rejects('missing sample is invalid',r=>r.samples.splice(20,1));
 rejects('modified protocol is invalid',r=>r.protocol.regressionRatio=1.3);
 rejects('overlapping process timestamps are invalid',r=>r.samples[20].start=r.samples[19].start);
