@@ -19,26 +19,33 @@ internal sealed class UpdateSession : IDisposable
     private string? _workspace;
     internal UpdateTransaction? Transaction { get; private set; }
     private FileStream? _gate;
+    private int _downloading;
     internal UpdateSession(string target, ReleaseVersion current, GitHubUpdateSource? source = null)
     { Target = Path.GetFullPath(target).TrimEnd(Path.DirectorySeparatorChar); Current = current; Source = source ?? new(); }
 
     internal async Task DownloadAsync(IProgress<UpdateProgress> progress, CancellationToken token)
     {
-        var release = Release ?? throw new InvalidOperationException("请先检查新版本。");
-        if (release.Version.CompareTo(Current) <= 0) throw new InvalidOperationException("拒绝重复安装或降级。");
-        _gate ??= UpdateTransaction.Acquire(Target);
-        ClearDownload();
-        _workspace = Path.Combine(Path.GetTempPath(), "Screenshot-update-" + Guid.NewGuid().ToString("N"));
-        PortablePackage.NoLinks(_workspace); Directory.CreateDirectory(_workspace);
-        var zip = Path.Combine(_workspace, "package.zip"); var extracted = Path.Combine(_workspace, "package");
+        // 先门控再清理临时目录，重复点击不能破坏第一笔仍在进行的下载。
+        if (Interlocked.CompareExchange(ref _downloading, 1, 0) != 0) throw new InvalidOperationException("已有下载正在进行，请取消或等待完成。");
         try
         {
-            await Source.DownloadAsync(release, zip, progress, token);
-            progress.Report(new(release.Size, release.Size, "verifying"));
-            await Task.Run(() => PortablePackage.Extract(zip, extracted, release.Version, token), token);
-            Downloaded = zip; Extracted = extracted;
+            var release = Release ?? throw new InvalidOperationException("请先检查新版本。");
+            if (release.Version.CompareTo(Current) <= 0) throw new InvalidOperationException("拒绝重复安装或降级。");
+            _gate ??= UpdateTransaction.Acquire(Target);
+            ClearDownload();
+            _workspace = Path.Combine(Path.GetTempPath(), "Screenshot-update-" + Guid.NewGuid().ToString("N"));
+            PortablePackage.NoLinks(_workspace); Directory.CreateDirectory(_workspace);
+            var zip = Path.Combine(_workspace, "package.zip"); var extracted = Path.Combine(_workspace, "package");
+            try
+            {
+                await Source.DownloadAsync(release, zip, progress, token);
+                progress.Report(new(release.Size, release.Size, "verifying"));
+                await Task.Run(() => PortablePackage.Extract(zip, extracted, release.Version, token), token);
+                Downloaded = zip; Extracted = extracted;
+            }
+            catch { ClearDownload(); _gate.Dispose(); _gate = null; throw; }
         }
-        catch { ClearDownload(); _gate.Dispose(); _gate = null; throw; }
+        finally { Interlocked.Exchange(ref _downloading, 0); }
     }
     internal async Task<UpdateTransaction> PrepareAsync(CancellationToken token)
     {
@@ -100,7 +107,7 @@ internal sealed class UpdateSession : IDisposable
         Directory.Move(temporary, full);
     }
     internal void ReleaseGate() { _gate?.Dispose(); _gate = null; }
-    internal void Invalidate() { Release = null; try { ClearDownload(); } finally { ReleaseGate(); } }
+    internal void Invalidate() { if (Volatile.Read(ref _downloading) != 0) throw new InvalidOperationException("请先取消并等待下载结束，再清除候选。"); Release = null; try { ClearDownload(); } finally { ReleaseGate(); } }
     private void ClearDownload()
     {
         Downloaded = null; Extracted = null;
