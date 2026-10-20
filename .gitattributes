@@ -19,5 +19,6 @@ scripts/native-build-manifest.cjs -text whitespace=cr-at-eol
 licenses/Windows-SDK-* -text whitespace=cr-at-eol
 licenses/windows-sdk-* -text whitespace=cr-at-eol
 licenses/CsWinRT-LICENSE.txt -text whitespace=cr-at-eol
+licenses/cswinrt-* -text whitespace=cr-at-eol
 legal/** -text whitespace=cr-at-eol
 THIRD-PARTY-NOTICES.md -text whitespace=cr-at-eol
