@@ -27,7 +27,7 @@ public partial class MainWindow
     {
         if (App.UpdateDirectory is not { } directory) return;
         var transaction = UpdateTransaction.Load(directory);
-        if (!string.Equals(transaction.Plan.Target.TrimEnd(Path.DirectorySeparatorChar), AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)) throw new IOException("更新健康确认目标无效。");
+        if (!string.Equals(transaction.Plan.Target.TrimEnd(Path.DirectorySeparatorChar), App.InstallationDirectory, StringComparison.OrdinalIgnoreCase)) throw new IOException("更新健康确认目标无效。");
         File.WriteAllText(Path.Combine(directory, "healthy"), "ready");
     }
 }

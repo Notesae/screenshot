@@ -75,7 +75,7 @@ internal sealed class UpdateSession : IDisposable
     {
         _gate ??= UpdateTransaction.Acquire(Target);
         using var current = Process.GetCurrentProcess();
-        var exe = Path.Combine(transaction.Plan.Transaction, "worker", "Screenshot.exe");
+        var exe = PortablePackage.Executable(Path.Combine(transaction.Plan.Transaction, "worker"));
         var signal = Path.Combine(transaction.Plan.Transaction, "handoff-error.txt");
         if (File.Exists(signal)) File.Delete(signal);
         var authorization = Path.Combine(transaction.Plan.Transaction, "authorized");

@@ -3,6 +3,8 @@ param([string]$PackagePath,[string]$ReportPath)
 if(-not $PackagePath){$PackagePath=if(Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Screenshot.exe')){$PSScriptRoot}else{Join-Path (Split-Path $PSScriptRoot -Parent) 'artifacts/Screenshot-win-x64'}}
 $ErrorActionPreference='Stop'
 $packageRoot=(Resolve-Path -LiteralPath $PackagePath).Path
+# 可从整包根目录或 app 内执行；后续检查仍针对实际宿主和依赖目录。
+if(Test-Path -LiteralPath (Join-Path $packageRoot 'app/Screenshot.exe')){$packageRoot=Join-Path $packageRoot 'app'}
 $missing=@();foreach($file in @('Screenshot.exe','Screenshot.runtimeconfig.json','web/index.html','sbom.cdx.json','SHA256SUMS.txt')){if(-not(Test-Path -LiteralPath (Join-Path $packageRoot $file))){$missing+=$file}}
 $webViewVersions=@()
 foreach($key in @('HKCU:\Software\Microsoft\EdgeUpdate\Clients','HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients','HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients')){

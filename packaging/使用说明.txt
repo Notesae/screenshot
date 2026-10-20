@@ -1,0 +1,24 @@
+Screenshot · Windows x64
+
+启动：先将整个 ZIP 解压到一个新目录，再双击本目录中带截图图标的 Screenshot.exe。
+请勿直接在 ZIP 内启动，也不要单独移动 Screenshot.exe 或 app 目录。
+
+目录说明：
+  Screenshot.exe    启动程序
+  app              程序依赖、编辑器、OCR 模型和许可文件
+  SHA256SUMS.txt    整包完整性校验清单
+
+首次启动需要由你阅读并确认使用条款。
+机器需安装 Microsoft Edge WebView2 Runtime；官方下载安装页面：
+https://developer.microsoft.com/microsoft-edge/webview2/
+.NET 运行时已随包附带，无需另外安装 .NET SDK。
+
+遇到问题：在 PowerShell 中执行下面的静态诊断命令，不会启动产品或捕获桌面：
+  powershell -NoProfile -File .\app\diagnose-portable.ps1
+
+需要桌面和开始菜单入口时，下载同版本的 setup-x64.msi 安装包。
+安装版只安装给当前 Windows 用户，可在系统“已安装的应用”中卸载。
+更新安装版请使用新版 MSI；便携版使用设置中的应用更新或解压至新目录。
+
+用户设置及恢复项目位于 %LOCALAPPDATA%\Screenshot，卸载不会删除这些数据。
+不要将程序安装或解压到该用户数据目录。

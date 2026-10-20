@@ -1,0 +1,33 @@
+<!-- 当前用户安装，与用户数据目录分开；卸载只删除 MSI 管理的文件和快捷方式。 -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="Screenshot" Manufacturer="Notesae" Version="$(var.Version)" Language="2052" Codepage="936" Scope="perUser" UpgradeCode="7E5311AB-0D53-41B7-B4E1-607E9903407E" InstallerVersion="500">
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="已安装更高版本的 Screenshot，请先检查版本。" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+    <Icon Id="Screenshot.exe" SourceFile="$(var.Icon)" />
+    <Property Id="ARPPRODUCTICON" Value="Screenshot.exe" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Notesae/screenshot" />
+    <!-- 官方要求同时检查每用户及每机器 WebView2 注册值；缺少时给出明确准备步骤。 -->
+    <Property Id="WEBVIEW_USER"><RegistrySearch Id="WebViewUser" Root="HKCU" Key="Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" Name="pv" Type="raw" Bitness="always32" /></Property>
+    <Property Id="WEBVIEW_MACHINE"><RegistrySearch Id="WebViewMachine" Root="HKLM" Key="Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" Name="pv" Type="raw" Bitness="always32" /></Property>
+    <Launch Condition="Installed OR (WEBVIEW_USER AND WEBVIEW_USER &lt;&gt; &quot;0.0.0.0&quot;) OR (WEBVIEW_MACHINE AND WEBVIEW_MACHINE &lt;&gt; &quot;0.0.0.0&quot;)" Message="请先安装 Microsoft Edge WebView2 Runtime，再重新运行安装包。官方下载：https://developer.microsoft.com/microsoft-edge/webview2/" />
+    <StandardDirectory Id="LocalAppDataFolder"><Directory Id="ProgramsDirectory" Name="Programs"><Directory Id="INSTALLDIR" Name="Screenshot" /></Directory></StandardDirectory>
+    <StandardDirectory Id="DesktopFolder" />
+    <StandardDirectory Id="ProgramMenuFolder"><Directory Id="ScreenshotMenu" Name="Screenshot" /></StandardDirectory>
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="ApplicationShortcuts" Guid="*">
+        <RegistryValue Root="HKCU" Key="Software\Notesae\Screenshot" Name="InstallDirectory" Value="[INSTALLDIR]" Type="string" KeyPath="yes" />
+        <Shortcut Id="DesktopShortcut" Directory="DesktopFolder" Name="Screenshot" Target="[INSTALLDIR]Screenshot.exe" WorkingDirectory="INSTALLDIR" Icon="Screenshot.exe" />
+        <Shortcut Id="StartMenuShortcut" Directory="ScreenshotMenu" Name="Screenshot" Target="[INSTALLDIR]Screenshot.exe" WorkingDirectory="INSTALLDIR" Icon="Screenshot.exe" />
+        <RemoveFolder Id="RemoveStartMenu" Directory="ScreenshotMenu" On="uninstall" />
+        <RemoveFolder Id="RemoveInstallDirectory" On="uninstall" />
+        <RemoveFolder Id="RemoveProgramsDirectory" Directory="ProgramsDirectory" On="uninstall" />
+      </Component>
+    </DirectoryRef>
+    <Feature Id="Application" Title="Screenshot" Level="1">
+      <ComponentRef Id="ApplicationShortcuts" />
+      <ComponentGroupRef Id="PackageFiles" />
+    </Feature>
+    <ui:WixUI Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.TermsRtf)" />
+  </Package>
+</Wix>

@@ -22,6 +22,8 @@ def unpack(archive,destination):
             if p.is_absolute() or '..' in p.parts or '\\' in entry.filename or ':' in entry.filename or (entry.external_attr>>16)&0o170000==0o120000:raise RuntimeError('Unsafe archive path')
         z.extractall(destination)
 def package_check(package,version,commit):
+    # 新发行布局仅把依赖放入 app；完整性检查始终覆盖根目录和全部子目录。
+    payload=package/'app' if (package/'app').is_dir() else package
     rows=(package/'SHA256SUMS.txt').read_text('utf-8').splitlines();seen=set()
     for row in rows:
         expected,name=row.split('  ',1)
@@ -31,14 +33,14 @@ def package_check(package,version,commit):
         seen.add(name)
     actual={p.relative_to(package).as_posix() for p in package.rglob('*') if p.is_file() and p!=package/'SHA256SUMS.txt'}
     if seen!=actual:raise RuntimeError('Package checksum coverage differs')
-    bom=json.loads((package/'sbom.cdx.json').read_text('utf-8'))
+    bom=json.loads((payload/'sbom.cdx.json').read_text('utf-8'))
     if bom['metadata']['component']['version']!=version:raise RuntimeError('SBOM version mismatch')
-    legal=json.loads(subprocess.check_output(['node','-e',"console.log(JSON.stringify(require('./scripts/terms-audit.cjs').audit(process.argv[1])))",str(package)],cwd=ROOT,text=True))
-    if legal!=json.loads((package/'legal/package-legal.json').read_text('utf-8')):raise RuntimeError('Packaged legal digest mismatch')
+    legal=json.loads(subprocess.check_output(['node','-e',"console.log(JSON.stringify(require('./scripts/terms-audit.cjs').audit(process.argv[1])))",str(payload)],cwd=ROOT,text=True))
+    if legal!=json.loads((payload/'legal/package-legal.json').read_text('utf-8')):raise RuntimeError('Packaged legal digest mismatch')
     env=dict(os.environ,SCREENSHOT_RELEASE_EXE=str(package/'Screenshot.exe'))
     info=json.loads(subprocess.check_output(['pwsh','-NoProfile','-Command','(Get-Item -LiteralPath $env:SCREENSHOT_RELEASE_EXE).VersionInfo | Select-Object ProductVersion,LegalCopyright | ConvertTo-Json'],env=env,text=True,encoding='utf-8-sig'))
     if info['ProductVersion']!=version+'+'+commit or 'Notesae' not in info['LegalCopyright']:raise RuntimeError('Executable version/copyright mismatch')
-    return {'files':len(actual)+1,'rootHashes':len(seen),'sbomComponents':len(bom['components']),'legal':legal,'executable':info}
+    return {'files':len(actual)+1,'rootHashes':len(seen),'manifestSha256':sha(package/'SHA256SUMS.txt'),'sbomComponents':len(bom['components']),'legal':legal,'executable':info}
 def main():
     repo=os.environ.get('GITHUB_REPOSITORY');commit=os.environ.get('GITHUB_SHA','');tag=os.environ.get('GITHUB_REF_NAME','')
     if repo!='Notesae/screenshot' or os.environ.get('GITHUB_REF_TYPE')!='tag' or not re.fullmatch('[0-9a-f]{40}',commit):raise RuntimeError('Only this repository tag workflow may publish')
@@ -65,7 +67,8 @@ def main():
     run=max(runs,key=lambda r:r['id'])
     jobs=get(f"actions/runs/{run['id']}/jobs?per_page=100")['jobs']
     if not jobs or any(j['conclusion']!='success' for j in jobs):raise RuntimeError('Verification jobs are not all successful')
-    items=[a for a in get(f"actions/runs/{run['id']}/artifacts?per_page=100")['artifacts'] if a['name']=='Screenshot-win-x64' and not a['expired']]
+    ci_artifacts=get(f"actions/runs/{run['id']}/artifacts?per_page=100")['artifacts']
+    items=[a for a in ci_artifacts if a['name']=='Screenshot-win-x64' and not a['expired']]
     if len(items)!=1:raise RuntimeError('Expected one active portable CI artifact')
     artifact=items[0];expected=artifact.get('digest','')
     if not re.fullmatch('sha256:[0-9a-f]{64}',expected):raise RuntimeError('Artifact digest unavailable')
@@ -74,6 +77,21 @@ def main():
     archive.write_bytes(request(artifact['archive_download_url']))
     if sha(archive)!=expected[7:] or archive.stat().st_size!=artifact['size_in_bytes']:raise RuntimeError('Downloaded CI bytes differ from official digest')
     package=out/'portable';unpack(archive,package);checks=package_check(package,version,commit)
+    # 安装包同样来自该提交成功 CI；原始 MSI 从受校验的 artifact 中取出，不在发布时重建。
+    installers=[a for a in ci_artifacts if a['name']=='Screenshot-installer-win-x64' and not a['expired']]
+    if len(installers)!=1:raise RuntimeError('Expected one active installer CI artifact')
+    installer_artifact=installers[0];installer_digest=installer_artifact.get('digest','')
+    if not re.fullmatch('sha256:[0-9a-f]{64}',installer_digest):raise RuntimeError('Installer artifact digest unavailable')
+    installer_archive=out/'installer-ci.zip';installer_archive.write_bytes(request(installer_artifact['archive_download_url']))
+    if sha(installer_archive)!=installer_digest[7:] or installer_archive.stat().st_size!=installer_artifact['size_in_bytes']:raise RuntimeError('Installer CI bytes differ from official digest')
+    installer_directory=out/'installer';unpack(installer_archive,installer_directory)
+    installer_name='Screenshot-'+version+'-setup-x64.msi'
+    installer_source=installer_directory/installer_name
+    if not installer_source.is_file() or len(list(installer_directory.glob('*.msi')))!=1:raise RuntimeError('Expected one version-matched MSI in installer artifact')
+    installer=out/installer_name;installer.write_bytes(installer_source.read_bytes())
+    installer_checks=json.loads((installer_directory/'installer-verification.json').read_text('utf-8'))
+    if installer_checks.get('version')!=version or installer_checks.get('sha256')!=sha(installer) or installer_checks.get('sourceManifestSha256')!=checks['manifestSha256'] or installer_checks.get('filesCompared')!=checks['files'] or installer_checks.get('scope')!='perUser' or installer_checks.get('chineseTermsVerified') is not True:raise RuntimeError('Installer verification does not match the portable package')
+    installer_checksum=out/(installer_name+'.sha256');installer_checksum.write_text(sha(installer)+'  '+installer_name+'\n',encoding='utf-8',newline='\n')
     body=(ROOT/f'docs/RELEASE-NOTES-{version}.md').read_text('utf-8')
     values={'@VERSION@':version,'@COMMIT@':commit,'@CI_URL@':run['html_url'],'@ZIP_SHA256@':sha(archive),'@ZIP_BYTES@':str(archive.stat().st_size),'@TERMS_DIGEST@':checks['legal']['digest']}
     for key,value in values.items():body=body.replace(key,value)
@@ -82,8 +100,9 @@ def main():
     notes=out/'RELEASE-NOTES.zh-CN.md';notes.write_text(body,encoding='utf-8',newline='\n')
     checksum=out/(zip_name+'.sha256');checksum.write_text(sha(archive)+'  '+zip_name+'\n',encoding='utf-8',newline='\n')
     manifest={'version':version,'commit':commit,'ciRun':run['id'],'ciUrl':run['html_url'],'ciArtifact':artifact['id'],'ciDigest':expected,'zip':zip_name,'bytes':archive.stat().st_size,'sha256':sha(archive),'byteIdenticalToCi':True,'repacked':False,'checks':checks,'realDesktopTested':False,'legalReviewComplete':False}
+    manifest['installer']={'file':installer_name,'ciArtifact':installer_artifact['id'],'ciDigest':installer_digest,'bytes':installer.stat().st_size,'sha256':sha(installer),'byteIdenticalToCiFile':True,'checks':installer_checks}
     provenance=out/'release-manifest.json';provenance.write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8',newline='\n')
-    assets=[archive,checksum,notes,provenance]
+    assets=[archive,checksum,installer,installer_checksum,notes,provenance]
     sums=out/'SHA256SUMS.txt';sums.write_text(''.join(sha(p)+'  '+p.name+'\n' for p in assets),encoding='utf-8',newline='\n');assets.append(sums)
     existing=get('releases/tags/'+tag,missing=True)
     if existing and (not existing['draft'] or existing['target_commitish']!=commit or marker not in existing['body']):raise RuntimeError('Version already exists; preserved without modification')

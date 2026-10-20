@@ -14,6 +14,17 @@ internal static class PortablePackage
 {
     internal const long MaxExpandedBytes = 2_000_000_000;
     internal static string Digest(string path) { using var stream = File.OpenRead(path); return Convert.ToHexStringLower(SHA256.HashData(stream)); }
+    // 同时读取旧平铺包与新 app 子目录；更新工作进程直接运行宿主，以跟踪真实生命周期。
+    internal static string PayloadRoot(string root) => Directory.Exists(Path.Combine(root, "app")) ? Path.Combine(root, "app") : root;
+    internal static string Executable(string root) => Path.Combine(PayloadRoot(root), "Screenshot.exe");
+    // 宿主从 app 启动时，整包替换边界仍是包含原生入口及完整清单的父目录。
+    internal static string InstallationRoot(string host)
+    {
+        var directory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(host));
+        var parent = Path.GetDirectoryName(directory);
+        return Path.GetFileName(directory).Equals("app", StringComparison.OrdinalIgnoreCase) && parent is not null
+            && File.Exists(Path.Combine(parent, "Screenshot.exe")) && File.Exists(Path.Combine(parent, "SHA256SUMS.txt")) ? parent : directory;
+    }
 
     // Windows 路径的别名、设备名、ADS、链接和祖先重解析点均不能进入更新目录。
     internal static string Child(string root, string relative)
@@ -79,7 +90,8 @@ internal static class PortablePackage
         Walk(root, root, actual);
         actual.Remove("SHA256SUMS.txt");
         if (!actual.SetEquals(expected)) throw new InvalidDataException("目录包含清单外文件（可能是用户项目）或缺少文件；原目录保持不动。请使用新目录并排安装，用户设置仍保留在本机数据目录。");
-        foreach (var required in new[] { "Screenshot.exe", "Screenshot.dll", "Screenshot.runtimeconfig.json", "web/index.html", "legal/terms-manifest.json", "sbom.cdx.json" })
+        var prefix = PayloadRoot(root) == root ? "" : "app/";
+        foreach (var required in new[] { "Screenshot.exe", prefix + "Screenshot.exe", prefix + "Screenshot.dll", prefix + "Screenshot.runtimeconfig.json", prefix + "web/index.html", prefix + "legal/terms-manifest.json", prefix + "sbom.cdx.json" })
             if (!expected.Contains(required)) throw new InvalidDataException("便携包缺少必要文件：" + required);
         if (version is not null)
         {
@@ -89,7 +101,7 @@ internal static class PortablePackage
     }
     internal static ReleaseVersion ReadVersion(string root)
     {
-        var bom = Child(root, "sbom.cdx.json"); if (new FileInfo(bom).Length > 8 * 1024 * 1024) throw new InvalidDataException("版本清单过大。");
+        var bom = Child(PayloadRoot(root), "sbom.cdx.json"); if (new FileInfo(bom).Length > 8 * 1024 * 1024) throw new InvalidDataException("版本清单过大。");
         using var doc = JsonDocument.Parse(File.ReadAllText(bom));
         return ReleaseVersion.Parse(doc.RootElement.GetProperty("metadata").GetProperty("component").GetProperty("version").GetString()!);
     }

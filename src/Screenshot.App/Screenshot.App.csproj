@@ -5,9 +5,11 @@
     <UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable><ImplicitUsings>disable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets/Screenshot.ico</ApplicationIcon>
     <AssemblyName>Screenshot</AssemblyName><Version>0.4.8</Version><Copyright>© 2026 Notesae</Copyright>
   </PropertyGroup>
   <ItemGroup>
+    <Resource Include="Assets/Screenshot.ico" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3179.45" />
     <ProjectReference Include="../Screenshot.AI/Screenshot.AI.csproj" />
     <ProjectReference Include="../Screenshot.Ocr/Screenshot.Ocr.csproj" />

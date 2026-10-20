@@ -12,6 +12,12 @@ class Response(io.BytesIO):
 class Server:
     def __init__(self,archive,mode='normal'):
         self.archive=archive;self.mode=mode;self.writes=[];self.release=None;self.assets={}
+        # MSI 夹具只作为静态字节参与发布模拟，绝不执行安装。
+        buffer=io.BytesIO()
+        with zipfile.ZipFile(buffer,'w') as z:
+            z.writestr('Screenshot-0.4.6-setup-x64.msi',b'synthetic-msi')
+            z.writestr('installer-verification.json',json.dumps({'version':'0.4.6','sha256':hashlib.sha256(b'synthetic-msi').hexdigest(),'filesCompared':1,'scope':'perUser','chineseTermsVerified':True,'sourceManifestSha256':('0' if mode=='installer-mismatched' else 'c')*64}))
+        self.installer_archive=buffer.getvalue()
     def open(self,req,timeout=None):
         url=req.full_url;method=req.get_method();data=None
         if method in ('POST','PATCH'):self.writes.append((method,url))
@@ -21,7 +27,9 @@ class Server:
         elif '/actions/runs/12/artifacts' in url:
             digest=hashlib.sha256(self.archive).hexdigest() if self.mode!='artifact-corrupt' else '0'*64
             data={'artifacts':[{'id':22,'name':'Screenshot-win-x64','expired':False,'digest':'sha256:'+digest,'size_in_bytes':len(self.archive),'archive_download_url':'https://api.github.com/repos/Notesae/screenshot/actions/artifacts/22/zip'}]}
+            if self.mode!='installer-missing':data['artifacts'].append({'id':23,'name':'Screenshot-installer-win-x64','expired':False,'digest':'sha256:'+hashlib.sha256(self.installer_archive).hexdigest(),'size_in_bytes':len(self.installer_archive),'archive_download_url':'https://api.github.com/repos/Notesae/screenshot/actions/artifacts/23/zip'})
         elif '/actions/artifacts/22/zip' in url:return Response(self.archive)
+        elif '/actions/artifacts/23/zip' in url:return Response(self.installer_archive+(b'bad' if self.mode=='installer-corrupt' else b''))
         elif '/releases/tags/' in url:
             if self.mode=='existing':data={'draft':False,'target_commitish':COMMIT,'body':'already published'}
             else:raise urllib.error.HTTPError(url,404,'missing',None,None)
@@ -51,15 +59,21 @@ class ReleaseTests(unittest.TestCase):
             server=Server(buffer.getvalue(),mode)
             env={'GITHUB_REPOSITORY':'Notesae/screenshot','GITHUB_SHA':COMMIT,'GITHUB_REF_NAME':'v0.4.6','GITHUB_REF_TYPE':'tag','GH_TOKEN':'synthetic-not-a-secret'}
             caught=None
-            with patch.object(m,'ROOT',root),patch.dict(os.environ,env,clear=True),patch.object(m.urllib.request,'build_opener',return_value=server),patch.object(m.subprocess,'check_output',return_value=COMMIT),patch.object(m,'package_check',return_value={'legal':{'digest':'b'*64}}),contextlib.redirect_stdout(io.StringIO()):
+            with patch.object(m,'ROOT',root),patch.dict(os.environ,env,clear=True),patch.object(m.urllib.request,'build_opener',return_value=server),patch.object(m.subprocess,'check_output',return_value=COMMIT),patch.object(m,'package_check',return_value={'files':1,'manifestSha256':'c'*64,'legal':{'digest':'b'*64}}),contextlib.redirect_stdout(io.StringIO()):
                 try:m.main()
                 except RuntimeError as e:caught=str(e)
             out=root/'artifacts/release-verification'
             result=json.loads((out/'published-verification.json').read_text('utf-8')) if (out/'published-verification.json').exists() else None
             state=json.loads((out/'publication-state.json').read_text('utf-8')) if (out/'publication-state.json').exists() else None
             return server,caught,result,state
-    def test_success_downloads_all_five_assets(self):
-        s,e,r,state=self.scenario('normal');self.assertIsNone(e);self.assertTrue(r['allPublishedAssetsDownloadedAndVerified']);self.assertEqual(len(r['assets']),5);self.assertFalse(s.release['draft']);self.assertTrue(s.release['prerelease'])
+    def test_success_downloads_zip_and_msi_with_all_seven_assets(self):
+        s,e,r,state=self.scenario('normal');self.assertIsNone(e);self.assertTrue(r['allPublishedAssetsDownloadedAndVerified']);self.assertEqual(len(r['assets']),7);self.assertFalse(s.release['draft']);self.assertTrue(s.release['prerelease'])
+    def test_missing_installer_never_publishes_zip_alone(self):
+        s,e,r,state=self.scenario('installer-missing');self.assertIn('installer CI artifact',e);self.assertEqual(s.writes,[])
+    def test_corrupt_installer_never_writes(self):
+        s,e,r,state=self.scenario('installer-corrupt');self.assertIn('Installer CI bytes differ',e);self.assertEqual(s.writes,[])
+    def test_installer_for_different_package_never_writes(self):
+        s,e,r,state=self.scenario('installer-mismatched');self.assertIn('does not match',e);self.assertEqual(s.writes,[])
     def test_no_successful_ci_never_writes(self):
         s,e,r,state=self.scenario('ci-missing');self.assertIn('no successful',e);self.assertEqual(s.writes,[])
     def test_bad_artifact_digest_never_writes(self):

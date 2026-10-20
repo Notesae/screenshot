@@ -91,14 +91,32 @@ jobs:
       - name: Verify packaged consent catalog with the native policy (no application launch)
         shell: pwsh
         run: |
-          dotnet artifacts/verify-source/bin/Screenshot.App.Tests/release/Screenshot.App.Tests.dll --terms-package artifacts/Screenshot-win-x64
+          dotnet artifacts/verify-source/bin/Screenshot.App.Tests/release/Screenshot.App.Tests.dll --terms-package artifacts/Screenshot-win-x64/app
           if ($LASTEXITCODE) { throw 'Native packaged terms verification failed.' }
           $version = (Get-Content editor/package.json -Raw | ConvertFrom-Json).version
           dotnet artifacts/verify-source/bin/Screenshot.App.Tests/release/Screenshot.App.Tests.dll --update-package artifacts/Screenshot-win-x64 $version
           if ($LASTEXITCODE) { throw 'Native packaged update inventory verification failed.' }
+          ./scripts/test-launcher.ps1 -PackagePath artifacts/Screenshot-win-x64
       - uses: actions/upload-artifact@v4
         with:
           name: Screenshot-win-x64
           path: artifacts/Screenshot-win-x64/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Prepare pinned local installer compiler
+        shell: pwsh
+        run: ./scripts/prepare-installer-tools.ps1
+      - name: Build and extract-verify current-user MSI without installing
+        shell: pwsh
+        run: |
+          ./scripts/build-installer.ps1
+          $version = (Get-Content editor/package.json -Raw | ConvertFrom-Json).version
+          ./scripts/verify-installer.ps1 -Installer "artifacts/Screenshot-$version-setup-x64.msi" -PackagePath artifacts/Screenshot-win-x64 -ReportPath artifacts/installer-verification.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Screenshot-installer-win-x64
+          path: |
+            artifacts/*-setup-x64.msi
+            artifacts/installer-verification.json
           if-no-files-found: error
           retention-days: 14

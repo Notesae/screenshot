@@ -3,6 +3,8 @@ param([string]$Output = (Join-Path (Split-Path $PSScriptRoot -Parent) 'artifacts
       [ValidatePattern('^10\.0\.\d+$')][string]$RuntimeVersion = '10.0.13', [ValidateSet('Source','Vendor')][string]$NativeRuntime='Source')
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path $PSScriptRoot -Parent
+$Output = [IO.Path]::GetFullPath($Output)
+$payload = Join-Path $Output 'app'
 # A portable profile must not be merged over an old/user package.
 if((Test-Path -LiteralPath $Output) -and @(Get-ChildItem -LiteralPath $Output -Force).Count){throw 'Output is not empty; choose a new portable directory. Existing files were left untouched.'}
 Push-Location $taskRoot
@@ -18,9 +20,13 @@ try {
     } finally { Pop-Location }
     # 固定已核实的受维护运行时补丁，避免旧 SDK 默认附带较早的自包含运行时。
     if($NativeRuntime -eq 'Source'){& node (Join-Path $PSScriptRoot 'verify-native-runtime.cjs');if($LASTEXITCODE){throw 'Native provenance verification failed.'}}
-    & dotnet publish src/Screenshot.App/Screenshot.App.csproj -c Release -r win-x64 --self-contained true "-p:ScreenshotRuntimeVersion=$RuntimeVersion" "-p:ScreenshotNativeRuntime=$NativeRuntime" --maxcpucount:1 --artifacts-path (Join-Path $taskRoot ('artifacts/publish-build-'+$NativeRuntime.ToLowerInvariant())) -o $Output
+    & dotnet publish src/Screenshot.App/Screenshot.App.csproj -c Release -r win-x64 --self-contained true "-p:ScreenshotRuntimeVersion=$RuntimeVersion" "-p:ScreenshotNativeRuntime=$NativeRuntime" --maxcpucount:1 --artifacts-path (Join-Path $taskRoot ('artifacts/publish-build-'+$NativeRuntime.ToLowerInvariant())) -o $payload
     if ($LASTEXITCODE) { throw 'Windows publish failed.' }
-    & node (Join-Path $PSScriptRoot 'release-audit.cjs') $Output
+    & node (Join-Path $PSScriptRoot 'release-audit.cjs') $payload
     if ($LASTEXITCODE) { throw 'Portable package audit failed.' }
+    & (Join-Path $PSScriptRoot 'build-launcher.ps1') -Output (Join-Path $Output 'Screenshot.exe')
+    Copy-Item -LiteralPath (Join-Path $taskRoot 'packaging/使用说明.txt') -Destination $Output
+    & node (Join-Path $PSScriptRoot 'package-layout.cjs') $Output
+    if ($LASTEXITCODE) { throw 'Package layout verification failed.' }
     Write-Output "Runnable output: $Output"
 } finally { Pop-Location }

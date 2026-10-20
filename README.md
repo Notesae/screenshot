@@ -1,12 +1,28 @@
 # Screenshot
 
-0.4.8 开发候选将「应用更新」改为公开 GitHub 仓库免登录模式：手动检查、明确预发布选择、匿名下载进度与取消、完整性验证、退出后便携目录替换、并排导出和回滚。无需 Client ID 或 GitHub App 授权。用户已自行公开仓库；本候选尚未合并或发行，真实 Windows 安装交接仍未验收。更新范围和旧版迁移见[更新说明](docs/UPDATES.md)。
+0.4.8 开发候选修复首次启动读取条款时的目录末尾分隔符错误，补齐应用图标、整洁的便携目录和当前用户 MSI 安装包。「应用更新」使用公开 GitHub 仓库免登录模式。候选尚未发行，GitHub 0.4.7 仍是旧包；真实 Windows 启动、安装和更新交接仍未验收。见[安装与目录说明](docs/DISTRIBUTION.md)及[更新说明](docs/UPDATES.md)。
 
 Windows 截图与内容美化应用。支持原样、美化和文字重排三种编辑意图，原生 WPF 宿主加载本地 React/Fabric 编辑器；当前在框架基础上交付首批 P0 功能，完整产品验收仍以验证记录为准。
 
 截图完成后保留冻结桌面，在原选区直接编辑并显示紧凑工具条；需要完整界面时主动选择「完整工作台」。冻结桌面仅用于原生背景，导出和 AI 输入只使用选区文档。实际遮罩、焦点与多屏显示效果尚未实机验证。
 
 Esc 按编辑上下文先退出文字/选中对象或关闭属性面板，最后隐藏原位层；托盘提供恢复工作台、区域截图和退出入口。编辑器提供本地自动恢复快照与显式恢复列表，手动项目文件仍用于长期保存。
+
+## 安装与启动
+
+本候选的构建流程同时生成两种格式，未来发行时可在 [GitHub Releases](https://github.com/Notesae/screenshot/releases) 选择同版本附件：
+
+- `Screenshot-版本-setup-x64.msi`：中文安装界面，安装到当前用户的 `%LOCALAPPDATA%\Programs\Screenshot`，创建带图标的桌面和开始菜单入口，并提供系统卸载入口。安装前检查 WebView2；不静默下载系统组件。
+- `Screenshot-版本-win-x64.zip`：完整解压到新目录后，双击根目录带图标的 `Screenshot.exe`。不要直接在 ZIP 内运行或只移动 EXE。
+
+```text
+Screenshot.exe       启动程序
+使用说明.txt
+SHA256SUMS.txt
+app/                 运行时、编辑器、模型及许可
+```
+
+安装版通过新版 MSI 升级；便携版保留设置中的更新和回滚。卸载安装版保留 `%LOCALAPPDATA%\Screenshot` 中的用户设置及恢复项目。两种格式均带 .NET 运行时，仍需 [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)。
 
 ## 开发
 
@@ -35,6 +51,9 @@ npm run dev -- --host 127.0.0.1
 ```powershell
 ./scripts/publish.ps1
 ./artifacts/Screenshot-win-x64/Screenshot.exe
+# 另行生成 MSI；工具仅准备在工程缓存，不安装到系统。
+./scripts/prepare-installer-tools.ps1
+./scripts/build-installer.ps1
 ```
 
 发布目录包含 .NET 运行时和本地编辑器；仍需机器安装 WebView2 Runtime。`verify.ps1` 执行前端测试/构建、.NET 构建和原生、AI、OCR、存储四组断言；任何失败均以非零退出码结束。CI 另显式准备模型并运行合成图真实推理，实际桌面验证另见验证记录。
@@ -79,7 +98,7 @@ OCR 会先应用实色遮盖，再缩放；旋转遮盖保守扩大，重排坐�
 
 发布目录附带 `sbom.cdx.json`、依赖许可文本、清单与 `SHA256SUMS.txt`；清单记录尚需许可复核的缺口，不把自动盘点等同于全量许可审计。运行 `./scripts/diagnose-portable.ps1` 只检查文件、模型哈希与WebView2安装信息，不启动产品。
 
-窗口吸附、显示器选择、热键与拖放已有0.4.0实现和后台测试，真实桌面与完整现实样本评估仍待验收。安装器、签名、更新与卸载策略、额外字体、ARM64 和干净机器验收未决。用户已暂停桌面交互测试，真实捕获、透明合成、混合DPI、系统热键/剪贴板、中文IME、服务商端到端均不声明通过。
+窗口吸附、显示器选择、热键与拖放已有0.4.0实现和后台测试，真实桌面与完整现实样本评估仍待验收。MSI 安装器及卸载配置已实现并完成离线载荷核对，真实安装/升级/卸载、签名、额外字体、ARM64 和干净机器验收仍待完成。用户已暂停桌面交互测试，真实捕获、透明合成、混合DPI、系统热键/剪贴板、中文IME、服务商端到端均不声明通过。
 
 ## 0.4.0 后续工程切片
 

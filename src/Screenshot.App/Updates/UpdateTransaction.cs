@@ -47,7 +47,7 @@ internal sealed class UpdateTransaction
         AtomicText(Path.Combine(Plan.Transaction, "plan.json"), JsonSerializer.Serialize(Plan, Json));
         AtomicText(Plan.Target.TrimEnd(Path.DirectorySeparatorChar) + ".update.json", JsonSerializer.Serialize(Plan, Json));
         SetState("prepared");
-        AtomicText(Path.Combine(Plan.Transaction, "恢复说明.txt"), "此目录保留旧版本与恢复工具，不含用户配置备份。若更新中断或主程序无法启动，先关闭 Screenshot，再运行：\r\n\"" + Path.Combine(Plan.Transaction, "worker", "Screenshot.exe") + "\" --recover-update \"" + Plan.Transaction + "\"\r\n用户设置和恢复项目始终位于 %LOCALAPPDATA%\\Screenshot；请勿删除。\r\n");
+        AtomicText(Path.Combine(Plan.Transaction, "恢复说明.txt"), "此目录保留旧版本与恢复工具，不含用户配置备份。若更新中断或主程序无法启动，先关闭 Screenshot，再运行：\r\n\"" + PortablePackage.Executable(Path.Combine(Plan.Transaction, "worker")) + "\" --recover-update \"" + Plan.Transaction + "\"\r\n用户设置和恢复项目始终位于 %LOCALAPPDATA%\\Screenshot；请勿删除。\r\n");
     }
     internal static UpdateTransaction Load(string directory)
     {
@@ -125,7 +125,7 @@ internal sealed class UpdateTransaction
     {
         var transaction = Load(directory);
         var workerRoot = Path.Combine(transaction.Plan.Transaction, "worker");
-        if (!string.Equals(Path.GetFullPath(AppContext.BaseDirectory).TrimEnd(Path.DirectorySeparatorChar), workerRoot, StringComparison.OrdinalIgnoreCase)) throw new IOException("更新进程必须从隔离目录运行。");
+        if (!string.Equals(PortablePackage.InstallationRoot(AppContext.BaseDirectory), workerRoot, StringComparison.OrdinalIgnoreCase)) throw new IOException("更新进程必须从隔离目录运行。");
         if (PortablePackage.Verify(workerRoot, null, CancellationToken.None) != transaction.Plan.PreviousDigest) throw new InvalidDataException("隔离恢复工具与原版本摘要不一致。");
         using var workerGate = new FileStream(Path.Combine(directory, "worker.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         if (!rollback) transaction.ValidateIncoming();
@@ -147,7 +147,7 @@ internal sealed class UpdateTransaction
         PortablePackage.NoLinks(InstancePath(transaction.Plan.Target));
         using (var instances = new FileStream(InstancePath(transaction.Plan.Target), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
         { if (rollback) transaction.Recover(); else transaction.Apply(); }
-        var exe = Path.Combine(transaction.Plan.Target, "Screenshot.exe");
+        var exe = PortablePackage.Executable(transaction.Plan.Target);
         Process launched;
         try { launched = rollback ? Start(exe) : Start(exe, "--updated", directory); }
         catch
@@ -156,7 +156,7 @@ internal sealed class UpdateTransaction
             {
                 transaction.Recover();
                 // 尝试恢复旧版可用性；失败仍保留旧目录及外部恢复工具，不循环重启。
-                try { using var old = Start(Path.Combine(transaction.Plan.Target, "Screenshot.exe")); } catch { }
+                try { using var old = Start(PortablePackage.Executable(transaction.Plan.Target)); } catch { }
             }
             throw;
         }
@@ -171,7 +171,7 @@ internal sealed class UpdateTransaction
                 {
                     transaction.Recover();
                     try { File.WriteAllText(Path.Combine(directory, "handoff-error.txt"), "新版本在编辑器就绪前退出，已恢复旧版本。请检查运行环境或保留此事务目录反馈给发布者。"); } catch (IOException) { } catch (UnauthorizedAccessException) { }
-                    using var old = Start(exe); return 1;
+                    using var old = Start(PortablePackage.Executable(transaction.Plan.Target)); return 1;
                 }
                 await Task.Delay(500);
             }

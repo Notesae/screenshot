@@ -13,6 +13,8 @@ namespace Screenshot.App;
 public partial class UpdateSettingsControl : UserControl, IDisposable
 {
     private readonly UpdateSession _session;
+    // MSI 管理的文件必须经 MSI 升级，避免便携更新绕开安装器的修复和卸载记录。
+    private readonly bool _installedWithMsi;
     private CancellationTokenSource? _operation;
     private bool _busy, _disposed, _handoff;
     private long _generation;
@@ -26,8 +28,10 @@ public partial class UpdateSettingsControl : UserControl, IDisposable
     }
     internal UpdateSettingsControl()
     {
-        _session = new(AppContext.BaseDirectory, ReleaseVersion.Parse(typeof(App).Assembly.GetName().Version!.ToString(3)), new GitHubUpdateSource());
-        InitializeComponent(); CurrentVersion.Text = "当前版本：" + _session.Current + " · Windows x64 便携版";
+        _session = new(App.InstallationDirectory, ReleaseVersion.Parse(typeof(App).Assembly.GetName().Version!.ToString(3)), new GitHubUpdateSource());
+        var installedDirectory = Registry.GetValue(@"HKEY_CURRENT_USER\Software\Notesae\Screenshot", "InstallDirectory", null) as string;
+        _installedWithMsi = installedDirectory is not null && string.Equals(Path.TrimEndingDirectorySeparator(installedDirectory), _session.Target, StringComparison.OrdinalIgnoreCase);
+        InitializeComponent(); CurrentVersion.Text = "当前版本：" + _session.Current + (_installedWithMsi ? " · Windows x64 安装版（升级请运行新版 MSI）" : " · Windows x64 便携版");
         UpdateStatus.Text = "尚未检查。点击检查以匿名读取官方公开发布源。";
         RefreshRecovery();
     }
@@ -36,7 +40,7 @@ public partial class UpdateSettingsControl : UserControl, IDisposable
         try
         {
             var transaction = UpdateTransaction.Find(_session.Target);
-            RollbackButton.IsEnabled = !_busy && transaction is not null && Directory.Exists(transaction.Previous);
+            RollbackButton.IsEnabled = !_installedWithMsi && !_busy && transaction is not null && Directory.Exists(transaction.Previous);
             RecoveryInfo.Text = transaction is null ? "" : $"上次更新：{transaction.State}。备份和恢复说明：{transaction.Plan.Transaction}";
             if (transaction is not null)
             {
@@ -64,7 +68,8 @@ public partial class UpdateSettingsControl : UserControl, IDisposable
                 Channel.IsEnabled = true; CancelButton.IsEnabled = false; CheckButton.IsEnabled = true;
                 DownloadButton.IsEnabled = _session.Release is not null;
                 DownloadButton.Content = _session.Downloaded is null ? "下载更新 / 重试" : "重新下载";
-                InstallButton.IsEnabled = ExportButton.IsEnabled = _session.Extracted is not null && _session.Release is not null; RefreshRecovery();
+                ExportButton.IsEnabled = _session.Extracted is not null && _session.Release is not null;
+                InstallButton.IsEnabled = !_installedWithMsi && ExportButton.IsEnabled; RefreshRecovery();
             }
         }
     }
@@ -96,6 +101,7 @@ public partial class UpdateSettingsControl : UserControl, IDisposable
     });
     private async void Install_Click(object sender, RoutedEventArgs e) => await RunAsync(async token =>
     {
+        if (_installedWithMsi) throw new InvalidOperationException("安装版请从官方 Release 下载新版 MSI 进行升级；也可以将便携包解压到其他新目录。");
         var owner = Window.GetWindow(this);
         if (MessageBox.Show(owner, "将保存当前编辑到本机恢复库，然后关闭 Screenshot、替换便携目录并重启。未保存项目可在重启后从恢复记录打开。旧版本保留用于回滚。继续安装？", "安装并重启", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK) return;
         UpdateStatus.Text = "正在准备隔离更新目录与旧版恢复工具…"; Progress.IsIndeterminate = true;
@@ -107,6 +113,7 @@ public partial class UpdateSettingsControl : UserControl, IDisposable
     });
     private async void Rollback_Click(object sender, RoutedEventArgs e) => await RunAsync(async token =>
     {
+        if (_installedWithMsi) throw new InvalidOperationException("安装版请使用系统卸载和 MSI 重新安装，不执行便携目录回滚。");
         var transaction = UpdateTransaction.Find(_session.Target) ?? throw new IOException("未找到旧版本备份。");
         if (MessageBox.Show(Window.GetWindow(this), "将保存当前编辑，关闭并恢复上一版本；当前版本目录保留为故障备份。继续？", "回滚并重启", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK) return;
         if (SaveBeforeExit is null || !await SaveBeforeExit()) throw new IOException("当前编辑未能安全保存，已阻止回滚。");

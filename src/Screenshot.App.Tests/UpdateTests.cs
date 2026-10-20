@@ -88,6 +88,16 @@ internal static class UpdateTests
             })) { await source.DownloadAsync(candidate, Path.Combine(root, "cdn.zip"), null, default); Check(true, "官方 CDN 重定向"); }
 
             var package = Path.Combine(root, "fixture"); MakePackage(package, "0.4.8");
+            // 新目录布局仍须完整校验，并支持从旧平铺包升级及失败后恢复旧布局。
+            var structured = Path.Combine(root, "structured"); MakeStructuredPackage(structured, "0.4.8");
+            Check(PortablePackage.Verify(structured, ReleaseVersion.Parse("0.4.8"), default).Length == 64, "整理后的完整目录校验");
+            Check(PortablePackage.ReadVersion(structured).ToString() == "0.4.8", "从 app 目录读取版本");
+            Check(PortablePackage.InstallationRoot(Path.Combine(structured, "app") + Path.DirectorySeparatorChar) == structured, "宿主带分隔符路径映回整包根目录");
+            Check(PortablePackage.Executable(structured) == Path.Combine(structured, "app", "Screenshot.exe"), "新布局交接直接运行宿主");
+            Check(PortablePackage.Executable(package) == Path.Combine(package, "Screenshot.exe"), "旧布局交接保持兼容");
+            var structuredTx = MakeTransaction(Path.Combine(root, "structured-upgrade"), structured: true);
+            structuredTx.Apply(); Check(Directory.Exists(Path.Combine(structuredTx.Plan.Target, "app")), "旧布局升级到新布局");
+            structuredTx.Recover(); Check(File.Exists(Path.Combine(structuredTx.Plan.Target, "Screenshot.dll")), "新布局失败可回滚至旧布局");
             var zip = Path.Combine(root, "valid.zip"); ZipFile.CreateFromDirectory(package, zip);
             var fixtureZip = File.ReadAllBytes(zip);
             var sessionTarget = Path.Combine(root, "session-current"); MakePackage(sessionTarget, "0.4.6");
@@ -201,10 +211,19 @@ internal static class UpdateTests
         File.WriteAllText(Path.Combine(directory, "sbom.cdx.json"), JsonSerializer.Serialize(new { metadata = new { component = new { version } } }));
         File.WriteAllText(Path.Combine(directory, "SHA256SUMS.txt"), string.Join('\n', Directory.GetFiles(directory, "*", SearchOption.AllDirectories).Order().Select(p => PortablePackage.Digest(p) + "  " + Path.GetRelativePath(directory, p).Replace('\\', '/'))) + "\n");
     }
-    private static UpdateTransaction MakeTransaction(string directory, string version = "0.4.8")
+    // 构造带根目录启动入口和 app 依赖子目录的合成发行包，所有 EXE 都是文本且不会执行。
+    private static void MakeStructuredPackage(string directory, string version)
+    {
+        MakePackage(Path.Combine(directory, "app"), version);
+        File.WriteAllText(Path.Combine(directory, "Screenshot.exe"), "synthetic launcher");
+        File.WriteAllText(Path.Combine(directory, "使用说明.txt"), "synthetic instructions");
+        File.WriteAllText(Path.Combine(directory, "SHA256SUMS.txt"), string.Join('\n', Directory.GetFiles(directory, "*", SearchOption.AllDirectories).Order().Select(p => PortablePackage.Digest(p) + "  " + Path.GetRelativePath(directory, p).Replace('\\', '/'))) + "\n");
+    }
+    private static UpdateTransaction MakeTransaction(string directory, string version = "0.4.8", bool structured = false)
     {
         Directory.CreateDirectory(directory); var target = Path.Combine(directory, "application"); MakePackage(target, "0.4.6");
-        var tx = Path.Combine(directory, ".screenshot-update-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(tx); var package = Path.Combine(tx, "package"); MakePackage(package, version);
+        var tx = Path.Combine(directory, ".screenshot-update-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(tx); var package = Path.Combine(tx, "package");
+        if (structured) MakeStructuredPackage(package, version); else MakePackage(package, version);
         var transaction = new UpdateTransaction(new(target, tx, version, PortablePackage.Digest(Path.Combine(package, "SHA256SUMS.txt")), PortablePackage.Digest(Path.Combine(target, "SHA256SUMS.txt")))); transaction.Save(); return transaction;
     }
 }

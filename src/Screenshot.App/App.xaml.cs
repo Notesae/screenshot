@@ -9,6 +9,8 @@ namespace Screenshot.App;
 public partial class App : Application
 {
     internal static string? UpdateDirectory { get; private set; }
+    // 文件锁、更新事务与健康确认共用发行根目录，编辑器及条款仍从宿主目录读取。
+    internal static string InstallationDirectory => PortablePackage.InstallationRoot(AppContext.BaseDirectory);
     private FileStream? _instanceLease;
     // 注册界面异常处理后启动主窗口，避免操作失败导致无提示退出。
     protected override async void OnStartup(StartupEventArgs e)
@@ -38,23 +40,27 @@ public partial class App : Application
             args.Handled = true;
         };
         base.OnStartup(e);
+        var startupStep = "检查发行目录";
         try
         {
-            var instancePath = UpdateTransaction.InstancePath(AppContext.BaseDirectory);
+            var instancePath = UpdateTransaction.InstancePath(InstallationDirectory);
             PortablePackage.NoLinks(instancePath);
             // 只读安装仍可正常启动；更新时会明确拒绝原地写入并提供并排导出。
             try { _instanceLease = new FileStream(instancePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+            startupStep = "读取使用条款";
             var agreement = TermsAgreement.Load(AppContext.BaseDirectory);
             var store = new TermsAcceptanceStore(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Screenshot", "terms-acceptance.json"));
             var startup = new TermsStartup(agreement, store, Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "unknown");
+            startupStep = "显示使用条款";
             if (!startup.IsAuthorized && new TermsWindow(startup).ShowDialog() != true) { Shutdown(); return; }
             // 创建宿主的唯一入口位于同意门禁之后；启动拒绝不会注册热键或初始化服务。
+            startupStep = "创建工作台";
             if (!startup.Start(() => { MainWindow = Screenshot.App.MainWindow.Create(startup); MainWindow.Show(); ShutdownMode = ShutdownMode.OnMainWindowClose; })) Shutdown();
         }
         catch (Exception error)
         {
-            MessageBox.Show("无法校验或读取使用条款，应用未启动。请使用完整发行目录。\n" + error.Message, "Screenshot", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show("启动失败（" + startupStep + "）。请完整解压下载包，再运行根目录 Screenshot.exe。\n" + error.Message, "Screenshot", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
         }
     }

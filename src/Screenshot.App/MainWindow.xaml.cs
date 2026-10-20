@@ -67,7 +67,7 @@ public partial class MainWindow : Window
             FrozenBackdrop.Source = null; _presentation.Dismiss();
             if (_trayIcon is { } tray)
             {
-                tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose(); _trayIcon = null;
+                tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Icon?.Dispose(); tray.Dispose(); _trayIcon = null;
             }
             _hotkeys?.Dispose();
             _source?.RemoveHook(WindowMessage); Editor.Dispose(); _ai.Dispose(); DisposeLocalFeatures(); _lifetime.Dispose();
@@ -84,7 +84,7 @@ public partial class MainWindow : Window
         menu.Items.Add("退出", null, (_, _) => Dispatcher.BeginInvoke(new Action(Close)));
         _trayIcon = new System.Windows.Forms.NotifyIcon
         {
-            Icon = System.Drawing.SystemIcons.Application, Text = "Screenshot · 截图工作台", ContextMenuStrip = menu, Visible = true
+            Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!), Text = "Screenshot · 截图工作台", ContextMenuStrip = menu, Visible = true
         };
         _trayIcon.DoubleClick += (_, _) => Dispatcher.BeginInvoke(new Action(ShowWorkbenchFromTray));
     }
