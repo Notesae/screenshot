@@ -1,4 +1,9 @@
-# Screenshot 0.4.8 发布候选（尚未发行）
+# Screenshot v@VERSION@ 预发布版
+
+固定提交：`@COMMIT@`；[对应 Windows 验证 CI](@CI_URL@)。附件取自该提交成功的主分支 CI，不在发布阶段重新构建。
+
+- [安装版 MSI（推荐）](https://github.com/Notesae/screenshot/releases/download/v@VERSION@/Screenshot-@VERSION@-setup-x64.msi)：中文安装界面、桌面和开始菜单快捷方式、系统卸载入口。
+- [便携版 ZIP](https://github.com/Notesae/screenshot/releases/download/v@VERSION@/Screenshot-@VERSION@-win-x64.zip)：完整解压后双击根目录带图标的 `Screenshot.exe`。
 
 修复首次启动条款目录的末尾分隔符导致空路径失败的问题。增加统一截图图标，便携包根目录只保留带图标的 Screenshot.exe、使用说明、校验文件与 app 依赖目录。必须先完整解压，再双击根目录 Screenshot.exe。
 
@@ -8,6 +13,8 @@
 
 检查及下载前核对固定仓库身份和公开状态；匿名限流显示重试时间，不使用凭据或其他源绕过。重复下载不能清理首笔暂存，取消/中断后重试，错误包不能安装。安装前保存恢复快照，退出后隔离切换、旧版备份和回滚保护沿用原方案；无法原地更新时解压到新目录。
 
-已发布0.4.7仍有旧登录门控。未来本候选获准发行后，请先手动下载、校验并解压至全新目录，保存并关闭旧版，再运行新版本一次。不要把ZIP直接覆盖到正在使用的目录。数据、设置和恢复库继续使用原Windows用户目录。
+已发布0.4.7仍有旧登录门控和启动路径问题。请先保存并关闭旧版，再手动下载本版 MSI 安装，或将 ZIP 完整解压至全新目录运行一次。不要把 ZIP 直接覆盖到正在使用的目录。数据、设置和恢复库继续使用原 Windows 用户目录。
 
-验证结果见VALIDATION.md及本候选精确CI。SHA与同源清单不构成数字签名，仍信任GitHub官方账号和HTTPS。真实WPF交互、Windows退出交接/重启、UAC/只读介质、杀毒软件及断电未实机验收。没有实际替换用户安装、修改仓库权限或发起新设备授权。此文档是发布候选说明，不是发行成功记录。
+ZIP 大小 @ZIP_BYTES@ 字节，SHA-256：`@ZIP_SHA256@`。MSI 大小 @MSI_BYTES@ 字节，SHA-256：`@MSI_SHA256@`。条款目录摘要：`@TERMS_DIGEST@`。附件另提供各自校验文件、统一 SHA256SUMS.txt 和 release-manifest.json。
+
+验证结果见 VALIDATION.md 及上述精确 CI。MSI 离线解包核对全部文件及中文条款；这不等于真实安装验收。SHA 与同源清单不构成发布者数字签名，仍信任 GitHub 官方账号和 HTTPS。真实 WPF 启动、安装/升级/卸载、Windows 退出交接/重启、UAC/只读介质、杀毒软件及断电未实机验收。遵守桌面交互暂停要求，没有实际替换用户安装、勾选条款、修改仓库权限或发起设备授权。

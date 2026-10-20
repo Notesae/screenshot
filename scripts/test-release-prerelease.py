@@ -53,7 +53,7 @@ class ReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='screenshot-release-test-') as d:
             root=Path(d);(root/'editor').mkdir();(root/'docs').mkdir()
             (root/'editor/package.json').write_text('{"version":"0.4.6"}')
-            (root/'docs/RELEASE-NOTES-0.4.6.md').write_text('中文 @COMMIT@ @CI_URL@ @ZIP_SHA256@',encoding='utf-8')
+            (root/'docs/RELEASE-NOTES-0.4.6.md').write_text('中文 @COMMIT@ @CI_URL@ @ZIP_SHA256@ @MSI_SHA256@ @MSI_BYTES@',encoding='utf-8')
             buffer=io.BytesIO()
             with zipfile.ZipFile(buffer,'w') as z:z.writestr('synthetic.txt','synthetic only')
             server=Server(buffer.getvalue(),mode)

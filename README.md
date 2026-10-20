@@ -1,6 +1,6 @@
 # Screenshot
 
-0.4.8 开发候选修复首次启动读取条款时的目录末尾分隔符错误，补齐应用图标、整洁的便携目录和当前用户 MSI 安装包。「应用更新」使用公开 GitHub 仓库免登录模式。候选尚未发行，GitHub 0.4.7 仍是旧包；真实 Windows 启动、安装和更新交接仍未验收。见[安装与目录说明](docs/DISTRIBUTION.md)及[更新说明](docs/UPDATES.md)。
+0.4.8 修复首次启动读取条款时的目录末尾分隔符错误，补齐应用图标、整洁的便携目录和当前用户 MSI 安装包。「应用更新」使用公开 GitHub 仓库免登录模式。[0.4.8 下载页](https://github.com/Notesae/screenshot/releases/tag/v0.4.8)提供安装版和便携版；真实 Windows 启动、安装和更新交接仍未验收。见[安装与目录说明](docs/DISTRIBUTION.md)及[更新说明](docs/UPDATES.md)。
 
 Windows 截图与内容美化应用。支持原样、美化和文字重排三种编辑意图，原生 WPF 宿主加载本地 React/Fabric 编辑器；当前在框架基础上交付首批 P0 功能，完整产品验收仍以验证记录为准。
 
@@ -10,7 +10,7 @@ Esc 按编辑上下文先退出文字/选中对象或关闭属性面板，最后
 
 ## 安装与启动
 
-本候选的构建流程同时生成两种格式，未来发行时可在 [GitHub Releases](https://github.com/Notesae/screenshot/releases) 选择同版本附件：
+构建流程同时生成两种格式，可在 [GitHub Releases](https://github.com/Notesae/screenshot/releases) 选择同版本附件：
 
 - `Screenshot-版本-setup-x64.msi`：中文安装界面，安装到当前用户的 `%LOCALAPPDATA%\Programs\Screenshot`，创建带图标的桌面和开始菜单入口，并提供系统卸载入口。安装前检查 WebView2；不静默下载系统组件。
 - `Screenshot-版本-win-x64.zip`：完整解压到新目录后，双击根目录带图标的 `Screenshot.exe`。不要直接在 ZIP 内运行或只移动 EXE。

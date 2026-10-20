@@ -93,7 +93,7 @@ def main():
     if installer_checks.get('version')!=version or installer_checks.get('sha256')!=sha(installer) or installer_checks.get('sourceManifestSha256')!=checks['manifestSha256'] or installer_checks.get('filesCompared')!=checks['files'] or installer_checks.get('scope')!='perUser' or installer_checks.get('chineseTermsVerified') is not True:raise RuntimeError('Installer verification does not match the portable package')
     installer_checksum=out/(installer_name+'.sha256');installer_checksum.write_text(sha(installer)+'  '+installer_name+'\n',encoding='utf-8',newline='\n')
     body=(ROOT/f'docs/RELEASE-NOTES-{version}.md').read_text('utf-8')
-    values={'@VERSION@':version,'@COMMIT@':commit,'@CI_URL@':run['html_url'],'@ZIP_SHA256@':sha(archive),'@ZIP_BYTES@':str(archive.stat().st_size),'@TERMS_DIGEST@':checks['legal']['digest']}
+    values={'@VERSION@':version,'@COMMIT@':commit,'@CI_URL@':run['html_url'],'@ZIP_SHA256@':sha(archive),'@ZIP_BYTES@':str(archive.stat().st_size),'@MSI_SHA256@':sha(installer),'@MSI_BYTES@':str(installer.stat().st_size),'@TERMS_DIGEST@':checks['legal']['digest']}
     for key,value in values.items():body=body.replace(key,value)
     if re.search('@[A-Z_]+@',body):raise RuntimeError('Unfilled release note value')
     marker=f"<!-- screenshot-release:{commit}:{artifact['id']} -->";body+='\n'+marker+'\n'
