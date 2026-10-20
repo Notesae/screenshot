@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 namespace Screenshot.App;
 
 // 目标解析与取帧可替换为假平台；核心组合逻辑不接触 HWND、显示器或图形设备。
-internal sealed record CaptureMonitor(nint Handle, PixelRect Bounds, bool Primary);
+internal sealed record CaptureMonitor(nint Handle, PixelRect Bounds, bool Primary, PixelRect? WorkArea = null);
 internal interface ICapturePlatform
 {
     IReadOnlyList<CaptureMonitor> GetMonitors();
@@ -70,7 +70,7 @@ internal sealed class CaptureAcquisition(ICapturePlatform platform)
                 .SequenceEqual(finalMonitors.OrderBy(m => m.Handle.ToInt64())))
                 throw new CaptureException("capture_geometry_changed", "显示器布局在捕获期间变化，请重新截图。");
             deadline.Token.ThrowIfCancellationRequested();
-            return new(backdrop, selected, desktop, selection, monitors.Select(m => new CaptureScreen(m.Bounds, m.Primary)).ToArray());
+            return new(backdrop, selected, desktop, selection, monitors.Select(m => new CaptureScreen(m.Bounds, m.Primary, m.WorkArea)).ToArray());
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         { throw new CaptureException("capture_timeout", "WGC 捕获超时，请检查目标或重试。"); }

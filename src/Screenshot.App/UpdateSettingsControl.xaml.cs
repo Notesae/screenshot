@@ -109,7 +109,7 @@ public partial class UpdateSettingsControl : UserControl, IDisposable
         if (SaveBeforeExit is null || !await SaveBeforeExit()) throw new IOException("当前编辑未能安全保存，已阻止退出。");
         token.ThrowIfCancellationRequested(); CancelButton.IsEnabled = false;
         _handoff = true;
-        await _session.HandOffAsync(transaction, false); _handoff = false; Application.Current.Shutdown();
+        await _session.HandOffAsync(transaction, false); _handoff = false; ShutdownAfterSavedHandoff();
     });
     private async void Rollback_Click(object sender, RoutedEventArgs e) => await RunAsync(async token =>
     {
@@ -119,7 +119,7 @@ public partial class UpdateSettingsControl : UserControl, IDisposable
         if (SaveBeforeExit is null || !await SaveBeforeExit()) throw new IOException("当前编辑未能安全保存，已阻止回滚。");
         token.ThrowIfCancellationRequested(); CancelButton.IsEnabled = false;
         _handoff = true;
-        await _session.HandOffAsync(transaction, true); _handoff = false; Application.Current.Shutdown();
+        await _session.HandOffAsync(transaction, true); _handoff = false; ShutdownAfterSavedHandoff();
     });
     private async void Export_Click(object sender, RoutedEventArgs e) => await RunAsync(async token =>
     {
@@ -130,6 +130,11 @@ public partial class UpdateSettingsControl : UserControl, IDisposable
         await Task.Run(() => _session.ExportTo(destination, token), token);
         UpdateStatus.Text = "已验证并解压到：" + destination + "。先保存项目并关闭当前应用，再运行新目录的 Screenshot.exe；本机设置和恢复库沿用原位置。";
     });
+    private static void ShutdownAfterSavedHandoff()
+    {
+        if (Application.Current.MainWindow is MainWindow editor) editor.AllowSavedShutdown();
+        Application.Current.Shutdown();
+    }
     private void Cancel_Click(object sender, RoutedEventArgs e) => _operation?.Cancel();
     private void Channel_Changed(object sender, SelectionChangedEventArgs e)
     {

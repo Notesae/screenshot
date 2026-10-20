@@ -6,9 +6,9 @@ describe('overlay keyboard decisions', () => {
     expect(overlayKeyAction({ ...context, composing: true })).toBe('ignore');
     expect(overlayKeyAction({ ...context, textInput: true })).toBe('ignore');
   });
-  it('exits Fabric editing, closes panels, then deselects objects before dismissal', () => {
+  it('exits text editing, deselects objects, then closes panels before dismissal', () => {
     expect(overlayKeyAction({ ...context, fabricEditing: true, panelOpen: true })).toBe('exit-object');
-    expect(overlayKeyAction({ ...context, panelOpen: true, selectedObject: true })).toBe('close-panel');
+    expect(overlayKeyAction({ ...context, panelOpen: true, selectedObject: true })).toBe('exit-object');
     expect(overlayKeyAction({ ...context, selectedObject: true })).toBe('exit-object');
     expect(overlayKeyAction(context)).toBe('dismiss');
   });

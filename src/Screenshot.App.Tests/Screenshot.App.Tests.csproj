@@ -4,4 +4,5 @@
   <ItemGroup><Compile Include="../Screenshot.App/Updates/ReleaseVersion.cs" Link="Updates/ReleaseVersion.cs"/><Compile Include="../Screenshot.App/Updates/GitHubUpdateSource.cs" Link="Updates/GitHubUpdateSource.cs"/><Compile Include="../Screenshot.App/Updates/PortablePackage.cs" Link="Updates/PortablePackage.cs"/><Compile Include="../Screenshot.App/Updates/UpdateTransaction.cs" Link="Updates/UpdateTransaction.cs"/></ItemGroup>
   <ItemGroup><Compile Include="../Screenshot.App/Updates/UpdateSession.cs" Link="Updates/UpdateSession.cs"/></ItemGroup>
   <ItemGroup><Compile Include="../Screenshot.App/Updates/UpdateSourceIdentity.cs" Link="Updates/UpdateSourceIdentity.cs"/></ItemGroup>
+  <ItemGroup><Compile Include="../Screenshot.App/EditorCheckpoint.cs" Link="EditorCheckpoint.cs"/></ItemGroup>
 </Project>

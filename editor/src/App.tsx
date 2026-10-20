@@ -1,27 +1,24 @@
 import {parseTranslationDocument,createTranslationDocument,canResumeTranslation,translationText} from './translationDocument';
-import { prepareUpdateSnapshot, SETTINGS_OPERATION } from './updateSafety';
+import { prepareUpdateSnapshot, prepareLeaveSnapshot, SETTINGS_OPERATION } from './updateSafety';
 import { runTranslationChunks,type TranslationChunk } from './translation';
-import { CaptureControls } from './CaptureControls';
-import { StyleTools } from './StyleTools';
-import { RecoveryPanel, RecoveryStatus, useRecovery } from './RecoveryPanel';
+import { RecoveryPanel, useRecovery } from './RecoveryPanel';
 import type { RecoveryItem } from './recovery';
-import { TextTools, CaptureBackendSelector } from './TextTools';
 import { parseOcr, ocrText, requestMatches, type LocalOcrStatus, type RequestStamp } from './ocr';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowDownToLine, Clipboard, Copy, Crop, FileImage, FolderOpen, Frame, ImagePlus, Monitor, ScanText, Settings2, Sparkles, TextCursorInput, Trash2, Type, Save, MousePointer2, Check, X } from 'lucide-react';
+
 import { native, subscribeNative, type LoadedImage, type Settings, type PresentationResult } from './bridge';
-import { defaultEditor, parseDocument, transformContent, type ContentResize, type SourceCrop, type EditorState, type Mode, type ProjectDocument } from './document';
+import { defaultEditor, parseDocument, transformContent, type ContentResize, type SourceCrop, type EditorState, type ProjectDocument } from './document';
 import { fileToImage, imageForProcessing, normalizeImage } from './render';
-import { EditorCanvas, type CanvasHandle, type CanvasRenderStatus, type CanvasSelection } from './EditorCanvas';
+import type { CanvasHandle, CanvasRenderStatus, CanvasSelection } from './EditorCanvas';
 import { overlayForImportedImage, parseCapture, type CaptureEnvelope, type OverlayMetadata } from './overlay';
 import { CompactOverlay } from './CompactOverlay';
 import { useEditorHistory } from './useEditorHistory';
 import { annotationKeyAction, historyKeyAction } from './keyboard';
-import { AnnotationPalette, HistoryButtons, TransformPanel } from './EditControls';
+
 
 const initial: ProjectDocument = { schemaVersion: 2, image: null, editor: defaultEditor() };
-const modes = [ { id: 'raw', icon: FileImage, name: '原样', description: '留住真实像素' }, { id: 'beauty', icon: Sparkles, name: '美化', description: '给内容一点留白' }, { id: 'reflow', icon: TextCursorInput, name: '文字重排', description: '让文字重新呼吸' } ] as const;
-const swatches = ['#e9dfd1', '#e4e9df', '#e1e7ec', '#eadbd8', '#363b37', '#f8f4eb'];
+
+
 function download(data: string, name: string) { const link = document.createElement('a'); link.href = data; link.download = name; link.click(); }
 function message(error: unknown) { return error instanceof Error ? error.message : '操作失败，请重试。'; }
 
@@ -44,6 +41,10 @@ export default function App() {
   const [translationJob,setTranslationJob]=useState<{chunks:TranslationChunk[];stamp:RequestStamp;providerId:string;providerRevision:string;targetLanguage:string}|null>(null);
   const [documentEpoch, setDocumentEpoch] = useState(0);
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
+  const [hostLocked, setHostLocked] = useState(false);
+  const hostLock = useRef(false), savedProject = useRef<{ id:string; revision:number } | null>(null);
+  const [entryPanel, setEntryPanel] = useState<{kind:'more'|'recovery'|'settings';sequence:number}|null>(null);
+  const actions = useRef<(action:string,text?:string)=>void>(()=>{});
   // 成功提示按长度留出阅读时间，错误保持到用户关闭；旧计时器不能清除较新的提示。
   useEffect(() => {
     if (!notice || notice.error) return;
@@ -56,11 +57,11 @@ export default function App() {
   const providerRevision=settings.providers.find(p=>p.id===providerId)?.revision||'';
   const aiOptions=useRef({providerId,targetLanguage,providerRevision});aiOptions.current={providerId,targetLanguage,providerRevision};
   const [scale, setScale] = useState(1);
-  const [dragging, setDragging] = useState(false);
   const canvas = useRef<CanvasHandle>(null);
   const imageInput = useRef<HTMLInputElement>(null), projectInput = useRef<HTMLInputElement>(null);
   const generation = useRef(0), current = useRef(doc); current.current = doc;
   const overlayRef = useRef(overlay); overlayRef.current = overlay;
+  const overlayReadyRef=useRef(overlayReady);overlayReadyRef.current=overlayReady;
   const pendingCapture = useRef<{ captureId?: string; revision: number } | null>(null);
   const expiredCaptures = useRef(new Set<string>());
   const timedOutCaptures = useRef(new Set<string>());
@@ -68,16 +69,28 @@ export default function App() {
   const recovery = useRecovery(documentId, history.revision, doc);
   useLayoutEffect(() => {
     window.screenshotPrepareUpdate = () => prepareUpdateSnapshot({ operation: busy, aiBusy: Boolean(aiBusy), editing: canvas.current?.interactionState().editing || false, loading: Boolean(doc.image) && canvasStatus !== 'ready', documentId, revision: history.revision, document: history.current() });
-    return () => { delete window.screenshotPrepareUpdate; };
+    window.screenshotPrepareLeave = reason => {
+      if (hostLock.current) return { error: '正在确认保存，请稍后再试。' };
+      const snapshot = prepareLeaveSnapshot({ operation:busy, aiBusy:Boolean(aiBusy), editing:canvas.current?.interactionState().editing || false, loading:Boolean(doc.image) && canvasStatus !== 'ready', documentId, revision:history.currentRevision(), document:history.current(), projectSaved:savedProject.current?.id===documentId && savedProject.current.revision===history.currentRevision() }, reason);
+      if (!('error' in snapshot)) {
+        hostLock.current=true;setHostLocked(true);
+        // 替换意图先使旧 AI 身份失效，捕获等待期间的迟到结果不能成为未保护的新修改。
+        if(reason==='replace'&&aiTaskId.current){const taskId=aiTaskId.current;aiSequence.current++;aiTaskId.current=null;setAiBusy('');void native.request('ai.cancel',{taskId}).catch(()=>{});}
+      }
+      return snapshot;
+    };
+    window.screenshotFinishLeave = () => { hostLock.current=false; setHostLocked(false); };
+    return () => { delete window.screenshotPrepareUpdate; delete window.screenshotPrepareLeave; delete window.screenshotFinishLeave; };
   }, [busy, aiBusy, canvasStatus, documentId, history.revision, doc]);
   useEffect(()=>{
     if(aiBusy)return;
     const data=doc.editor.translationData;
     setTranslationJob(data?{chunks:data.chunks,stamp:requestStamp(),providerId:data.providerId,providerRevision:data.providerRevision,targetLanguage:data.targetLanguage}:null);
   },[documentId,doc.editor.translationData,aiBusy]);
-  const hasContent = Boolean(doc.image) || editor.mode === 'reflow';
+
   const errorNotice = (error: unknown) => setNotice({ text: message(error), error: true });
   const update = (change: Partial<EditorState>, group?: string) => {
+    if (hostLock.current) return;
     const fields = Object.keys(change), key = fields[0];
     history.change(change, group || (fields.length === 1 && ['text', 'translation', 'title', 'padding', 'radius', 'fontSize', 'textWidth'].includes(key) ? `input:${key}` : undefined));
   };
@@ -88,6 +101,7 @@ export default function App() {
     let composing = false;
     const start = () => { composing = true; }, end = () => { composing = false; };
     const keydown = (event: KeyboardEvent) => {
+      if (hostLock.current) return;
       const target = event.target instanceof Element ? event.target : null, interaction = canvas.current?.interactionState();
       const action = historyKeyAction({ key: event.key, ctrl: event.ctrlKey, meta: event.metaKey, alt: event.altKey, shift: event.shiftKey, composing: composing || event.isComposing, textInput: Boolean(target?.closest('input,textarea,select,[contenteditable="true"],[role="textbox"]')), fabricEditing: interaction?.editing || false, selectedObject: false, panelOpen: false, textSelection: false });
       if (event.defaultPrevented) return;
@@ -113,22 +127,24 @@ export default function App() {
   async function acceptImage(value: unknown, revision = ++generation.current, retainOverlay=false) {
     if (revision !== generation.current) return;
     const sourceOverlay = overlayRef.current;
-    if(retainOverlay&&(!sourceOverlay||!overlayReady))throw new Error('原位编辑尚未就绪，请稍后导入。');
+    if(retainOverlay&&(!sourceOverlay||!overlayReadyRef.current))throw new Error('原位编辑尚未就绪，请稍后导入。');
     const capture = parseCapture(value);
     if (capture.overlay) pendingCapture.current = { captureId: capture.overlay.captureId, revision };
     const image = await normalizeImage(capture.image);
+    if (revision !== generation.current) return;
+    if (native.available && !capture.overlay) await native.request('document.preserve');
     if (revision !== generation.current) return;
     if(retainOverlay&&sourceOverlay){
       if(overlayRef.current?.captureId!==sourceOverlay.captureId||(sourceOverlay.captureId&&expiredCaptures.current.has(sourceOverlay.captureId)))return;
       setOverlay(overlayForImportedImage(sourceOverlay,image));setDoc({schemaVersion:2,image,editor:defaultEditor()});setDocumentEpoch(v=>v+1);setNotice({text:'图片已在原位打开；显示适配不改变原始导出像素。'});return;
     }
     if (!capture.overlay && sourceOverlay) {
-      const result = await native.request<PresentationResult>('presentation.workbench', sourceOverlay.captureId ? { captureId: sourceOverlay.captureId } : {});
+      const result = await native.request<PresentationResult>('presentation.editor', sourceOverlay.captureId ? { captureId: sourceOverlay.captureId } : {});
       if (result.accepted === false || revision !== generation.current) return;
     }
     const expired = Boolean(capture.overlay?.captureId && expiredCaptures.current.has(capture.overlay.captureId));
     if (pendingCapture.current?.revision === revision) pendingCapture.current = null;
-    setOverlayReady(false);setOverlay(expired ? null : capture.overlay); setDoc({ schemaVersion: 2, image, editor: defaultEditor() }); setDocumentEpoch(value => value + 1); setNotice(expired ? (timedOutCaptures.current.has(capture.overlay!.captureId!) ? { text: '选区编辑已超时，截图已保留在工作台。', error: true } : null) : capture.overlay ? null : { text: `已载入 ${image.name}` });
+    setOverlayReady(false);setOverlay(expired ? null : capture.overlay); setDoc({ schemaVersion: 2, image, editor: defaultEditor() }); setDocumentEpoch(value => value + 1); setNotice(expired ? (timedOutCaptures.current.has(capture.overlay!.captureId!) ? { text: '选区编辑已超时，截图已保留在轻量编辑器。', error: true } : null) : capture.overlay ? null : { text: `已载入 ${image.name}` });
   }
   // 项目校验与图片解码全部完成后才整体替换，并通过 epoch 清空旧画布标注。
   async function acceptProject(value: unknown, revision = ++generation.current, restored?: { documentId: string; revision: number }) {
@@ -138,8 +154,10 @@ export default function App() {
       project.image = await normalizeImage(project.image);
     }
     if (revision !== generation.current) return;
+    if (native.available) await native.request('document.preserve');
+    if (revision !== generation.current) return;
     if (sourceOverlay) {
-      const result = await native.request<PresentationResult>('presentation.workbench', sourceOverlay.captureId ? { captureId: sourceOverlay.captureId } : {});
+      const result = await native.request<PresentationResult>('presentation.editor', sourceOverlay.captureId ? { captureId: sourceOverlay.captureId } : {});
       if (result.accepted === false || revision !== generation.current) return;
     }
     if (revision === generation.current) { setOverlay(null); setDoc(project, restored); setDocumentEpoch(value => value + 1); setNotice({ text: '项目已打开' }); }
@@ -156,8 +174,8 @@ export default function App() {
         if (activeId && activeId !== expiredId) return;
       }
       setOverlay(null);
-      if (presentation.reason === 'overlay_timeout') setNotice({ text: '选区编辑未及时就绪，已返回工作台。图片与编辑内容仍保留。', error: true });
-    });
+      if (presentation.reason === 'overlay_timeout') setNotice({ text: '选区编辑未及时就绪，已返回轻量编辑器。图片与编辑内容仍保留。', error: true });
+    }, (action,text) => actions.current(action,text));
     if (native.available) {
       void native.request('app.updateReady').catch(() => {});
       void native.request<LocalOcrStatus>('ocr.status').then(value => {
@@ -218,17 +236,27 @@ export default function App() {
   async function saveProject() {
     await run('保存项目', async () => {
       const document = parseDocument(current.current);
-      if (native.available) { const result = await native.request<{ saved: boolean }>('project.save', { document, suggestedName: '拾影项目.screenshot.json' }); if (result.saved) setNotice({ text: '项目已保存' }); }
+      if (native.available) { const stamp={id:documentIdRef.current,revision:history.currentRevision()}; const result = await native.request<{ saved: boolean }>('project.save', { document, suggestedName: '拾影项目.screenshot.json' }); if (result.saved) { savedProject.current=stamp; setNotice({ text: '项目已保存' }); } }
       else { const url = URL.createObjectURL(new Blob([JSON.stringify(document)], { type: 'application/json' })); download(url, '拾影项目.screenshot.json'); setTimeout(() => URL.revokeObjectURL(url), 1000); setNotice({ text: '项目已导出，请保留此文件以继续编辑。' }); }
     });
   }
   // 保存与复制复用同一 PNG 输出，原生与浏览器只负责最终文件/剪贴板写入。
   async function exportImage(copy = false) {
     await run(copy ? '复制图片' : '导出图片', async () => {
+      const stamp={documentId:documentIdRef.current,revision:history.currentRevision(),generation:generation.current};
       const dataUrl = await canvas.current!.exportPng(scale);
       if (native.available) {
         const result = await native.request<{ saved?: boolean; copied?: boolean }>(copy ? 'image.copy' : 'image.save', { dataUrl, suggestedName: `${(doc.image?.name || '拾影').replace(/\.[^.]+$/, '')}-${editor.mode}.png` });
-        if (result.saved || result.copied) setNotice({ text: copy ? '图片已复制到剪贴板' : 'PNG 已保存' });
+        if (result.saved || result.copied) {
+          const text=copy ? '图片已复制到剪贴板' : 'PNG 已保存';
+          setNotice({text});
+          if (stamp.documentId===documentIdRef.current && stamp.revision===history.currentRevision() && stamp.generation===generation.current) {
+            try {
+              const completed=await native.request<{accepted:boolean}>('presentation.complete',{...stamp,captureId:overlayRef.current?.captureId,text});
+              if(completed.accepted){generation.current++;setOverlay(null);setNotice(null);}
+            } catch(error) { setNotice({text:`${text}；${message(error)}`,error:true}); }
+          }
+        }
       } else if (copy) {
         if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') throw new Error('此浏览器不支持复制图片，请使用导出 PNG。');
         const binary = atob(dataUrl.split(',')[1]); const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
@@ -280,7 +308,7 @@ export default function App() {
         const text = (result as { text?: unknown })?.text;
         if (typeof text !== 'string' || text.length > 20000) throw new Error('服务返回的文字无效或过长。');
         if (kind === 'ocr' && !text.trim()) { setNotice({text:'没有识别到新的文字，原有校对内容已保留。'}); return; }
-        update(kind === 'ocr' ? { text, ocr: null, translation: '', translationData:null, textLayout: 'source', mode: 'reflow' } : { translation: text, translationSource:snapshot.editor.text, textLayout: 'parallel', mode: 'reflow' });
+        update(kind === 'ocr' ? { text, ocr: null, translation: '', translationData:null, textLayout: 'source' } : { translation: text, translationSource:snapshot.editor.text, textLayout: 'parallel' });
       }
       setNotice({ text: kind === 'ocr' ? '识别完成，请校对文字与阅读顺序。' : '翻译完成，原文已保留，请校对译文。' });
     } catch (error) { if (sequence === aiSequence.current) errorNotice(error); }
@@ -302,29 +330,29 @@ export default function App() {
     const file = files?.[0]; if (!file) return;
     await run('读取文件', async () => {
       const revision = ++generation.current;
-      if(retainOverlay&&file.name.endsWith('.json'))throw new Error('原位拖放支持图片；可编辑项目请在工作台中打开。');
+
       if (file.name.endsWith('.json')) { if (file.size > 36 * 1024 * 1024) throw new Error('项目文件不能超过 36 MB。'); await acceptProject(JSON.parse(await file.text()), revision); }
       else await acceptImage(await fileToImage(file), revision,retainOverlay);
     });
   }
-  // 两种呈现共享同一文档；只有主动入口才切换完整工作台，退出会作废旧 AI 回复。
+  // 两种呈现共享同一文档；只有主动入口才切换完整轻量编辑器，退出会作废旧 AI 回复。
   async function presentation(mode: 'workbench' | 'hidden') {
-    await run(mode === 'workbench' ? '打开工作台' : '退出编辑', async () => {
+    await run(mode === 'workbench' ? '打开轻量编辑器' : '退出编辑', async () => {
       const revision = generation.current;
       const captureId = overlayRef.current?.captureId;
-      const result = await native.request<PresentationResult>(mode === 'workbench' ? 'presentation.workbench' : 'presentation.dismiss', captureId ? { captureId } : {});
+      const result = await native.request<PresentationResult>(mode === 'workbench' ? 'presentation.editor' : 'presentation.dismiss', captureId ? { captureId } : {});
       if (result.accepted === false || revision !== generation.current) return;
       if (mode === 'hidden') generation.current++;
       setOverlay(null); setNotice(null);
     });
   }
-  // 旧捕获确认不影响新选区；当前确认被拒绝时恢复不透明工作台，保留同一文档。
+  // 旧捕获确认不影响新选区；当前确认被拒绝时恢复不透明轻量编辑器，保留同一文档。
   function handleReadyResult(captureId: string, result: PresentationResult) {
     if(overlayRef.current?.captureId!==captureId)return;
     if(result.accepted!==false){setOverlayReady(true);return;}
     if ((pendingCapture.current?.captureId && pendingCapture.current.captureId !== captureId) || (result.captureId && result.captureId !== captureId)) return;
     expiredCaptures.current.add(captureId); setOverlay(null);
-    setNotice({ text: '选区显示已失效，已保留图片并返回工作台。', error: true });
+    setNotice({ text: '选区显示已失效，已保留图片并返回轻量编辑器。', error: true });
   }
   async function probeAi(kind:'text'|'image') {
     if(aiBusy||!providerId)return;
@@ -340,16 +368,17 @@ export default function App() {
     });
   }
   const textTools = { onProbe:(kind:"text"|"image")=>{void probeAi(kind);}, translationProgress:translationJob?{done:translationJob.chunks.filter(c=>c.status==='done').length,total:translationJob.chunks.length,failed:translationJob.chunks.filter(c=>c.status==='failed').length,pending:translationJob.chunks.filter(c=>c.status==='pending'||c.status==='running').length,canRetry:!!doc.editor.translationData&&canResumeTranslation(doc.editor.translationData,doc.editor,providerId,providerRevision,targetLanguage),errors:translationJob.chunks.filter(c=>c.error).map(c=>c.error!)}:null, onRetryTranslation:()=>{void ai('translate',true);}, onCopyText:(text:string)=>{void copyPlainText(text);}, document: doc, update, settings, providerId, setProviderId, targetLanguage, setTargetLanguage, ocrEngine, setOcrEngine, localStatus, busy, aiBusy, onAi: (kind: 'ocr' | 'translate') => { void ai(kind); }, onCancelOcr: () => { void cancelOcr(); }, onConfigure: () => { void run(SETTINGS_OPERATION, async () => applySettings(await native.request<Settings>('settings.configure'))); }, onError: errorNotice };
-  const recoveryPanel = <RecoveryPanel state={recovery} onRestore={restoreRecovery} onError={errorNotice} onDeleteCurrent={recovery.pause} currentId={documentId}/>;
-  if (overlay && doc.image) return <CompactOverlay selection={selection} onSelection={setSelection} recoveryState={recovery} renderStatus={canvasStatus} onRenderStatus={setCanvasStatus} skipReady={overlayReady} onFiles={files=>chooseFiles(files,true)} onCapture={(method,payload)=>{void nativeImage(method,"捕获屏幕",payload);}} key={documentEpoch} document={doc} metadata={overlay} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo} onTransform={changeTransform} textTools={textTools} recoveryPanel={recoveryPanel} captureBackend={captureBackend} onCaptureBackend={backend => { void configureCapture(backend); }} onReadyResult={handleReadyResult} canvasRef={canvas} update={update} onExport={copy => { void exportImage(copy); }} onAi={kind => { void ai(kind); }} onPresentation={mode => { void presentation(mode); }} onConfigure={() => { void run(SETTINGS_OPERATION, async () => applySettings(await native.request<Settings>('settings.configure'))); }} onSaveProject={() => { void saveProject(); }} onError={errorNotice} busy={busy} aiBusy={aiBusy} settings={settings} providerId={providerId} setProviderId={setProviderId} targetLanguage={targetLanguage} setTargetLanguage={setTargetLanguage} scale={scale} setScale={setScale} notice={notice} clearNotice={() => setNotice(null)}/>;
-  return <div className="app" onDragOver={event => { event.preventDefault(); setDragging(true); }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }} onDrop={event => { event.preventDefault(); setDragging(false); void chooseFiles(event.dataTransfer.files); }}>
-    <header className="topbar"><a className="brand" href="#" aria-label="拾影"><span className="brand-mark"><Frame size={22}/></span><strong>拾影</strong><span>SCREENSHOT</span></a><div className="top-actions"><HistoryButtons canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo}/><button onClick={openProject} disabled={!!busy}><FolderOpen/>打开项目</button><button onClick={saveProject} disabled={!!busy || !hasContent}><Save/>保存项目</button><span className="separator"/><button onClick={() => run(SETTINGS_OPERATION, async () => applySettings(await native.request<Settings>('settings.configure')))} disabled={!!busy}><Settings2/>服务设置</button></div></header>
-    <div className="body"><aside className="left-panel"><div className="eyebrow">从这里开始</div><button className="import-button" onClick={openImage} disabled={!!busy}><ImagePlus size={19}/>导入图片<span>+</span></button><div className="capture-actions"><button title={native.available ? '捕获整个桌面' : '需要 Windows 桌面应用'} onClick={() => nativeImage('capture.screen', '捕获桌面')} disabled={!!busy}><Monitor/>桌面</button><button title="在桌面上选择矩形区域" onClick={() => nativeImage('capture.region', '选择区域')} disabled={!!busy}><Crop/>区域</button><button onClick={() => nativeImage('image.paste', '粘贴图片')} disabled={!!busy}><Clipboard/>粘贴</button></div><CaptureControls onStart={()=>setNotice(null)} backend={captureBackend} disabled={!!busy} onCapture={(method,payload)=>{void nativeImage(method,"捕获屏幕",payload);}} onError={errorNotice}/><CaptureBackendSelector backend={captureBackend} disabled={!!busy || !native.available} onChange={backend => { void configureCapture(backend); }}/><div className="section-label">编辑意图</div><nav className="modes" aria-label="编辑意图">{modes.map(mode => <button key={mode.id} className={editor.mode === mode.id ? 'selected' : ''} onClick={() => update({ mode: mode.id as Mode })}><mode.icon size={19}/><span><strong>{mode.name}</strong><small>{mode.description}</small></span><span className="mode-dot"/></button>)}</nav><div className="section-label">标注工具</div><div className="tool-grid"><button onClick={() => canvas.current?.add('text')} disabled={!hasContent}><Type/>文字</button><button onClick={() => canvas.current?.add('rect')} disabled={!hasContent}><Frame/>矩形</button><button onClick={() => canvas.current?.remove()} disabled={!hasContent}><Trash2/>删除选中</button></div>{hasContent && <AnnotationPalette selection={selection} disabled={canvasStatus!=='ready'} canvasRef={canvas} onError={errorNotice}/>}<p className="tool-hint"><MousePointer2 size={13}/>拖动调整位置，双击编辑文字。</p>{recoveryPanel}<div className="local-note"><span className="status-dot"/><span>{native.available ? '本地桌面工作台' : '浏览器预览模式'}<small>只有点击 AI 操作才发送内容。</small></span></div></aside>
-      <main className="main-panel"><div className="workspace-bar"><div><span className="eyebrow">工作台</span><strong>{doc.image?.name || (editor.mode === 'reflow' ? '文字阅读卡片' : '新的截图')}</strong></div><div className="workspace-quick-actions"><button disabled={!hasContent} onClick={() => document.querySelector('.text-tools')?.scrollIntoView({block:'start'})}><ScanText aria-hidden="true"/>文字工具</button><span className="mode-badge">{modes.find(m => m.id === editor.mode)?.name}</span></div></div><div className="stage">{hasContent ? <EditorCanvas key={documentEpoch} ref={canvas} document={doc} onSelection={setSelection} onRenderStatus={setCanvasStatus} onAnnotations={(annotations, group) => update({ annotations }, group)} onError={errorNotice}/> : <div className="empty-state"><div className="empty-art" aria-hidden="true"><span className="art-corner top-left"/><span className="art-corner bottom-right"/><div className="art-paper"><div className="paper-sun"/><div className="paper-mountain"/></div><span className="art-caption">每一个好内容，都值得留下。</span></div><div className="eyebrow">CAPTURE. CRAFT. KEEP.</div><h1>留下画面，<br/>也留下你的表达。</h1><p>导入一张图片，或从桌面捕获。<br/>原样保存、精心美化，或将文字重新编排。</p><button className="primary" onClick={openImage} disabled={!!busy}><ImagePlus/>选择一张图片</button><span className="empty-tip">支持拖入 PNG / JPG / WebP · Ctrl + V 粘贴</span></div>}</div><footer className="workspace-footer"><div className="workspace-statuses"><RecoveryStatus state={recovery}/>{(busy || aiBusy || canvasStatus === 'loading') && <span className="task-state"><span className="spinner"/>{busy || aiBusy || '画布更新中'}…{aiBusy && <button className="task-cancel" onClick={() => { void cancelOcr(); }}>取消任务</button>}</span>}</div><span className="source-size">{doc.image ? `${doc.image.width} × ${doc.image.height} 原始像素` : '准备好，留下下一张截图。'}</span></footer></main>
-      <aside className="right-panel"><div className="inspector-content">{hasContent ? <><div className="inspector-heading"><h2>{editor.mode === 'raw' ? '保留原貌' : editor.mode === 'beauty' ? '画面样式' : '文字排版'}</h2><span>01</span></div>{editor.mode === 'raw' && <div className="raw-note"><FileImage size={30}/><h3>像素，原封不动。</h3><p>不添加背景、圆角或阴影。1× 按当前裁剪与缩放尺寸输出；标注会合并到导出图片。</p></div>}{editor.mode === 'beauty' && <><label className="control-label">背景色</label><div className="swatches">{swatches.map(color => <button key={color} aria-label={`背景 ${color}`} className={editor.background === color ? 'active' : ''} style={{ background: color }} onClick={() => update({ background: color })}>{editor.background === color && <Check size={14} color={color === '#363b37' ? '#f8f4eb' : '#554d42'}/>}</button>)}<input type="color" value={editor.background} onChange={e => update({ background: e.target.value })} aria-label="自定义背景色"/></div><Range label="留白" value={editor.padding} min={0} max={200} onChange={padding => update({ padding })}/><Range label="圆角" value={editor.radius} min={0} max={100} onChange={radius => update({ radius })}/><label className="checkbox-row"><input type="checkbox" checked={editor.shadow} onChange={e => update({ shadow: e.target.checked })}/>柔和阴影</label></>}{editor.mode === 'reflow' && <><label className="control-label" htmlFor="title">卡片标题</label><input id="title" value={editor.title} maxLength={240} onChange={e => update({ title: e.target.value })}/><Range label="文字大小" value={editor.fontSize} min={14} max={64} onChange={fontSize => update({ fontSize })}/><Range label="卡片宽度" value={editor.textWidth} min={360} max={1400} step={20} onChange={textWidth => update({ textWidth })}/></>}
-        <StyleTools editor={editor} update={update} onError={errorNotice}/><TransformPanel document={doc} onTransform={changeTransform}/><div className="inspector-divider"/><div className="ai-heading"><h3><ScanText size={16}/>文字与翻译</h3><span>按需调用</span></div><TextTools {...textTools}/></> : <section className="inspector-empty" aria-label="开始编辑说明"><span className="eyebrow">准备就绪</span><h2>让每一次分享<br/>都清楚一点。</h2><p>选择图片或开始截图，编辑工具会在内容就绪后出现。</p><ol><li><FileImage aria-hidden="true"/><div><strong>保留真实画面</strong><span>默认原样输出，按需美化。</span></div></li><li><Frame aria-hidden="true"/><div><strong>标注与隐私遮盖</strong><span>突出重点，检查敏感内容。</span></div></li><li><ArrowDownToLine aria-hidden="true"/><div><strong>导出 PNG 分享</strong><span>可编辑项目继续保留原图。</span></div></li></ol><p className="privacy-summary">编辑在本地完成。只有主动调用云端识别或翻译，才会发送对应内容。</p></section>}</div><div className="export-panel"><div><strong>导出 PNG</strong><select aria-label="导出倍率" value={scale} onChange={e => setScale(Number(e.target.value))}><option value={1}>1× 当前尺寸</option><option value={2}>2× 尺寸</option></select></div><button className="primary" onClick={() => exportImage()} disabled={!!busy || !hasContent || canvasStatus !== 'ready'}><ArrowDownToLine/>{hasContent && canvasStatus === 'loading' ? '画布更新中…' : '保存图片'}</button><button className="copy-button" onClick={() => exportImage(true)} disabled={!!busy || !hasContent || canvasStatus !== 'ready'}><Copy/>复制到剪贴板</button></div></aside></div>
-    {notice && <div role={notice.error ? 'alert' : 'status'} className={`notice ${notice.error ? 'error' : ''}`}><span>{notice.text}</span><button aria-label="关闭提示" onClick={() => setNotice(null)}><X size={16}/></button></div>}{dragging && <div className="drop-overlay"><ImagePlus size={44}/><strong>松开，开始编辑。</strong><span>图片或拾影项目文件</span></div>}
-    <input className="sr-only" ref={imageInput} type="file" accept="image/png,image/jpeg,image/webp" onChange={e => { void chooseFiles(e.target.files); e.target.value = ''; }}/><input className="sr-only" ref={projectInput} type="file" accept=".json" onChange={e => { void chooseFiles(e.target.files); e.target.value = ''; }}/>
-  </div>;
+  const recoveryPanel = <RecoveryPanel state={recovery} onRestore={restoreRecovery} onError={errorNotice} onDeleteCurrent={recovery.pause} currentId={documentId} autoOpen/>;
+  actions.current=(action,text)=>{
+    if(action==='open-image')void openImage();
+    else if(action==='open-project')void openProject();
+    else if(action==='paste')void nativeImage('image.paste','粘贴图片');
+    else if(action==='recovery'||action==='settings')setEntryPanel(value=>({kind:action,sequence:(value?.sequence??0)+1}));
+    else if(action==='notice'&&text)setNotice({text,error:true});
+  };
+  return <>
+    <input hidden ref={imageInput} type="file" accept="image/png,image/jpeg,image/webp" onChange={event=>{void chooseFiles(event.currentTarget.files);event.currentTarget.value='';}}/>
+    <input hidden ref={projectInput} type="file" accept=".json" onChange={event=>{void chooseFiles(event.currentTarget.files);event.currentTarget.value='';}}/>
+    <CompactOverlay locked={hostLocked} requestedPanel={entryPanel} onOpenImage={()=>{void openImage();}} onOpenProject={()=>{void openProject();}} onPaste={()=>{void nativeImage('image.paste','粘贴图片');}} selection={selection} onSelection={setSelection} recoveryState={recovery} renderStatus={canvasStatus} onRenderStatus={setCanvasStatus} skipReady={overlayReady} onFiles={files=>chooseFiles(files,Boolean(overlay))} onCapture={(method,payload)=>{void nativeImage(method,"捕获屏幕",payload);}} key={documentEpoch} document={doc} metadata={overlay} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo} onTransform={changeTransform} textTools={textTools} recoveryPanel={recoveryPanel} captureBackend={captureBackend} onCaptureBackend={backend => { void configureCapture(backend); }} onReadyResult={handleReadyResult} canvasRef={canvas} update={update} onExport={copy => { void exportImage(copy); }} onAi={kind => { void ai(kind); }} onPresentation={mode => { void presentation(mode); }} onConfigure={() => { void run(SETTINGS_OPERATION, async () => applySettings(await native.request<Settings>('settings.configure'))); }} onSaveProject={() => { void saveProject(); }} onError={errorNotice} busy={busy} aiBusy={aiBusy} settings={settings} providerId={providerId} setProviderId={setProviderId} targetLanguage={targetLanguage} setTargetLanguage={setTargetLanguage} scale={scale} setScale={setScale} notice={notice} clearNotice={() => setNotice(null)}/>
+  </>;
 }
-function Range({ label, value, min, max, step = 1, onChange }: { label: string; value: number; min: number; max: number; step?: number; onChange: (value: number) => void }) { return <label className="range-control"><span>{label}<output>{value} px</output></span><input type="range" min={min} max={max} step={step} value={value} onChange={e => onChange(Number(e.target.value))}/></label>; }

@@ -30,7 +30,7 @@ internal sealed class WindowsCapturePlatform : ICapturePlatform
         if (!EnumDisplayMonitors(0, 0, (monitor, _, _, _) =>
         {
             var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
-            if (GetMonitorInfo(monitor, ref info)) result.Add(new(monitor, info.Monitor.Pixels, (info.Flags & 1) != 0));
+            if (GetMonitorInfo(monitor, ref info)) result.Add(new(monitor, info.Monitor.Pixels, (info.Flags & 1) != 0, info.Work.Pixels));
             return true;
         }, 0)) throw new CaptureException("capture_target_unavailable", "无法读取显示器物理边界。");
         return result;

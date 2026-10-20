@@ -49,7 +49,7 @@ jobs:
         run: |
           npm install --prefix artifacts/headless-tools --no-save --ignore-scripts --package-lock=false playwright@1.62.1
           $env:PLAYWRIGHT_MODULE = (Resolve-Path artifacts/headless-tools/node_modules/playwright).Path
-          node editor/scripts/headless-overlay.cjs
+          node scripts/test-editor-lifecycle.cjs
           if ($LASTEXITCODE) { throw 'Headless overlay regressions failed.' }
           node editor/scripts/update-safety-audit.cjs artifacts/qa/product/update-safety.json
           if ($LASTEXITCODE) { throw 'Update snapshot regressions failed.' }
@@ -57,10 +57,10 @@ jobs:
         shell: pwsh
         run: |
           $env:PLAYWRIGHT_MODULE = (Resolve-Path artifacts/headless-tools/node_modules/playwright).Path
-          node editor/scripts/product-audit.cjs artifacts/qa/product/current --verify
-          node editor/scripts/refinement-audit.cjs artifacts/qa/product/refinement --verify
+          node editor/scripts/soft-clay-audit.cjs artifacts/qa/product/current --verify
+          if ($LASTEXITCODE) { throw 'Soft Clay capability regressions failed.' }
           node editor/scripts/product-performance.cjs artifacts/qa/product/performance.json --verify
-          node editor/scripts/delivery-audit.cjs artifacts/qa/product/delivery --verify
+          if ($LASTEXITCODE) { throw 'Editor rendering regressions failed.' }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -82,7 +82,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Screenshot-headless-evidence
-          path: editor/output/
+          path: artifacts/qa/redesign/
           if-no-files-found: error
           retention-days: 14
       - name: Publish portable Windows x64 directory

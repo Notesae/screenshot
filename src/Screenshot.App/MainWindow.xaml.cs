@@ -51,7 +51,7 @@ public partial class MainWindow : Window
         _terms = terms; terms.RequireAccepted();
         InitializeComponent();
         Editor.DefaultBackgroundColor = System.Drawing.Color.Transparent;
-        Loaded += async (_, _) => await InitializeEditorAsync();
+        Closing += ProtectClosing;
         SourceInitialized += (_, _) =>
         {
             _terms.RequireAccepted();
@@ -59,11 +59,12 @@ public partial class MainWindow : Window
             _source = HwndSource.FromHwnd(handle); _source.AddHook(WindowMessage);
             var loaded=_hotkeyStore.Load();_hotkeyLoadMessage=loaded.Message;
             _hotkeys=new(new WindowsHotkeyRegistration(handle));_hotkeys.Apply(loaded.Binding,_=>{});
-            InitializeTray();
+            try { InitializeTray(); } catch (Exception error) { Status.Text = "托盘不可用：" + error.Message; }
         };
         Closed += (_, _) =>
         {
             _lifetime.Cancel();
+            InvalidateCompletion();
             FrozenBackdrop.Source = null; _presentation.Dismiss();
             if (_trayIcon is { } tray)
             {
@@ -78,15 +79,22 @@ public partial class MainWindow : Window
     private void InitializeTray()
     {
         var menu = new System.Windows.Forms.ContextMenuStrip();
-        menu.Items.Add("打开工作台", null, (_, _) => Dispatcher.BeginInvoke(new Action(ShowWorkbenchFromTray)));
         menu.Items.Add("区域截图", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => { _ = CaptureFromHotkeyAsync(); })));
+        menu.Items.Add("当前屏幕截图", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => { _ = CaptureCurrentFromTrayAsync(); })));
+        menu.Items.Add("整个桌面截图", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => { _ = CaptureFromTrayAsync(CaptureRequest.Default(false) with { Backend = _captureBackend }); })));
+        menu.Items.Add("继续编辑", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => ShowEditorAction("continue"))));
+        menu.Items.Add("打开图片…", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => ShowEditorAction("open-image"))));
+        menu.Items.Add("打开项目…", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => ShowEditorAction("open-project"))));
+        menu.Items.Add("粘贴图片", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => ShowEditorAction("paste"))));
+        menu.Items.Add("历史与恢复", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => ShowEditorAction("recovery"))));
+        menu.Items.Add("设置", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => ShowEditorAction("settings"))));
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add("退出", null, (_, _) => Dispatcher.BeginInvoke(new Action(Close)));
         _trayIcon = new System.Windows.Forms.NotifyIcon
         {
-            Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!), Text = "Screenshot · 截图工作台", ContextMenuStrip = menu, Visible = true
+            Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!), Text = "Screenshot · 截图", ContextMenuStrip = menu, Visible = true
         };
-        _trayIcon.DoubleClick += (_, _) => Dispatcher.BeginInvoke(new Action(ShowWorkbenchFromTray));
+        _trayIcon.DoubleClick += (_, _) => Dispatcher.BeginInvoke(new Action(() => { _ = CaptureFromHotkeyAsync(); }));
     }
     // 主动恢复工作台并作废旧覆盖层身份，迟到解码只能恢复文档，不能重建覆盖层。
     private void ShowWorkbenchFromTray()
@@ -94,7 +102,7 @@ public partial class MainWindow : Window
         if (_presentation.IsSelecting) return;
         var invalidatedCaptureId = _presentation.Overlay?.CaptureId;
         ShowWorkbench();
-        Post(new { @event = "presentation.changed", payload = new { presentation = "workbench", reason = "user_workbench", invalidatedCaptureId } });
+        Post(new { @event = "presentation.changed", payload = new { presentation = "workbench", reason = "user_editor", invalidatedCaptureId } });
     }
     // 映射本地打包资源，限制导航与原生桥来源，再启动 WebView2 编辑器。
     private async Task InitializeEditorAsync()
@@ -125,6 +133,7 @@ public partial class MainWindow : Window
             core.NavigationCompleted += (_, args) =>
             {
                 _ready = args.IsSuccess;
+                if (_presentation.Mode != PresentationMode.Overlay) StatusBar.Visibility = _ready ? Visibility.Collapsed : Visibility.Visible;
                 Status.Text = args.IsSuccess ? ((_hotkeys?.State.Message??"快捷键不可用，请使用截图按钮。")+" "+_hotkeyLoadMessage+" · 图片仅在显式 AI 操作时发送") : "编辑器加载失败：" + args.WebErrorStatus;
             };
             // 虚拟主机映射不提供目录默认页，必须导航到明确的本地入口文件。
@@ -133,7 +142,7 @@ public partial class MainWindow : Window
         catch (Exception exception)
         {
             Status.Text = "启动失败：" + exception.Message;
-            MessageBox.Show(this, exception.Message + "\n应用需要 Microsoft Edge WebView2 Runtime。", "无法启动编辑器", MessageBoxButton.OK, MessageBoxImage.Error);
+            throw;
         }
     }
     private IntPtr WindowMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -153,19 +162,31 @@ public partial class MainWindow : Window
     }
     // 快捷键复用本地操作门控；捕获完成后以事件将图片送给编辑器。
     private async Task CaptureFromHotkeyAsync()
+        => await CaptureFromTrayAsync(CaptureRequest.Default(true) with { Backend = _captureBackend, SnapWindows = _snapWindows, SnapClientArea = _snapClientArea });
+
+    private async Task CaptureFromTrayAsync(CaptureRequest request)
     {
-        if (!_terms.IsAuthorized || !_ready || !_requests.TryEnter("capture.region", out var lease)) return;
+        if (!_terms.IsAuthorized) return;
+        if (!_ready || !_editorMounted.Task.IsCompletedSuccessfully) { ShowEditorAction("notice", "编辑器尚未就绪，请重试加载。"); return; }
+        if (!_requests.TryEnter("capture.region", out var lease)) { ShowEditorNotice("正在处理另一项本地操作，请稍后重试。"); return; }
         try
         {
-            var image = await CaptureAsync(CaptureRequest.Default(true) with { Backend = _captureBackend, SnapWindows=_snapWindows, SnapClientArea=_snapClientArea });
+            var image = await CaptureAsync(request);
             if (image is not null) Post(new { @event = "image.loaded", payload = image });
         }
-        catch (Exception exception) { Status.Text = "截图失败：" + exception.Message; }
+        catch (Exception exception) { ShowEditorNotice("截图失败：" + exception.Message); }
         finally { lease?.Dispose(); }
+    }
+    private async Task CaptureCurrentFromTrayAsync()
+    {
+        try { await CaptureFromTrayAsync(CurrentMonitorRequest()); }
+        catch (Exception error) { ShowEditorNotice("无法读取屏幕信息：" + error.Message); }
     }
     // 成功时保留冻结背景并准备隐藏的覆盖层；取消时恢复原呈现，不修改编辑文档。
     private async Task<CaptureEnvelope?> CaptureAsync(CaptureRequest request)
     {
+        await PreserveEditorAsync("replace");
+        InvalidateCompletion();
         var wasVisible = IsVisible;
         var previousWindowState = WindowState;
         if (_presentation.Mode == PresentationMode.Workbench) RememberWorkbenchPlacement();
@@ -226,21 +247,22 @@ public partial class MainWindow : Window
     // 记录工作台的 DIP 布局供主动返回时恢复；覆盖层仍独立使用物理坐标。
     private void RememberWorkbenchPlacement()
     {
+        if (_startingInTray) return;
         var bounds = WindowState == WindowState.Normal ? new Rect(Left, Top, ActualWidth, ActualHeight) : RestoreBounds;
         _workbenchPlacement = new(bounds, WindowState, WindowStyle, ResizeMode, Topmost, ShowInTaskbar, MinWidth, MinHeight);
     }
-    // 仅用户主动进入高级工作台时恢复窗口样式和尺寸，编辑器文档保持不变。
+    // 主动进入无冻结背景的轻量编辑器，文档保持不变；加载失败时才显示原生兜底条。
     private void ShowWorkbench()
     {
         _presentation.ShowWorkbench();
         FrozenBackdrop.Source = null; FrozenBackdrop.Visibility = Visibility.Collapsed;
-        Background = new SolidColorBrush(Color.FromRgb(243, 244, 246));
-        StatusBar.Visibility = Visibility.Visible;
+        Background = new SolidColorBrush(Color.FromRgb(32, 32, 34));
+        StatusBar.Visibility = _ready ? Visibility.Collapsed : Visibility.Visible;
         var saved = _workbenchPlacement;
         WindowState = WindowState.Normal; WindowStyle = saved?.Style ?? WindowStyle.SingleBorderWindow;
         ResizeMode = saved?.ResizeMode ?? ResizeMode.CanResize;
         Topmost = saved?.Topmost ?? false; ShowInTaskbar = saved?.ShowInTaskbar ?? true;
-        MinWidth = saved?.MinWidth ?? 1000; MinHeight = saved?.MinHeight ?? 680;
+        MinWidth = saved?.MinWidth ?? 640; MinHeight = saved?.MinHeight ?? 480;
         if (saved is not null) { Left = saved.Bounds.X; Top = saved.Bounds.Y; Width = saved.Bounds.Width; Height = saved.Bounds.Height; }
         Show(); WindowState = saved?.State ?? WindowState.Normal; Activate();
     }
@@ -272,7 +294,7 @@ public partial class MainWindow : Window
                 if (_presentation.TryExpireReady(captureId))
                 {
                     ShowWorkbench();
-                    Status.Text = "选区编辑器未能及时就绪，已恢复工作台。可重新截图或检查编辑器状态。";
+                    Status.Text = "选区编辑器未能及时就绪，已保留图片。可重试截图或继续编辑。";
                     Post(new { @event = "presentation.changed", payload = new { presentation = "workbench", reason = "overlay_timeout", timedOutCaptureId = captureId } });
                     return;
                 }
@@ -335,9 +357,10 @@ public partial class MainWindow : Window
         _terms.RequireAccepted();
         switch (method)
         {
-            case "app.info": return new { version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "unknown", platform = "windows", presentation = _presentation.Mode.ToString().ToLowerInvariant(), capture = new { backend = _captureBackend, colorMode = "sdr", supportsHdr = false, availableBackends = new[] { "wgc", "gdi" }, targets = new[] { "desktop", "monitor", "window" }, availability = "checked-on-capture" }, capabilities = new[] { "image.open", "image.paste", "capture.screen", "capture.region", "capture.current", "capture.monitors", "capture.settings", "capture.configure", "hotkey.read", "hotkey.configure", "image.save", "image.copy", "text.copy", "project.open", "project.save", "ai.ocr", "ai.translate", "ocr.local", "ocr.cancel", "ocr.status", "ai.cancel", "ai.usage", "ai.test", "recovery.save", "recovery.list", "recovery.load", "recovery.delete", "recovery.usage", "recovery.deleteMany", "presentation.workbench", "presentation.dismiss", "presentation.ready" } };
-            case "image.open": return NativeImages.Open(this);
-            case "image.paste": return NativeImages.Paste();
+            case "app.info": return new { version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "unknown", platform = "windows", presentation = _presentation.Mode.ToString().ToLowerInvariant(), capture = new { backend = _captureBackend, colorMode = "sdr", supportsHdr = false, availableBackends = new[] { "wgc", "gdi" }, targets = new[] { "desktop", "monitor", "window" }, availability = "checked-on-capture" }, capabilities = new[] { "image.open", "image.paste", "capture.screen", "capture.region", "capture.current", "capture.monitors", "capture.settings", "capture.configure", "hotkey.read", "hotkey.configure", "image.save", "image.copy", "text.copy", "project.open", "project.save", "ai.ocr", "ai.translate", "ocr.local", "ocr.cancel", "ocr.status", "ai.cancel", "ai.usage", "ai.test", "recovery.save", "recovery.list", "recovery.load", "recovery.delete", "recovery.usage", "recovery.deleteMany", "presentation.workbench", "presentation.editor", "presentation.dismiss", "presentation.ready", "presentation.complete", "document.preserve", "app.terms" } };
+            case "document.preserve": await PreserveEditorAsync("replace"); return new { saved = true };
+            case "image.open": await PreserveEditorAsync("replace"); return NativeImages.Open(this);
+            case "image.paste": await PreserveEditorAsync("replace"); return NativeImages.Paste();
             case "capture.monitors": return ReadCaptureMonitors();
             case "capture.current": return await CaptureAsync(CurrentMonitorRequest());
             case "capture.screen": return await CaptureAsync(ParseCaptureRequest(payload, false));
@@ -370,6 +393,7 @@ public partial class MainWindow : Window
             case "recovery.list": return new { items = await RunRecoveryAsync(store => store.ListAsync(_lifetime.Token)) };
             case "recovery.load": return await RunRecoveryAsync(store => store.LoadAsync(RequiredString(payload, "documentId"), _lifetime.Token));
             case "recovery.delete": return await RunRecoveryAsync(store => store.DeleteAsync(RequiredString(payload, "documentId"), _lifetime.Token));
+            case "presentation.editor":
             case "presentation.workbench":
                 var workbenchCaptureId = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("captureId", out _) ? RequiredString(payload, "captureId") : null;
                 var accepted = _presentation.TryShowWorkbench(workbenchCaptureId);
@@ -377,19 +401,24 @@ public partial class MainWindow : Window
                 return new { presentation = _presentation.Mode.ToString().ToLowerInvariant(), accepted, captureId = _presentation.Overlay?.CaptureId };
             case "presentation.dismiss":
                 var dismissCaptureId = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("captureId", out _) ? RequiredString(payload, "captureId") : null;
+                if (!_presentation.Matches(dismissCaptureId)) return new { presentation = _presentation.Mode.ToString().ToLowerInvariant(), accepted = false, captureId = _presentation.Overlay?.CaptureId };
+                var dismissSequence = _completionSequence;
+                await PreserveEditorAsync("close");
                 var wasWorkbench = _presentation.Mode == PresentationMode.Workbench;
-                var dismissed = _presentation.TryDismiss(dismissCaptureId);
+                var dismissed = dismissSequence == _completionSequence && _presentation.TryDismiss(dismissCaptureId);
                 if (dismissed) { if (wasWorkbench) RememberWorkbenchPlacement(); DismissPresentation(); }
                 return new { presentation = _presentation.Mode.ToString().ToLowerInvariant(), accepted = dismissed, captureId = _presentation.Overlay?.CaptureId };
             case "presentation.ready": return ReadyPresentation(RequiredString(payload, "captureId"));
+            case "presentation.complete": return await CompleteEditingAsync(payload);
             case "image.save": return NativeImages.Save(this, RequiredString(payload, "dataUrl"), OptionalString(payload, "suggestedName"));
             case "text.copy": return NativeImages.CopyText(RequiredString(payload, "text"));
             case "image.copy": return NativeImages.Copy(RequiredString(payload, "dataUrl"));
-            case "project.open": return NativeImages.OpenProject(this);
+            case "project.open": await PreserveEditorAsync("replace"); return NativeImages.OpenProject(this);
             case "project.save": return NativeImages.SaveProject(this, payload.GetProperty("document"), OptionalString(payload, "suggestedName"));
             case "settings.read": return await _ai.ReadSettingsAsync(_lifetime.Token);
             case "settings.configure": new ProviderSettingsWindow(_ai, SaveBeforeUpdateAsync) { Owner = this }.ShowDialog(); return await _ai.ReadSettingsAsync(_lifetime.Token);
-            case "app.updateReady": MarkUpdateHealthy(); return new { ready = true };
+            case "app.terms": new TermsWindow(_terms, reviewOnly: true) { Owner = this }.ShowDialog(); return new { viewed = true };
+            case "app.updateReady": _editorMounted.TrySetResult(); MarkUpdateHealthy(); return new { ready = true };
             case "ai.ocr": return await RunInferenceAsync(payload, async token => await _ai.OcrAsync(RequiredString(payload, "providerId"), RequiredString(payload, "imageDataUrl"),OptionalString(payload,"providerRevision"), token));
             case "ai.translate": return await RunInferenceAsync(payload, async token => await _ai.TranslateAsync(RequiredString(payload, "providerId"), RequiredString(payload, "text"), RequiredString(payload, "targetLanguage"),OptionalString(payload,"providerRevision"), token));
             default: throw new InvalidOperationException("不支持的原生命令：" + method);

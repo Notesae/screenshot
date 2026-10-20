@@ -176,8 +176,9 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
     changeZoom(candidates.find(value => direction > 0 ? value > actualZoom + .001 : value < actualZoom - .001) ?? actualZoom);
   }
   const sheet = <div className="canvas-sheet" style={{ width:size.width * displayScale.x, height:size.height * displayScale.y }}><canvas ref={element}/></div>;
-  return <div className="canvas-workspace" ref={wrapper}>{fixedDisplayScale ? sheet : <>
-    <div className="canvas-viewport" ref={viewport} tabIndex={0} aria-label="可滚动画布"><div className="canvas-surface" style={{width:size.width * displayScale.x + 64,height:size.height * displayScale.y + 64}}>{sheet}</div></div>
-    <div className="canvas-zoom" role="group" aria-label="画布缩放"><button aria-label="缩小画布" disabled={actualZoom <= .1} onClick={() => stepZoom(-1)}><Minus size={14}/></button><select aria-label="画布缩放比例" value={manualZoom ?? 'fit'} onChange={event => changeZoom(event.target.value === 'fit' ? null : Number(event.target.value))}><option value="fit">适应窗口 · {Math.round(zoom * 100)}%</option>{steps.map(value => <option key={value} value={value}>{Math.round(value * 100)}%</option>)}</select><button aria-label="放大画布" disabled={actualZoom >= 2} onClick={() => stepZoom(1)}><Plus size={14}/></button><span className="zoom-label">{size.width} × {size.height} px</span></div>
-  </>}</div>;
+  // Fabric 会包装原始 canvas；呈现切换必须保留祖先结构，避免 React 移除已被包装的节点。
+  return <div className="canvas-workspace" ref={wrapper}>
+    <div className="canvas-viewport" ref={viewport} tabIndex={fixedDisplayScale?-1:0} aria-label={fixedDisplayScale?'选区画布':'可滚动画布'} style={fixedDisplayScale?{position:'relative',inset:'auto',overflow:'visible'}:undefined}><div className="canvas-surface" style={fixedDisplayScale?{width:size.width*displayScale.x,height:size.height*displayScale.y,padding:0,minWidth:0,minHeight:0,alignItems:'flex-start',justifyContent:'flex-start'}:{width:size.width * displayScale.x + 64,height:size.height * displayScale.y + 64}}>{sheet}</div></div>
+    <div className="canvas-zoom" style={fixedDisplayScale?{display:'none'}:undefined} role="group" aria-label="画布缩放"><button aria-label="缩小画布" disabled={actualZoom <= .1} onClick={() => stepZoom(-1)}><Minus size={14}/></button><select aria-label="画布缩放比例" value={manualZoom ?? 'fit'} onChange={event => changeZoom(event.target.value === 'fit' ? null : Number(event.target.value))}><option value="fit">适应窗口 · {Math.round(zoom * 100)}%</option>{steps.map(value => <option key={value} value={value}>{Math.round(value * 100)}%</option>)}</select><button aria-label="放大画布" disabled={actualZoom >= 2} onClick={() => stepZoom(1)}><Plus size={14}/></button><span className="zoom-label">{size.width} × {size.height} px</span></div>
+  </div>;
 });
