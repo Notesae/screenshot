@@ -388,7 +388,8 @@ public partial class MainWindow : Window
             case "project.open": return NativeImages.OpenProject(this);
             case "project.save": return NativeImages.SaveProject(this, payload.GetProperty("document"), OptionalString(payload, "suggestedName"));
             case "settings.read": return await _ai.ReadSettingsAsync(_lifetime.Token);
-            case "settings.configure": new ProviderSettingsWindow(_ai) { Owner = this }.ShowDialog(); return await _ai.ReadSettingsAsync(_lifetime.Token);
+            case "settings.configure": new ProviderSettingsWindow(_ai, SaveBeforeUpdateAsync) { Owner = this }.ShowDialog(); return await _ai.ReadSettingsAsync(_lifetime.Token);
+            case "app.updateReady": MarkUpdateHealthy(); return new { ready = true };
             case "ai.ocr": return await RunInferenceAsync(payload, async token => await _ai.OcrAsync(RequiredString(payload, "providerId"), RequiredString(payload, "imageDataUrl"),OptionalString(payload,"providerRevision"), token));
             case "ai.translate": return await RunInferenceAsync(payload, async token => await _ai.TranslateAsync(RequiredString(payload, "providerId"), RequiredString(payload, "text"), RequiredString(payload, "targetLanguage"),OptionalString(payload,"providerRevision"), token));
             default: throw new InvalidOperationException("不支持的原生命令：" + method);

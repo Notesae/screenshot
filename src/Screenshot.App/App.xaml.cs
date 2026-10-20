@@ -2,14 +2,36 @@ using System;
 using System.Windows;
 using System.IO;
 using System.Reflection;
+using Screenshot.App.Updates;
 
 namespace Screenshot.App;
 // WPF 启动入口，并为未处理的界面异常提供可见错误反馈。
 public partial class App : Application
 {
+    internal static string? UpdateDirectory { get; private set; }
+    private FileStream? _instanceLease;
     // 注册界面异常处理后启动主窗口，避免操作失败导致无提示退出。
-    protected override void OnStartup(StartupEventArgs e)
+    protected override async void OnStartup(StartupEventArgs e)
     {
+        // 更新工作进程在条款、窗口、WebView、托盘及全局热键初始化之前分流。
+        if (e.Args.Length > 0 && e.Args[0] is "--apply-update" or "--rollback-update" or "--recover-update")
+        {
+            try
+            {
+                var recovery = e.Args[0] == "--recover-update";
+                if ((!recovery && e.Args.Length != 4) || (recovery && e.Args.Length != 2)) throw new InvalidDataException("更新参数无效。");
+                var code = await UpdateTransaction.RunWorkerAsync(e.Args[1], recovery ? 0 : int.Parse(e.Args[2]), recovery ? 0 : long.Parse(e.Args[3]), e.Args[0] != "--apply-update");
+                Shutdown(code);
+            }
+            catch (Exception error)
+            {
+                // 后台失败不弹窗、不启动编辑器；恢复工具将可操作原因写到原事务目录。
+                try { var tx = UpdateTransaction.Load(e.Args[1]); File.WriteAllText(Path.Combine(tx.Plan.Transaction, "handoff-error.txt"), error.ToString()); if (!Directory.Exists(tx.Previous) && Directory.Exists(tx.Plan.Target) && tx.State != "rolled-back") tx.SetState("aborted"); } catch { }
+                Shutdown(1);
+            }
+            return;
+        }
+        if (e.Args.Length == 2 && e.Args[0] == "--updated") UpdateDirectory = e.Args[1];
         DispatcherUnhandledException += (_, args) =>
         {
             MessageBox.Show("操作失败，请重试。\n" + args.Exception.Message, "Screenshot", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -18,6 +40,11 @@ public partial class App : Application
         base.OnStartup(e);
         try
         {
+            var instancePath = UpdateTransaction.InstancePath(AppContext.BaseDirectory);
+            PortablePackage.NoLinks(instancePath);
+            // 只读安装仍可正常启动；更新时会明确拒绝原地写入并提供并排导出。
+            try { _instanceLease = new FileStream(instancePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
             var agreement = TermsAgreement.Load(AppContext.BaseDirectory);
             var store = new TermsAcceptanceStore(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Screenshot", "terms-acceptance.json"));
             var startup = new TermsStartup(agreement, store, Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "unknown");
@@ -31,4 +58,5 @@ public partial class App : Application
             Shutdown(1);
         }
     }
+    protected override void OnExit(ExitEventArgs e) { _instanceLease?.Dispose(); base.OnExit(e); }
 }

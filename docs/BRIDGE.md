@@ -30,10 +30,13 @@ User cancellation returns null (or saved:false); it is not an exception.
 | project.save | { document:object, suggestedName:string } | { saved:boolean, path?:string } |
 | settings.read | {} | { providers: PublicProvider[], defaultProviderId?:string } |
 | settings.configure | {} | same public settings; native dialog stores secrets |
+| app.updateReady | {} | {ready:true}; trusted local React mount health acknowledgement, no installation or remote access |
 | ai.ocr | { providerId, imageDataUrl } | { text:string } |
 | ai.translate | { providerId, text, targetLanguage } | { text:string } |
 
 `PublicProvider = { id, name, kind, model, baseUrl, hasApiKey }`.
+
+The native settings dialog also contains portable update controls; it never accepts download URLs, install paths, tokens or install commands from the bridge. Before an explicit install/rollback, the host reads the local `window.screenshotPrepareUpdate()` snapshot via WebView2, rejects active edits/tasks, and persists a separate recovery snapshot. A failed save blocks shutdown. Settings itself is an allowed waiting operation. See `UPDATES.md` for the private-source limitation, integrity boundary, replacement journal and recovery flow.
 Provider kinds are `openai-compatible` and `ollama`. No API key is returned to JavaScript or included in project documents. HTTP adapters execute only in the native process after explicit OCR/translate actions.
 
 Project documents use `{ schemaVersion:2, image:LoadedImage|null, editor:object }`; v1 remains readable and is upgraded in memory. The editor validates its own version and value bounds before restoring. No executable code or network image URLs are accepted as project image sources.

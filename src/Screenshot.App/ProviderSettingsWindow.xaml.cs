@@ -17,10 +17,13 @@ public partial class ProviderSettingsWindow : Window
     private bool _refreshing;
 
     /// <summary>初始化原生控件，在窗口加载后读取公开配置。</summary>
-    public ProviderSettingsWindow(AiService service)
+    public ProviderSettingsWindow(AiService service, Func<Task<bool>>? saveBeforeUpdate = null)
     {
         InitializeComponent();
         _service = service;
+        var updates = new UpdateSettingsControl { SaveBeforeExit = saveBeforeUpdate };
+        UpdateTab.Content = updates;
+        Closed += (_, _) => updates.Dispose();
         Loaded += async (_, _) => await ReloadAsync();
     }
 
