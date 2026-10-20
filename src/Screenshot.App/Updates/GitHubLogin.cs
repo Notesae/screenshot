@@ -24,7 +24,7 @@ internal static class GitHubUpdateIdentity
     internal const long RepositoryId = 1425162253;
     internal static string ClientId(Assembly assembly) => assembly.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == "GitHubUpdateClientId")?.Value ?? "";
     internal static bool IsApiResource(Uri u) => u.Scheme == "https" && u.Host == "api.github.com" && u.IsDefaultPort && u.UserInfo == "" && u.Fragment == ""
-        && (u.AbsolutePath == "/user" || Regex.IsMatch(u.AbsolutePath, @"^/repos/Notesae/screenshot(?:/releases(?:/assets/[1-9]\d*)?)?$", RegexOptions.CultureInvariant));
+        && (u.AbsolutePath == "/user" || Regex.IsMatch(u.AbsolutePath, @"^/user/installations(?:/[1-9]\d*/repositories)?$", RegexOptions.CultureInvariant) || Regex.IsMatch(u.AbsolutePath, @"^/repos/Notesae/screenshot(?:/releases(?:/assets/[1-9]\d*)?)?$", RegexOptions.CultureInvariant));
     internal static void VerifyRepository(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.Number || !id.TryGetInt64(out var value) || value != RepositoryId
@@ -106,6 +106,7 @@ internal sealed class GitHubLogin : IDisposable
         {
             using var device = await PostAsync("device/code", new() { ["client_id"] = _clientId, ["scope"] = "offline_access" }, token);
             var root = device.RootElement;
+            if (root.TryGetProperty("error", out var deviceError)) throw OAuthError(deviceError.GetString());
             var code = ReadString(root, "device_code", 200); var userCode = ReadString(root, "user_code", 20);
             if (!Regex.IsMatch(code, "^[A-Za-z0-9_-]{20,200}$") || !Regex.IsMatch(userCode, "^[A-Z0-9]{4}-[A-Z0-9]{4}$")
                 || ReadString(root, "verification_uri", 100) != "https://github.com/login/device") throw InvalidResponse();
@@ -153,7 +154,7 @@ internal sealed class GitHubLogin : IDisposable
         }
         catch (OperationCanceledException) { SetStatus(epoch, new("signed-out", "登录已取消，未保留本次登录信息。")); throw; }
         catch (GitHubLoginException e) { SetStatus(epoch, new(e.Code, e.Message)); throw; }
-        catch (Exception e) when (e is JsonException or InvalidOperationException or FormatException)
+        catch (Exception e) when (e is JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
         { var safe = InvalidResponse(); SetStatus(epoch, new(safe.Code, safe.Message)); throw safe; }
         finally { _gate.Release(); }
     }
@@ -180,9 +181,14 @@ internal sealed class GitHubLogin : IDisposable
                 }
                 catch (GitHubLoginException e) when (e.Code == "bad_credentials") { RejectEpoch(epoch, "登录已失效，请重新登录。"); throw; }
                 catch (GitHubLoginException e) when (e.Code == "invalid_response") { RejectEpoch(epoch, e.Message); throw; }
-                catch (Exception e) when (e is JsonException or InvalidOperationException or FormatException)
+                catch (Exception e) when (e is JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
                 { var safe = InvalidResponse(); RejectEpoch(epoch, safe.Message); throw safe; }
             }
+            // 每次明确检查/下载前重新核对安装，配置变更后也不能继续使用过宽授权。
+            try { await VerifyInstallationAsync(current.Access, linked.Token); }
+            catch (GitHubLoginException e) when (e.Code is "permission_scope_mismatch" or "repository_mismatch" or "access_required" or "invalid_response") { RejectEpoch(epoch, e.Message); throw; }
+            catch (GitHubLoginException e) when (e.Code == "bad_credentials") { RejectEpoch(epoch, e.Message); throw new GitHubLoginException("expired", "GitHub 登录已失效或被撤销，请重新登录。"); }
+            catch (Exception e) when (e is JsonException or InvalidOperationException or FormatException or KeyNotFoundException) { var safe = InvalidResponse(); RejectEpoch(epoch, safe.Message); throw safe; }
             lock (_sync)
             {
                 if (epoch != _epoch || _disposed) throw new OperationCanceledException(linked.Token);
@@ -217,8 +223,29 @@ internal sealed class GitHubLogin : IDisposable
         }
         return new(access, refresh, expires, refreshExpires, account);
     }
+    // 先读当前 App 的安装元数据；范围过宽时停止，不访问其他仓库或尝试缩减/扩展远端授权。
+    private async Task VerifyInstallationAsync(string access, CancellationToken token)
+    {
+        using var installations = await GetAsync(new("https://api.github.com/user/installations?per_page=100"), access, token);
+        var root = installations.RootElement;
+        if (root.GetProperty("total_count").GetInt32() != 1 || root.GetProperty("installations").GetArrayLength() != 1) throw ScopeMismatch();
+        var installation = root.GetProperty("installations")[0];
+        if (ReadString(installation.GetProperty("account"), "login", 39) != "Notesae" || ReadString(installation, "repository_selection", 20) != "selected") throw ScopeMismatch();
+        var id = installation.GetProperty("id").GetInt64(); if (id <= 0) throw InvalidResponse();
+        var permissions = installation.GetProperty("permissions");
+        if (permissions.ValueKind != JsonValueKind.Object) throw InvalidResponse();
+        foreach (var permission in permissions.EnumerateObject())
+            if (permission.Value.ValueKind != JsonValueKind.String || permission.Value.GetString() != "none" && !(permission.Name is "contents" or "metadata" && permission.Value.GetString() == "read")) throw ScopeMismatch();
+        if (ReadString(permissions, "contents", 10) != "read" || ReadString(permissions, "metadata", 10) != "read") throw ScopeMismatch();
+        using var repositories = await GetAsync(new($"https://api.github.com/user/installations/{id}/repositories?per_page=100"), access, token);
+        var list = repositories.RootElement;
+        if (list.GetProperty("total_count").GetInt32() != 1 || list.GetProperty("repositories").GetArrayLength() != 1) throw ScopeMismatch();
+        GitHubUpdateIdentity.VerifyRepository(list.GetProperty("repositories")[0]);
+    }
+    private static GitHubLoginException ScopeMismatch() => new("permission_scope_mismatch", "当前 App 的安装或权限范围不符：仅允许安装到 Notesae/screenshot，Contents 与必要 Metadata 只读。已停止读取版本；请在官方 App 设置核对，不会自动变更权限。");
     private async Task<string> VerifyAccessAsync(string access, CancellationToken token)
     {
+        await VerifyInstallationAsync(access, token);
         using var user = await GetAsync(new("https://api.github.com/user"), access, token);
         var login = ReadString(user.RootElement, "login", 39);
         if (!Regex.IsMatch(login, "^[A-Za-z0-9-]{1,39}$") || !user.RootElement.TryGetProperty("id", out var id) || !id.TryGetInt64(out var userId) || userId <= 0) throw InvalidResponse();
@@ -266,8 +293,18 @@ internal sealed class GitHubLogin : IDisposable
     private static int ReadSeconds(JsonElement root, string name, int maximum)
     { if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out var seconds) || seconds <= 0 || seconds > maximum) throw InvalidResponse(); return seconds; }
     private static GitHubLoginException InvalidResponse() => new("invalid_response", "GitHub 登录响应格式或有效期无效，未保留登录信息。");
-    private static GitHubLoginException OAuthError(string? code) => code is "device_flow_disabled" or "incorrect_client_credentials"
-        ? new("configuration_required", "发布者的 GitHub App 尚未正确启用设备码登录，请联系发布者。")
-        : new("login_failed", "GitHub 未能完成授权，请在官方页面核对后重新登录。");
+    // 只保留官方已知错误枚举，绝不输出 error_description 或未知服务器字符串。
+    private static GitHubLoginException OAuthError(string? code) => code switch
+    {
+        "device_flow_disabled" => new("device_flow_disabled", "此 App 未启用 Device flow。请发布者在官方 App 设置勾选设备码登录后，由用户另行确认重试。"),
+        "incorrect_client_credentials" => new("client_id_mismatch", "GitHub 未接受公开 Client ID。请核对 App 的 Client ID（不是 App ID、secret 或私钥）。"),
+        "bad_verification_code" or "incorrect_device_code" => new("device_code_rejected", "GitHub 拒绝了本次设备凭证；旧会话不能继续，需要用户另行确认后重新申请一次。"),
+        "unsupported_grant_type" => new("grant_type_rejected", "GitHub 未接受设备授权协议参数，已结束本次请求；请先由发布者核对实现，不要扩大权限。"),
+        "unverified_user_email" => new("email_unverified", "GitHub 要求用户先在官方账号设置确认主邮箱，应用不会代为操作。"),
+        "application_suspended" => new("application_suspended", "GitHub App 当前被暂停，请发布者在官方页面核对；不会绕过限制。"),
+        "expired_token" or "token_expired" => new("expired", "本次设备凭证已过期，需要用户另行确认后重新申请。"),
+        "access_denied" => new("denied", "用户已拒绝本次授权，没有保留登录信息。"),
+        _ => new("oauth_unrecognized_error", "GitHub 返回未识别的授权错误；已结束并清除会话。未保留服务器正文，请先核对实现后由用户另行确认重试。")
+    };
     public void Dispose() { lock (_sync) { if (_disposed) return; _disposed = true; Reset(); _session.Dispose(); _status = new("signed-out", "应用会话已结束，登录信息已清除。"); } _http.Dispose(); }
 }

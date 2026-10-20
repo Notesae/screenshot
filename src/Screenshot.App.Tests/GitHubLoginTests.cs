@@ -52,7 +52,7 @@ internal static class GitHubLoginTests
             login.SignOut();Check(!login.HasSession && lease.Token.IsCancellationRequested,"退出清除会话并取消请求");
             await Reject(async()=>{using var x=await login.GetLeaseAsync(default);},"login_required");
         }
-        foreach(var pair in new[]{("access_denied","denied"),("expired_token","expired"),("device_flow_disabled","configuration_required"),("incorrect_client_credentials","configuration_required"),("unknown","login_failed")})
+        foreach(var pair in new[]{("access_denied","denied"),("expired_token","expired"),("device_flow_disabled","device_flow_disabled"),("incorrect_client_credentials","client_id_mismatch"),("bad_verification_code","device_code_rejected"),("incorrect_device_code","device_code_rejected"),("unsupported_grant_type","grant_type_rejected"),("unverified_user_email","email_unverified"),("application_suspended","application_suspended"),("unknown","oauth_unrecognized_error"),(Access,"oauth_unrecognized_error")})
         {
             fake=new();fake.Errors.Enqueue(pair.Item1);using var login=fake.Login();
             await Reject(()=>login.LoginAsync(new Prompt(),default),pair.Item2);Check(!login.HasSession,"授权失败不保留会话");
@@ -71,10 +71,10 @@ internal static class GitHubLoginTests
             var task=login.LoginAsync(new Prompt(),default);await started.Task;login.SignOut();held.SetResult(fake.Token());
             await Reject(()=>task,"cancelled");Check(!login.HasSession && login.Status.State=="signed-out","迟到授权不能恢复已退出会话");
         }
-        foreach(var fault in new[]{"redirect","wrong-uri","malformed","timeout","network","rate","repo-id","no-contents","bad-token","no-expiry","broad-scope"})
+        foreach(var fault in new[]{"redirect","wrong-uri","malformed","timeout","network","rate","repo-id","no-contents","bad-token","no-expiry","broad-scope","wide-installations","all-repos","write-permission","extra-permission","wide-repositories","wrong-install-repo","device-disabled-initial"})
         {
             fake=new(){Fault=fault};using var login=fake.Login();await Reject(()=>login.LoginAsync(new Prompt(),default));Check(!login.HasSession,"坏响应、限流或权限失败不建立会话");
-            if(fault is "redirect" or "wrong-uri" or "rate")Check(fake.Requests==1,"恶意地址/限流不继续请求");
+            if(fault is "redirect" or "wrong-uri" or "rate" or "device-disabled-initial")Check(fake.Requests==1,"恶意地址/限流不继续请求");
         }
         fake=new();using(var login=fake.Login())
         {
@@ -108,6 +108,12 @@ internal static class GitHubLoginTests
             Task<HttpResponseMessage> Hold(){fake.Refreshes++;started.TrySetResult();return held.Task;}
             var first=login.GetLeaseAsync(default);await started.Task;var second=login.GetLeaseAsync(default);held.SetResult(fake.Token(true));using var a=await first;using var b=await second;Check(fake.Refreshes==1,"并发操作只刷新一次");
         }
+        // 已登录后安装权限变宽，也必须在交出任何 API lease 前阻止并清除会话。
+        fake=new();using(var login=fake.Login())
+        {
+            await login.LoginAsync(new Prompt(),default);fake.Fault="extra-permission";
+            await Reject(async()=>{using var x=await login.GetLeaseAsync(default);},"permission_scope_mismatch");Check(!login.HasSession,"后续权限扩大时停止使用会话");
+        }
         var directory=Path.Combine(Path.GetTempPath(),"Screenshot-auth-tests-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(directory);
         try
         {
@@ -135,6 +141,7 @@ internal static class GitHubLoginTests
             if(path=="/login/device/code")
             {
                 NoAuth(request);Forms.Add(Form(await request.Content!.ReadAsStringAsync(token)));
+                if(Fault=="device-disabled-initial")return Json(new{error="device_flow_disabled",error_description=Access+Device});
                 if(Fault=="timeout")throw new OperationCanceledException(Access);if(Fault=="network")throw new HttpRequestException(Access+Refresh);if(Fault=="rate")return new(HttpStatusCode.TooManyRequests){Content=new StringContent(Access)};
                 if(Fault=="redirect"){var r=new HttpResponseMessage(HttpStatusCode.Redirect);r.Headers.Location=new("https://evil.example/"+Access);return r;}if(Fault=="malformed")return new(HttpStatusCode.OK){Content=new StringContent("{bad:"+Access)};
                 return Json(new{device_code=Device,user_code="ABCD-EFGH",verification_uri=Fault=="wrong-uri"?"https://evil.example/device":"https://github.com/login/device",expires_in=DeviceExpires,interval=5});
@@ -145,6 +152,8 @@ internal static class GitHubLoginTests
             }
             if(request.RequestUri.Host=="release-assets.githubusercontent.com"){CdnWithoutAuth=request.Headers.Authorization is null && !request.Headers.Contains("Cookie");return new(HttpStatusCode.OK){Content=new ByteArrayContent(Encoding.UTF8.GetBytes("test"))};}
             if(request.Headers.Authorization?.Scheme!="Bearer")throw new Exception("模拟私有 API 缺少认证。");if(Fault=="revoked")return new(HttpStatusCode.Unauthorized){Content=new StringContent(Access)};
+            if(path=="/user/installations")return Json(new{total_count=Fault=="wide-installations"?2:1,installations=new[]{new{id=42,account=new{login="Notesae"},repository_selection=Fault=="all-repos"?"all":"selected",permissions=Fault=="extra-permission"?new Dictionary<string,string>{{"contents","read"},{"metadata","read"},{"issues","write"}}:new Dictionary<string,string>{{"contents",Fault=="write-permission"?"write":"read"},{"metadata","read"}}}}});
+            if(path=="/user/installations/42/repositories")return Json(new{total_count=Fault=="wide-repositories"?2:1,repositories=new[]{new{id=Fault=="wrong-install-repo"?1:GitHubUpdateIdentity.RepositoryId,full_name="Notesae/screenshot"}}});
             if(path=="/user")return Json(new{login="Notesae",id=124855207});if(path=="/repos/Notesae/screenshot")return Json(new{id=Fault=="repo-id"?1:GitHubUpdateIdentity.RepositoryId,full_name="Notesae/screenshot",@private=true});
             if(path=="/repos/Notesae/screenshot/releases")
             {

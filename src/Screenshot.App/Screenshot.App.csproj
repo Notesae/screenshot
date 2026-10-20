@@ -6,9 +6,11 @@
     <Nullable>enable</Nullable><ImplicitUsings>disable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>Screenshot</AssemblyName><Version>0.4.7</Version><Copyright>© 2026 Notesae</Copyright>
+    <!-- 用户提供的公开 Client ID，不是 secret；显式空的全局构建参数可禁用。 -->
+    <ScreenshotGitHubClientId Condition="'$(ScreenshotGitHubClientId)' == ''">Iv23lisFgrPOh81NM4nz</ScreenshotGitHubClientId>
   </PropertyGroup>
   <ItemGroup>
-    <!-- 非秘密公开标识由发布者确认专用 App 后通过构建参数提供；默认空值，不启用真实授权。 -->
+    <!-- 仅嵌入用户确认的公开应用标识；令牌仍仅在原生内存，构建参数不接受 secret/token。 -->
     <AssemblyMetadata Include="GitHubUpdateClientId" Value="$(ScreenshotGitHubClientId)" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3179.45" />
     <ProjectReference Include="../Screenshot.AI/Screenshot.AI.csproj" />

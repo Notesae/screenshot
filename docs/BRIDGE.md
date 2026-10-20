@@ -129,3 +129,6 @@ No editor/bridge exists before the native terms gate succeeds. Decline/close/wri
 ## 0.4.7 私有更新登录边界
 
 GitHub App device code、access/refresh token、账号授权请求与私有 Release 下载仅在原生宿主内处理。没有新增认证桥接方法、前端 token 字段或持久化；主窗口持有内存会话，设置关闭取消操作，退出登录/应用清除会话。只有现有 `window.screenshotPrepareUpdate()` 和 `app.updateReady` 参与更新前保存/更新后就绪；不把 GitHub 凭据加入项目、恢复库、日志或 React 状态。当前默认 Client ID 为空，明确未配置；真实 App 配置与实机授权另行完成。
+
+
+后续公开Client ID配置仅写入原生程序集元数据，不新增认证桥接或凭据字段。登录及每次获取检查/下载lease前读取当前App安装元数据，限定Notesae/screenshot且Contents/Metadata只读；范围不符停止，不自动改GitHub权限。一次真实授权试验已结束但未建立可用会话，原进程的内存状态没有转移到应用或前端。
