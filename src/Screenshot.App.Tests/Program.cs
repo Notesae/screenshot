@@ -7,6 +7,11 @@ using System.Windows.Media.Imaging;
 // 失败以控制台退出码报告，避免未处理异常触发系统错误对话框。
 try
 {
+if (await UpdateProcessTests.TryDispatchAsync(args) is int processCode)
+{
+    Environment.ExitCode = processCode;
+    return;
+}
 if (args.Length == 3 && args[0] == "--update-package")
 {
     var digest = PortablePackage.Verify(args[1], ReleaseVersion.Parse(args[2]), CancellationToken.None);

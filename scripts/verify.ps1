@@ -30,6 +30,9 @@ try {
         & dotnet $runner
         if ($LASTEXITCODE) { throw "Test runner failed: $testName" }
     }
+    # 显式运行源代码链接的无窗口夹具，只操作 artifacts 下的 GUID 目录及其子进程。
+    & dotnet (Join-Path $buildRoot "bin/Screenshot.App.Tests/$($Configuration.ToLowerInvariant())/Screenshot.App.Tests.dll") --update-process-suite
+    if ($LASTEXITCODE) { throw 'Isolated Windows update process checks failed.' }
     & dotnet (Join-Path $buildRoot "bin/Screenshot.Ocr.Tests/$($Configuration.ToLowerInvariant())/Screenshot.Ocr.Tests.dll") --native-status
     if($LASTEXITCODE){throw 'Lazy native status check failed.'}
     if ($WithOcrIntegration) {
