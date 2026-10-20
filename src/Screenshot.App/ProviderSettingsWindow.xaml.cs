@@ -24,6 +24,7 @@ public partial class ProviderSettingsWindow : Window
         _service = service;
         var updates = new UpdateSettingsControl() { SaveBeforeExit = saveBeforeUpdate };
         UpdateTab.Content = updates;
+        Closing += (_, e) => { if (!updates.RequestClose()) e.Cancel = true; };
         Closed += (_, _) => updates.Dispose();
         Loaded += async (_, _) => await ReloadAsync();
     }

@@ -14,9 +14,16 @@ public partial class UpdateSettingsControl : UserControl, IDisposable
 {
     private readonly UpdateSession _session;
     private CancellationTokenSource? _operation;
-    private bool _busy, _disposed;
+    private bool _busy, _disposed, _handoff;
     private long _generation;
     internal Func<Task<bool>>? SaveBeforeExit { get; set; }
+    // 交接期间必须保持设置的模态保护，不能在快照保存后重新开放主窗口编辑。
+    internal bool RequestClose()
+    {
+        if (!_handoff) return true;
+        UpdateStatus.Text = "正在交接更新并等待重启，请稍候。交接结束或失败后可关闭设置。";
+        return false;
+    }
     internal UpdateSettingsControl()
     {
         _session = new(AppContext.BaseDirectory, ReleaseVersion.Parse(typeof(App).Assembly.GetName().Version!.ToString(3)), new GitHubUpdateSource());
@@ -50,7 +57,7 @@ public partial class UpdateSettingsControl : UserControl, IDisposable
         catch (Exception e) { UpdateStatus.Text = "更新未完成：" + e.Message; }
         finally
         {
-            _operation.Dispose(); _operation = null; _busy = false; Progress.IsIndeterminate = false;
+            _operation.Dispose(); _operation = null; _busy = _handoff = false; Progress.IsIndeterminate = false;
             if (_disposed) _session.Dispose();
             if (!_disposed)
             {
@@ -95,15 +102,17 @@ public partial class UpdateSettingsControl : UserControl, IDisposable
         var transaction = await _session.PrepareAsync(token); token.ThrowIfCancellationRequested();
         if (SaveBeforeExit is null || !await SaveBeforeExit()) throw new IOException("当前编辑未能安全保存，已阻止退出。");
         token.ThrowIfCancellationRequested(); CancelButton.IsEnabled = false;
-        await _session.HandOffAsync(transaction, false); Application.Current.Shutdown();
+        _handoff = true;
+        await _session.HandOffAsync(transaction, false); _handoff = false; Application.Current.Shutdown();
     });
     private async void Rollback_Click(object sender, RoutedEventArgs e) => await RunAsync(async token =>
     {
         var transaction = UpdateTransaction.Find(_session.Target) ?? throw new IOException("未找到旧版本备份。");
         if (MessageBox.Show(Window.GetWindow(this), "将保存当前编辑，关闭并恢复上一版本；当前版本目录保留为故障备份。继续？", "回滚并重启", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK) return;
         if (SaveBeforeExit is null || !await SaveBeforeExit()) throw new IOException("当前编辑未能安全保存，已阻止回滚。");
-        CancelButton.IsEnabled = false;
-        await _session.HandOffAsync(transaction, true); Application.Current.Shutdown();
+        token.ThrowIfCancellationRequested(); CancelButton.IsEnabled = false;
+        _handoff = true;
+        await _session.HandOffAsync(transaction, true); _handoff = false; Application.Current.Shutdown();
     });
     private async void Export_Click(object sender, RoutedEventArgs e) => await RunAsync(async token =>
     {

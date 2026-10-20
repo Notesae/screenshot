@@ -227,7 +227,7 @@ WGC 后端、窗口捕获、指定显示器/完整选区微调、自定义热键
 
 用户自行将Notesae/screenshot与Notesae/md改为public，明确要求本任务将screenshot更新改为免登录。当前分支删除GitHubLogin、设备授权/令牌逻辑及199项已失去运行路径的OAuth测试，移除原生登录入口与Client ID构建配置；以55项公开源专用测试替代，原更新93项保留并新增3项重复下载/切换保护。主程序不再持有更新认证对象，React桥接不增加权限。
 
-匿名独立客户端不带Authorization/Cookie、不使用代理或凭据，两个仓库网页及Release页均200/Public。最新screenshot v0.4.7、md v0.1.2各5个附件，经github.com→release-assets.githubusercontent.com重定向后均206、成功读取范围0-0的1字节；此项证明匿名访问，不等于本次完整下载或哈希验证。API初次403，X-RateLimit-Remaining=0、Reset=2026-10-20 05:33:26 UTC，受控分类确认为匿名出口限流；没有改用凭据或提前反复请求。后续真实API结果另行记录，不把网页成功替代API验证。
+匿名独立客户端不带Authorization/Cookie、不使用代理或凭据，两个仓库网页及Release页均200/Public。最新screenshot v0.4.7、md v0.1.2各5个附件，经github.com→release-assets.githubusercontent.com重定向后均206、成功读取范围0-0的1字节；此项证明匿名访问，不等于本次完整下载或哈希验证。API初次403，X-RateLimit-Remaining=0、Reset=2026-10-20 05:33:26 UTC，受控分类确认为匿名出口限流；确认限流头后，没有在重置前继续请求或改用凭据。后续真实API结果另行记录，不把网页成功替代API验证。
 
 本机完整Source解决方案构建0警告0错误；原生367项，其中公开源55和更新隔离96，覆盖固定仓库ID/公开状态、匿名请求、资产ID/URL/摘要、预发布通道、限流截止前零新请求、重复/取消后重试与原有ZIP/故障恢复/回滚。测试夹具.exe为文本，绝不启动。前端71及TypeScript/Vite构建、模拟AI18、SQLite56、OCR算法16/固定模型合成推理17、发布流程模拟8、条款源码审查、publish语法、无头更新健康/未保存快照2项通过；保留615.17kB chunk提示及NuGetAudit=false/缓存依赖的漏洞数据库限制。
 
@@ -236,7 +236,9 @@ WGC 后端、窗口捕获、指定显示器/完整选区微调、自定义热键
 
 公开源核验增量：05:33 UTC在服务端限流重置后再试，两个仓库匿名API均200，private=false/visibility=public；screenshot ID=1425162253、md ID=1425132652，各3个Release，最新分别为v0.4.7/v0.1.2且均prerelease，均有5个附件和官方API SHA-256。没有使用认证、Cookie或代理。生产更新代码对真实0.4.8候选执行稳定/含预发布检查，两者均无更高版本，HasPreviewReleases=true、HasStableReleases=false；不伪造较低当前版本以制造升级。
 
-本地自包含候选 artifacts/update-048-public-candidate-sdk（提交前静态证据）打包与Node审查765文件/192组件通过；原生重新验证包内版本及全清单，manifest SHA-256=01b9fa9be624922099f635038de648bdd50d9aa752aff77ebd40c17cd307dfc8。原生与Node条款摘要一致f3a3f3f21f14b0f4b6203596182b5a873da9df41b27758e506812f9adf30d548，221份，accepted=false/hostStarted=false。没有启动该候选，保留既有stackback告知/完整法律与干净机器限制；此目录不能代替精确新提交CI的发行制品。
+本地自包含候选 artifacts/update-048-public-candidate-sdk（提交前静态证据）打包与Node审查765文件/192组件通过；原生重新验证包内版本及全清单，manifest SHA-256=01b9fa9be624922099f635038de648bdd50d9aa752aff77ebd40c17cd307dfc8。原生与Node条款摘要一致f3a3f3f21f14b0f4b6203596182b5a873da9df41b27758e506812f9adf30d548，221份，accepted=false/hostStarted=false。没有启动该候选，保留既有stackback告知/完整法律与干净机器限制；此目录早于后续交接关闭保护，不能代替最终精确新提交CI的候选制品。
 
 
 真实匿名下载增量：生产GitHubUpdateSource/PortablePackage代码成功下载官方v0.4.7 ZIP至全新隔离目录，115632314字节，SHA-256=bcf83d7cae05e2caee04cc8a7937bdae3acf99c4647140bf8515df6a271fd794，与匿名官方API一致；解压全清单/版本验证通过，manifest SHA-256=504340792331a743343e7ee02d83c305161c86feebf40f029abccb2fe7ee430d。探针没有链接UpdateTransaction，没有启动EXE、保存授权凭据或覆盖安装，no_upgrade_performed=true。0.4.7仅用于真实下载/完整性验收，不作为0.4.8的升级候选，不伪造版本比较；md只验证匿名API与附件范围访问，本任务不修改其工程或运行安装。
+
+交接关闭保护：源码审阅发现辅助进程交接期间若设置窗口关闭，主窗口可能解除模态保护。现仅在不可取消交接阶段拒绝关闭设置，保持快照后的编辑冻结；成功后同步退出，失败后恢复可关闭。未操作真实窗口验证此事件顺序，不能把构建或无头React测试当作WPF关闭行为验收。
