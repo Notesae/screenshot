@@ -5,6 +5,21 @@
         <StackPanel Margin="16">
             <TextBlock Text="应用更新" FontSize="22" FontWeight="SemiBold"/>
             <TextBlock x:Name="CurrentVersion" Margin="0,12,0,12"/>
+            <TextBlock Text="私有发布源登录" FontSize="16" FontWeight="SemiBold"/>
+            <TextBlock x:Name="LoginStatus" Margin="0,8,0,8" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+            <TextBlock Text="仅请求 Notesae/screenshot 的 Contents 与必要元数据只读权限；Contents 也包含源码读取。账号必须原本有仓库访问权，不会自动扩权。令牌仅留在原生进程内存，退出应用即清除，不记住登录。" TextWrapping="Wrap" Foreground="#425166"/>
+            <WrapPanel Margin="0,12,0,8">
+                <Button x:Name="LoginButton" Content="登录 GitHub…" Click="Login_Click"/>
+                <Button x:Name="SignOutButton" Content="退出登录" IsEnabled="False" Click="SignOut_Click"/>
+                <Button Content="管理 GitHub 授权…" Click="ManageAuthorization_Click"/>
+            </WrapPanel>
+            <StackPanel x:Name="DevicePanel" Visibility="Collapsed" Margin="0,4,0,12">
+                <TextBlock Text="请亲自在 https://github.com/login/device 输入此设备码，并核对官方 App 名称与权限：" TextWrapping="Wrap"/>
+                <TextBlock x:Name="DeviceCode" FontSize="24" FontWeight="SemiBold" Margin="0,8,0,8" AutomationProperties.Name="GitHub 设备码"/>
+                <TextBlock x:Name="DeviceExpiry" TextWrapping="Wrap"/>
+                <Button x:Name="OpenDeviceButton" Content="打开 GitHub 官方登录页" Click="OpenDevice_Click" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+            </StackPanel>
+            <TextBlock Text="退出登录仅清除本机会话。要完整撤销，请到 GitHub Settings → Applications → Authorized GitHub Apps 操作。登录后仍需手动检查、下载和确认安装。" TextWrapping="Wrap" Foreground="#425166" Margin="0,0,0,16"/>
             <Label Content="更新通道" Target="{Binding ElementName=Channel}"/>
             <ComboBox x:Name="Channel" SelectedIndex="0" Padding="8,6" Margin="0,5,0,8" SelectionChanged="Channel_Changed">
                 <ComboBoxItem Content="稳定版（推荐）"/>

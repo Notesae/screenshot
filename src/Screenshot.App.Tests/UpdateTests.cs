@@ -21,7 +21,7 @@ internal static class UpdateTests
         }
         async Task RejectAsync(Func<Task> action, string message)
         {
-            try { await action(); } catch (Exception e) when (e is IOException or InvalidDataException or InvalidOperationException or OperationCanceledException or HttpRequestException) { checks++; return; }
+            try { await action(); } catch (Exception e) when (e is IOException or InvalidDataException or InvalidOperationException or OperationCanceledException or HttpRequestException or GitHubLoginException) { checks++; return; }
             throw new Exception("更新测试未拒绝：" + message);
         }
         var root = Path.Combine(Path.GetTempPath(), "Screenshot-update-tests-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(root);

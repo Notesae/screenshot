@@ -124,3 +124,8 @@ No bridge or project schema change. Selection/property drafts remain view state;
 ## 0.4.6 native startup precondition
 
 No editor/bridge exists before the native terms gate succeeds. Decline/close/write failure exits before main-host creation, WebView, global hotkey registration or native/provider services. Existing receipts match both terms version and the complete packaged legal digest. Every bridge dispatch and hotkey capture additionally requires this startup authorization. app.info reports the actual assembly version rather than a separate literal. There is no bridge command to accept terms; acceptance stays with the real native user, and is not included in projects or network calls.
+
+
+## 0.4.7 私有更新登录边界
+
+GitHub App device code、access/refresh token、账号授权请求与私有 Release 下载仅在原生宿主内处理。没有新增认证桥接方法、前端 token 字段或持久化；主窗口持有内存会话，设置关闭取消操作，退出登录/应用清除会话。只有现有 `window.screenshotPrepareUpdate()` 和 `app.updateReady` 参与更新前保存/更新后就绪；不把 GitHub 凭据加入项目、恢复库、日志或 React 状态。当前默认 Client ID 为空，明确未配置；真实 App 配置与实机授权另行完成。

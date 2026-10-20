@@ -100,7 +100,7 @@ internal sealed class UpdateSession : IDisposable
         Directory.Move(temporary, full);
     }
     internal void ReleaseGate() { _gate?.Dispose(); _gate = null; }
-    internal void Invalidate() { Release = null; ClearDownload(); ReleaseGate(); }
+    internal void Invalidate() { Release = null; try { ClearDownload(); } finally { ReleaseGate(); } }
     private void ClearDownload()
     {
         Downloaded = null; Extracted = null;

@@ -180,6 +180,7 @@ checks += CaptureTargetsTests.Run();
 checks += RegionSelectionTests.Run();
 checks += await CapturePipelineTests.RunAsync();
 checks += await UpdateTests.RunAsync();
+checks += await GitHubLoginTests.RunAsync();
 Console.WriteLine($"PASS {checks} native boundary, PNG roundtrip, capture geometry, request concurrency, overlay lifecycle and fake-frame capture checks");
 }
 catch (Exception exception)

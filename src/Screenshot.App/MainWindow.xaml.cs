@@ -70,7 +70,7 @@ public partial class MainWindow : Window
                 tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose(); _trayIcon = null;
             }
             _hotkeys?.Dispose();
-            _source?.RemoveHook(WindowMessage); Editor.Dispose(); _ai.Dispose(); DisposeLocalFeatures(); _lifetime.Dispose();
+            _source?.RemoveHook(WindowMessage); Editor.Dispose(); _ai.Dispose(); _updateLogin.Dispose(); DisposeLocalFeatures(); _lifetime.Dispose();
         };
     }
     // 托盘仅提供恢复、复用现有门控截图和退出，不创建第二个编辑器实例。
@@ -388,7 +388,7 @@ public partial class MainWindow : Window
             case "project.open": return NativeImages.OpenProject(this);
             case "project.save": return NativeImages.SaveProject(this, payload.GetProperty("document"), OptionalString(payload, "suggestedName"));
             case "settings.read": return await _ai.ReadSettingsAsync(_lifetime.Token);
-            case "settings.configure": new ProviderSettingsWindow(_ai, SaveBeforeUpdateAsync) { Owner = this }.ShowDialog(); return await _ai.ReadSettingsAsync(_lifetime.Token);
+            case "settings.configure": new ProviderSettingsWindow(_ai, SaveBeforeUpdateAsync, _updateLogin) { Owner = this }.ShowDialog(); return await _ai.ReadSettingsAsync(_lifetime.Token);
             case "app.updateReady": MarkUpdateHealthy(); return new { ready = true };
             case "ai.ocr": return await RunInferenceAsync(payload, async token => await _ai.OcrAsync(RequiredString(payload, "providerId"), RequiredString(payload, "imageDataUrl"),OptionalString(payload,"providerRevision"), token));
             case "ai.translate": return await RunInferenceAsync(payload, async token => await _ai.TranslateAsync(RequiredString(payload, "providerId"), RequiredString(payload, "text"), RequiredString(payload, "targetLanguage"),OptionalString(payload,"providerRevision"), token));
