@@ -1,6 +1,6 @@
 # 私有更新 GitHub App：发布者手动配置
 
-已发布 v0.4.7 包仍未配置 Client ID。用户后续提供了公开 Client ID `Iv23lisFgrPOh81NM4nz`，当前未发布源码已将其作为构建默认值，允许显式空覆盖以禁用。一次真实设备码试验成功取得短码，但原进程随后以通用授权错误结束，未建立可用会话；实际权限、检查和私有下载尚未通过。这不是已验证成功的登录版本。未代用户注册/安装 App、变更权限或撤销授权，未创建/保存任何 secret/token/private key。无需向助手发送秘密。
+已发布 v0.4.7 包仍未配置 Client ID。用户后续提供了公开 Client ID `Iv23lisFgrPOh81NM4nz`，当前未发布源码已将其作为构建默认值，允许显式空覆盖以禁用。两次分别获准的真实设备码试验均取得官方短码，但流程随后以通用或未识别授权错误结束，未建立可用会话；实际权限、检查和私有下载尚未通过。这不是已验证成功的登录版本。未代用户注册/安装 App、变更权限或撤销授权，未创建/保存任何 secret/token/private key。无需向助手发送秘密。
 
 1. 由 Notesae 账号在 GitHub Settings → Developer settings → GitHub Apps → New GitHub App 建立专用于 Screenshot 更新的 App。名称由发布者决定，Homepage 用官方仓库页面。启用 Device flow，保持用户访问令牌到期启用；不需要回调服务器，device flow 不使用回调。关闭 Webhook Active，无需创建 webhook secret、client secret 或私钥。
 2. Repository permissions 仅设 Contents: Read-only；Metadata: Read-only 为必要基础权限。其余仓库、组织和账号权限均 None。不申请 OAuth `repo` scope。Contents 包含源码，使用者必须在授权前知情。
@@ -23,3 +23,5 @@
 
 
 后续试验限制：原等待进程已退出且没有持久化设备凭证，不能从原会话恢复；用户要求仅发起一次，因此再次设备登录需要用户明确确认。下一次试验前可由用户在官方页面核对 Device flow、Only select repositories→screenshot、Contents/Metadata只读及其他权限None；不要为排查失败增设权限。源码会读取当前 App 的安装元数据与仓库列表，发现范围不符即停止，不读取其他仓库或自动改授权。安装元数据检查不等于对全部注册设置完成独立审计。
+
+第二次试验于2026-10-20 05:00 UTC取得设备提示，用户随后反馈已授权；05:01 UTC读取原进程时，它已以 `oauth_unrecognized_error`（exit 2）结束，没有进入安装/账号/仓库读取阶段。未知字符串和原始正文未保留，不能倒推出具体根因，也不能区分当时 error 字段是否为空或其他未识别值。已补充固定阶段、空值/空字符串/非法类型及标准 OAuth 错误分类的模拟验证，仍拒绝不标准或含糊响应。没有自动启动第三次流程；当前没有待确认或可恢复会话。

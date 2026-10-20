@@ -15,10 +15,10 @@ internal static class GitHubLoginTests
     {
         var checks = 0;
         void Check(bool value, string message) { if (!value) throw new Exception("GitHub 登录测试：" + message); checks++; }
-        async Task Reject(Func<Task> work, string? code = null)
+        async Task Reject(Func<Task> work, string? code = null, GitHubLoginPhase? phase = null)
         {
             try { await work(); }
-            catch (GitHubLoginException e) { Check(code is null || code == e.Code, "错误分类"); Check(!new[] {Access,Refresh,Device}.Any(s=>e.ToString().Contains(s)), "错误不泄露秘密"); return; }
+            catch (GitHubLoginException e) { Check(code is null || code == e.Code, "错误分类"); Check(!new[] {Access,Refresh,Device}.Any(s=>e.ToString().Contains(s)), "错误不泄露秘密"); if(phase is not null)Check(e.Phase==phase,"诊断阶段来自固定枚举");return; }
             catch (OperationCanceledException) when (code == "cancelled") { checks++; return; }
             throw new Exception("GitHub 登录测试未拒绝无效操作。");
         }
@@ -56,6 +56,21 @@ internal static class GitHubLoginTests
         {
             fake=new();fake.Errors.Enqueue(pair.Item1);using var login=fake.Login();
             await Reject(()=>login.LoginAsync(new Prompt(),default),pair.Item2);Check(!login.HasSession,"授权失败不保留会话");
+        }
+        foreach(var pair in new[]{("invalid_request","oauth_invalid_request"),("invalid_grant","oauth_invalid_grant"),("invalid_scope","oauth_invalid_scope"),("unauthorized_client","oauth_unauthorized_client"),("server_error","oauth_service_unavailable"),("temporarily_unavailable","oauth_service_unavailable")})
+        {
+            fake=new();fake.Errors.Enqueue(pair.Item1);using var login=fake.Login();
+            await Reject(()=>login.LoginAsync(new Prompt(),default),pair.Item2,GitHubLoginPhase.TokenExchange);Check(!login.HasSession,"标准授权错误不保留会话");
+        }
+        // 真实未知错误未保存原文，不能推断原因；用带秘密标记的合成坏响应验证可安全区分形态和阶段。
+        foreach(var initial in new[]{true,false})
+        foreach(var pair in new (object? Value,string Code)[]{(null,"oauth_null_error"),("","oauth_empty_error"),(12,"oauth_invalid_error"),(new[]{Access},"oauth_invalid_error")})
+        {
+            fake=new();fake.Override=(request,_)=>request.RequestUri!.AbsolutePath==(initial?"/login/device/code":"/login/oauth/access_token")
+                ?Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK){Content=new StringContent(JsonSerializer.Serialize(new{error=pair.Value,access_token=Access,error_description=Device+Refresh}),Encoding.UTF8,"application/json")}):null;
+            using var login=fake.Login();
+            await Reject(()=>login.LoginAsync(new Prompt(),default),pair.Code,initial?GitHubLoginPhase.DeviceCode:GitHubLoginPhase.TokenExchange);
+            Check(!login.HasSession && fake.Forms.Count==(initial?0:1),"错误与令牌混合响应不提交会话或调用仓库 API");
         }
         fake=new(){DeviceExpires=5};using(var login=fake.Login()){await Reject(()=>login.LoginAsync(new Prompt(),default),"expired");Check(fake.Polls==0,"过期设备码不交换");}
         fake=new();using(var login=fake.Login())

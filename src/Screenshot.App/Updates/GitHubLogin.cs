@@ -15,8 +15,14 @@ namespace Screenshot.App.Updates;
 
 internal sealed record GitHubLoginStatus(string State, string Message, string? Account = null, DateTimeOffset? ExpiresAt = null);
 internal sealed record GitHubDevicePrompt(string UserCode, Uri VerificationUri, DateTimeOffset ExpiresAt);
+internal enum GitHubLoginPhase { Request, DeviceCode, TokenExchange, VerifyAccess }
 // 错误只保留受控代码和中文说明，不保留服务器正文、请求、令牌或内部异常。
-internal sealed class GitHubLoginException(string code, string message) : Exception(message) { internal string Code { get; } = code; }
+internal sealed class GitHubLoginException(string code, string message) : Exception(message)
+{
+    internal string Code { get; } = code;
+    // 阶段来自本机固定枚举，不能把服务器内容带入诊断。
+    internal GitHubLoginPhase Phase { get; set; } = GitHubLoginPhase.Request;
+}
 
 internal static class GitHubUpdateIdentity
 {
@@ -102,11 +108,12 @@ internal sealed class GitHubLogin : IDisposable
         }
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation, session);
         var token = linked.Token;
+        var phase = GitHubLoginPhase.DeviceCode;
         try
         {
             using var device = await PostAsync("device/code", new() { ["client_id"] = _clientId, ["scope"] = "offline_access" }, token);
             var root = device.RootElement;
-            if (root.TryGetProperty("error", out var deviceError)) throw OAuthError(deviceError.GetString());
+            if (ReadOAuthError(root) is { } deviceError) throw OAuthError(deviceError);
             var code = ReadString(root, "device_code", 200); var userCode = ReadString(root, "user_code", 20);
             if (!Regex.IsMatch(code, "^[A-Za-z0-9_-]{20,200}$") || !Regex.IsMatch(userCode, "^[A-Z0-9]{4}-[A-Z0-9]{4}$")
                 || ReadString(root, "verification_uri", 100) != "https://github.com/login/device") throw InvalidResponse();
@@ -119,6 +126,7 @@ internal sealed class GitHubLogin : IDisposable
             {
                 await _delay(TimeSpan.FromSeconds(interval), token); token.ThrowIfCancellationRequested();
                 if (_now() >= expires) break;
+                phase = GitHubLoginPhase.TokenExchange;
                 using var poll = await PostAsync("oauth/access_token", new()
                 {
                     ["client_id"] = _clientId, ["device_code"] = code,
@@ -127,18 +135,19 @@ internal sealed class GitHubLogin : IDisposable
                 }, token);
                 token.ThrowIfCancellationRequested();
                 if (_now() >= expires) break;
-                if (poll.RootElement.TryGetProperty("error", out var error))
+                if (ReadOAuthError(poll.RootElement) is { } error)
                 {
-                    switch (error.GetString())
+                    switch (error)
                     {
                         case "authorization_pending": continue;
                         case "slow_down": interval += 5; SetStatus(epoch, new("waiting", "GitHub 要求放慢请求，正在按官方间隔等待授权。")); continue;
                         case "access_denied": throw new GitHubLoginException("denied", "你已拒绝 GitHub 授权；没有保存登录信息，可重新登录。");
                         case "expired_token": throw new GitHubLoginException("expired", "设备码已过期，请重新登录获取新设备码。");
-                        default: throw OAuthError(error.GetString());
+                        default: throw OAuthError(error);
                     }
                 }
                 var candidate = ParseCredentials(poll.RootElement, "");
+                phase = GitHubLoginPhase.VerifyAccess;
                 SetStatus(epoch, new("verifying", "正在核对 GitHub 账号和官方仓库读取权限…"));
                 var account = await VerifyAccessAsync(candidate.Access, token);
                 token.ThrowIfCancellationRequested();
@@ -153,9 +162,9 @@ internal sealed class GitHubLogin : IDisposable
             throw new GitHubLoginException("expired", "设备码已过期，请重新登录获取新设备码。");
         }
         catch (OperationCanceledException) { SetStatus(epoch, new("signed-out", "登录已取消，未保留本次登录信息。")); throw; }
-        catch (GitHubLoginException e) { SetStatus(epoch, new(e.Code, e.Message)); throw; }
+        catch (GitHubLoginException e) { e.Phase = phase; SetStatus(epoch, new(e.Code, e.Message)); throw; }
         catch (Exception e) when (e is JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
-        { var safe = InvalidResponse(); SetStatus(epoch, new(safe.Code, safe.Message)); throw safe; }
+        { var safe = InvalidResponse(); safe.Phase = phase; SetStatus(epoch, new(safe.Code, safe.Message)); throw safe; }
         finally { _gate.Release(); }
     }
 
@@ -293,7 +302,18 @@ internal sealed class GitHubLogin : IDisposable
     private static int ReadSeconds(JsonElement root, string name, int maximum)
     { if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out var seconds) || seconds <= 0 || seconds > maximum) throw InvalidResponse(); return seconds; }
     private static GitHubLoginException InvalidResponse() => new("invalid_response", "GitHub 登录响应格式或有效期无效，未保留登录信息。");
-    // 只保留官方已知错误枚举，绝不输出 error_description 或未知服务器字符串。
+    // 空/非字符串 error 也拒绝，分别报告固定形态；不把不标准的成功/错误混合响应当作已授权。
+    private static string? ReadOAuthError(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object) throw InvalidResponse();
+        if (!root.TryGetProperty("error", out var value)) return null;
+        if (value.ValueKind == JsonValueKind.Null) throw new GitHubLoginException("oauth_null_error", "GitHub 授权响应的 error 字段为空值；已停止，未保留正文或登录信息。");
+        if (value.ValueKind != JsonValueKind.String) throw new GitHubLoginException("oauth_invalid_error", "GitHub 授权响应的 error 字段类型无效；已停止，未保留正文或登录信息。");
+        var code = value.GetString()!;
+        if (string.IsNullOrWhiteSpace(code)) throw new GitHubLoginException("oauth_empty_error", "GitHub 授权响应的 error 字段为空字符串；已停止，未保留正文或登录信息。");
+        return code;
+    }
+    // 只保留 GitHub 已知/标准 OAuth 错误枚举，绝不输出 error_description 或未知服务器字符串。
     private static GitHubLoginException OAuthError(string? code) => code switch
     {
         "device_flow_disabled" => new("device_flow_disabled", "此 App 未启用 Device flow。请发布者在官方 App 设置勾选设备码登录后，由用户另行确认重试。"),
@@ -302,6 +322,11 @@ internal sealed class GitHubLogin : IDisposable
         "unsupported_grant_type" => new("grant_type_rejected", "GitHub 未接受设备授权协议参数，已结束本次请求；请先由发布者核对实现，不要扩大权限。"),
         "unverified_user_email" => new("email_unverified", "GitHub 要求用户先在官方账号设置确认主邮箱，应用不会代为操作。"),
         "application_suspended" => new("application_suspended", "GitHub App 当前被暂停，请发布者在官方页面核对；不会绕过限制。"),
+        "invalid_request" => new("oauth_invalid_request", "GitHub 拒绝了授权请求格式；请发布者核对协议实现后，由用户另行确认重试。"),
+        "invalid_grant" => new("oauth_invalid_grant", "GitHub 拒绝了本次授权凭证；旧会话已结束，不会自动重新申请。"),
+        "invalid_scope" => new("oauth_invalid_scope", "GitHub 未接受请求的授权范围；不会改用更宽权限，请发布者核对 App 与协议。"),
+        "unauthorized_client" => new("oauth_unauthorized_client", "GitHub 未允许此 App 使用当前授权流程，请发布者核对官方 App 设置。"),
+        "server_error" or "temporarily_unavailable" => new("oauth_service_unavailable", "GitHub 授权服务暂不可用；本次流程已结束，再试需要用户另行确认。"),
         "expired_token" or "token_expired" => new("expired", "本次设备凭证已过期，需要用户另行确认后重新申请。"),
         "access_denied" => new("denied", "用户已拒绝本次授权，没有保留登录信息。"),
         _ => new("oauth_unrecognized_error", "GitHub 返回未识别的授权错误；已结束并清除会话。未保留服务器正文，请先核对实现后由用户另行确认重试。")
