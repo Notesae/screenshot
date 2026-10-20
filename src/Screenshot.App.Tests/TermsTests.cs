@@ -27,6 +27,10 @@ internal static class TermsTests
             var agreement = TermsAgreement.Load(root);
             Check(agreement.Documents.Count == 8, "all required legal documents exposed");
             Check(agreement.Digest == TermsAgreement.Load(root).Digest, "stable catalog digest");
+            // AppContext.BaseDirectory 自带末尾分隔符，真实启动必须与无分隔符的测试目录行为一致。
+            var startupAgreement = TermsAgreement.Load(root + Path.DirectorySeparatorChar);
+            Check(startupAgreement.Digest == agreement.Digest, "startup directory with trailing separator loads legal catalog");
+            Check(File.Exists(startupAgreement.Resolve(startupAgreement.Documents[0])), "startup directory resolves displayed terms");
             var path = Path.Combine(root, "user", "terms-acceptance.json");
             var store = new TermsAcceptanceStore(path);
             var startup = new TermsStartup(agreement, store, "0.4.6-test");
@@ -39,7 +43,7 @@ internal static class TermsTests
             // 退出和关闭窗口都不调用TryAccept，入口必须保持拒绝状态。
             foreach (var choice in new[] { "decline", "window-close" })
                 Check(!startup.Start(FakeHost) && actions.Values.All(v => v == 0), choice + " keeps capabilities off");
-            Check(startup.TryAccept(true, out error) && error == "", "synthetic explicit consent persists");
+            Check(startup.TryAccept(true, out error) && error == "", "synthetic explicit consent persists: " + error);
             Check(startup.IsAuthorized && startup.Start(FakeHost) && actions.Values.All(v => v == 1), "only persisted explicit branch constructs host");
             var receipt = File.ReadAllText(path);
             using (var json = JsonDocument.Parse(receipt))

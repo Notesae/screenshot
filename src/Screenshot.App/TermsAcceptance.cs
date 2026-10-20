@@ -25,7 +25,8 @@ internal sealed class TermsAgreement
     }
     internal static TermsAgreement Load(string root)
     {
-        root = Path.GetFullPath(root);
+        // 真实宿主目录带末尾分隔符；统一后才能在祖先检查中准确停在发行根目录。
+        root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
         using var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "legal", "terms-manifest.json")));
         var manifest = json.RootElement;
         if (manifest.GetProperty("schemaVersion").GetInt32() != 1) throw new InvalidDataException("条款清单版本不受支持。");

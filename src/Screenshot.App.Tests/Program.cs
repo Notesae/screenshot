@@ -16,7 +16,8 @@ if (args.Length == 3 && args[0] == "--update-package")
 // 以无外部依赖的断言验证原生信任边界、像素保真和请求并发契约。
 if (args.Length == 2 && args[0] == "--terms-package")
 {
-    var agreement = TermsAgreement.Load(args[1]);
+    // 使用真实启动同样带末尾分隔符的目录，防止只验证命令行目录而漏掉启动错误。
+    var agreement = TermsAgreement.Load(System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(args[1])) + System.IO.Path.DirectorySeparatorChar);
     using var expectedLegal = JsonDocument.Parse(System.IO.File.ReadAllText(System.IO.Path.Combine(args[1], "legal/package-legal.json")));
     if (expectedLegal.RootElement.GetProperty("digest").GetString() != agreement.Digest || expectedLegal.RootElement.GetProperty("version").GetString() != agreement.Version || expectedLegal.RootElement.GetProperty("documents").GetInt32() != agreement.Documents.Count)
         throw new Exception("Packaged legal catalog differs from native policy.");
@@ -185,6 +186,6 @@ Console.WriteLine($"PASS {checks} native boundary, PNG roundtrip, capture geomet
 }
 catch (Exception exception)
 {
-    Console.Error.WriteLine("FAIL " + exception.Message);
+    Console.Error.WriteLine("FAIL " + exception);
     Environment.ExitCode = 1;
 }
