@@ -1,0 +1,50 @@
+<UserControl x:Class="Screenshot.App.UpdateSettingsControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="16">
+            <TextBlock Text="应用更新" FontSize="22" FontWeight="SemiBold"/>
+            <TextBlock x:Name="CurrentVersion" Margin="0,12,0,12"/>
+            <TextBlock Text="私有发布源登录" FontSize="16" FontWeight="SemiBold"/>
+            <TextBlock x:Name="LoginStatus" Margin="0,8,0,8" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+            <TextBlock Text="仅请求 Notesae/screenshot 的 Contents 与必要元数据只读权限；Contents 也包含源码读取。账号必须原本有仓库访问权，不会自动扩权。令牌仅留在原生进程内存，退出应用即清除，不记住登录。" TextWrapping="Wrap" Foreground="#425166"/>
+            <WrapPanel Margin="0,12,0,8">
+                <Button x:Name="LoginButton" Content="登录 GitHub…" Click="Login_Click"/>
+                <Button x:Name="SignOutButton" Content="退出登录" IsEnabled="False" Click="SignOut_Click"/>
+                <Button Content="管理 GitHub 授权…" Click="ManageAuthorization_Click"/>
+            </WrapPanel>
+            <StackPanel x:Name="DevicePanel" Visibility="Collapsed" Margin="0,4,0,12">
+                <TextBlock Text="请亲自在 https://github.com/login/device 输入此设备码，并核对官方 App 名称与权限：" TextWrapping="Wrap"/>
+                <TextBlock x:Name="DeviceCode" FontSize="24" FontWeight="SemiBold" Margin="0,8,0,8" AutomationProperties.Name="GitHub 设备码"/>
+                <TextBlock x:Name="DeviceExpiry" TextWrapping="Wrap"/>
+                <Button x:Name="OpenDeviceButton" Content="打开 GitHub 官方登录页" Click="OpenDevice_Click" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+            </StackPanel>
+            <TextBlock Text="退出登录仅清除本机会话。要完整撤销，请到 GitHub Settings → Applications → Authorized GitHub Apps 操作。登录后仍需手动检查、下载和确认安装。" TextWrapping="Wrap" Foreground="#425166" Margin="0,0,0,16"/>
+            <Label Content="更新通道" Target="{Binding ElementName=Channel}"/>
+            <ComboBox x:Name="Channel" SelectedIndex="0" Padding="8,6" Margin="0,5,0,8" SelectionChanged="Channel_Changed">
+                <ComboBoxItem Content="稳定版（推荐）"/>
+                <ComboBoxItem Content="包含预发布（可能不稳定）"/>
+            </ComboBox>
+            <TextBlock Text="只在手动检查时访问 Notesae/screenshot 官方发布。预发布需主动选择；不会自动降级。" TextWrapping="Wrap" Foreground="#425166"/>
+            <WrapPanel Margin="0,16,0,16">
+                <Button x:Name="CheckButton" Content="检查更新" Click="Check_Click"/>
+                <Button x:Name="DownloadButton" Content="下载更新" IsEnabled="False" Click="Download_Click"/>
+                <Button x:Name="CancelButton" Content="取消" IsEnabled="False" Click="Cancel_Click"/>
+            </WrapPanel>
+            <TextBlock x:Name="LatestVersion" FontWeight="SemiBold" TextWrapping="Wrap"/>
+            <TextBox x:Name="ReleaseNotes" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="170" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="新版本说明"/>
+            <ProgressBar x:Name="Progress" Height="14" Minimum="0" Maximum="100" AutomationProperties.Name="更新下载进度"/>
+            <TextBlock x:Name="ProgressText" Margin="0,6,0,12"/>
+            <TextBlock x:Name="UpdateStatus" TextWrapping="Wrap" Foreground="#9B2C20" AutomationProperties.LiveSetting="Polite"/>
+            <TextBlock Margin="0,14,0,14" TextWrapping="Wrap" Foreground="#425166"
+                       Text="下载将校验官方 API 的 SHA-256 和包内清单。这是完整性检查，当前便携 ZIP 没有发布者数字签名；仍信任 GitHub 官方仓库账号及 HTTPS，无法抵御发布账号失陷。"/>
+            <TextBlock Margin="0,0,0,12" TextWrapping="Wrap" Text="安装会保存当前编辑至本机恢复库，然后关闭并重启应用；下次从恢复记录继续编辑。原安装目录会保留为回滚备份，用户设置、密钥及恢复库留在原数据目录。含额外文件、只读目录或被其他实例占用时，不覆盖安装。"/>
+            <WrapPanel>
+                <Button x:Name="InstallButton" Content="安装并重启…" IsEnabled="False" Click="Install_Click"/>
+                <Button x:Name="ExportButton" Content="解压到新目录…" IsEnabled="False" Click="Export_Click"/>
+                <Button x:Name="RollbackButton" Content="回滚并重启…" IsEnabled="False" Click="Rollback_Click"/>
+            </WrapPanel>
+            <TextBlock x:Name="RecoveryInfo" Margin="0,12,0,0" TextWrapping="Wrap" Foreground="#425166"/>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

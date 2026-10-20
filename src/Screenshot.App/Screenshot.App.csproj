@@ -5,9 +5,11 @@
     <UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable><ImplicitUsings>disable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <AssemblyName>Screenshot</AssemblyName><Version>0.4.6</Version><Copyright>© 2026 Notesae</Copyright>
+    <AssemblyName>Screenshot</AssemblyName><Version>0.4.7</Version><Copyright>© 2026 Notesae</Copyright>
   </PropertyGroup>
   <ItemGroup>
+    <!-- 非秘密公开标识由发布者确认专用 App 后通过构建参数提供；默认空值，不启用真实授权。 -->
+    <AssemblyMetadata Include="GitHubUpdateClientId" Value="$(ScreenshotGitHubClientId)" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3179.45" />
     <ProjectReference Include="../Screenshot.AI/Screenshot.AI.csproj" />
     <ProjectReference Include="../Screenshot.Ocr/Screenshot.Ocr.csproj" />

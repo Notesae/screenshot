@@ -50,6 +50,9 @@ jobs:
           npm install --prefix artifacts/headless-tools --no-save --ignore-scripts --package-lock=false playwright@1.62.1
           $env:PLAYWRIGHT_MODULE = (Resolve-Path artifacts/headless-tools/node_modules/playwright).Path
           node editor/scripts/headless-overlay.cjs
+          if ($LASTEXITCODE) { throw 'Headless overlay regressions failed.' }
+          node editor/scripts/update-safety-audit.cjs artifacts/qa/product/update-safety.json
+          if ($LASTEXITCODE) { throw 'Update snapshot regressions failed.' }
       - name: Product state and layout regressions on synthetic content
         shell: pwsh
         run: |
@@ -90,6 +93,9 @@ jobs:
         run: |
           dotnet artifacts/verify-source/bin/Screenshot.App.Tests/release/Screenshot.App.Tests.dll --terms-package artifacts/Screenshot-win-x64
           if ($LASTEXITCODE) { throw 'Native packaged terms verification failed.' }
+          $version = (Get-Content editor/package.json -Raw | ConvertFrom-Json).version
+          dotnet artifacts/verify-source/bin/Screenshot.App.Tests/release/Screenshot.App.Tests.dll --update-package artifacts/Screenshot-win-x64 $version
+          if ($LASTEXITCODE) { throw 'Native packaged update inventory verification failed.' }
       - uses: actions/upload-artifact@v4
         with:
           name: Screenshot-win-x64

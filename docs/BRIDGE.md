@@ -30,10 +30,13 @@ User cancellation returns null (or saved:false); it is not an exception.
 | project.save | { document:object, suggestedName:string } | { saved:boolean, path?:string } |
 | settings.read | {} | { providers: PublicProvider[], defaultProviderId?:string } |
 | settings.configure | {} | same public settings; native dialog stores secrets |
+| app.updateReady | {} | {ready:true}; trusted local React mount health acknowledgement, no installation or remote access |
 | ai.ocr | { providerId, imageDataUrl } | { text:string } |
 | ai.translate | { providerId, text, targetLanguage } | { text:string } |
 
 `PublicProvider = { id, name, kind, model, baseUrl, hasApiKey }`.
+
+The native settings dialog also contains portable update controls; it never accepts download URLs, install paths, tokens or install commands from the bridge. Before an explicit install/rollback, the host reads the local `window.screenshotPrepareUpdate()` snapshot via WebView2, rejects active edits/tasks, and persists a separate recovery snapshot. A failed save blocks shutdown. Settings itself is an allowed waiting operation. See `UPDATES.md` for the private-source limitation, integrity boundary, replacement journal and recovery flow.
 Provider kinds are `openai-compatible` and `ollama`. No API key is returned to JavaScript or included in project documents. HTTP adapters execute only in the native process after explicit OCR/translate actions.
 
 Project documents use `{ schemaVersion:2, image:LoadedImage|null, editor:object }`; v1 remains readable and is upgraded in memory. The editor validates its own version and value bounds before restoring. No executable code or network image URLs are accepted as project image sources.
@@ -121,3 +124,8 @@ No bridge or project schema change. Selection/property drafts remain view state;
 ## 0.4.6 native startup precondition
 
 No editor/bridge exists before the native terms gate succeeds. Decline/close/write failure exits before main-host creation, WebView, global hotkey registration or native/provider services. Existing receipts match both terms version and the complete packaged legal digest. Every bridge dispatch and hotkey capture additionally requires this startup authorization. app.info reports the actual assembly version rather than a separate literal. There is no bridge command to accept terms; acceptance stays with the real native user, and is not included in projects or network calls.
+
+
+## 0.4.7 私有更新登录边界
+
+GitHub App device code、access/refresh token、账号授权请求与私有 Release 下载仅在原生宿主内处理。没有新增认证桥接方法、前端 token 字段或持久化；主窗口持有内存会话，设置关闭取消操作，退出登录/应用清除会话。只有现有 `window.screenshotPrepareUpdate()` 和 `app.updateReady` 参与更新前保存/更新后就绪；不把 GitHub 凭据加入项目、恢复库、日志或 React 状态。当前默认 Client ID 为空，明确未配置；真实 App 配置与实机授权另行完成。

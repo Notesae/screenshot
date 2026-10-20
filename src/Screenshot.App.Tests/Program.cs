@@ -1,4 +1,5 @@
 using Screenshot.App;
+using Screenshot.App.Updates;
 using System.Text.Json;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -6,6 +7,12 @@ using System.Windows.Media.Imaging;
 // 失败以控制台退出码报告，避免未处理异常触发系统错误对话框。
 try
 {
+if (args.Length == 3 && args[0] == "--update-package")
+{
+    var digest = PortablePackage.Verify(args[1], ReleaseVersion.Parse(args[2]), CancellationToken.None);
+    Console.WriteLine("PASS packaged update inventory and version; manifest SHA-256=" + digest);
+    return;
+}
 // 以无外部依赖的断言验证原生信任边界、像素保真和请求并发契约。
 if (args.Length == 2 && args[0] == "--terms-package")
 {
@@ -172,6 +179,8 @@ checks += HotkeyTests.Run();
 checks += CaptureTargetsTests.Run();
 checks += RegionSelectionTests.Run();
 checks += await CapturePipelineTests.RunAsync();
+checks += await UpdateTests.RunAsync();
+checks += await GitHubLoginTests.RunAsync();
 Console.WriteLine($"PASS {checks} native boundary, PNG roundtrip, capture geometry, request concurrency, overlay lifecycle and fake-frame capture checks");
 }
 catch (Exception exception)
