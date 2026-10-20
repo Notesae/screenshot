@@ -40,6 +40,15 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          name: Screenshot-update-process-evidence
+          path: |
+            artifacts/windows-process-tests/**/result.json
+            artifacts/windows-process-tests/**/failure.txt
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
           name: Screenshot-native-quality-evidence
           path: artifacts/qa/native-rebuild/
           if-no-files-found: warn

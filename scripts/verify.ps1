@@ -18,6 +18,8 @@ try {
     } finally { Pop-Location }
     & node (Join-Path $PSScriptRoot 'terms-audit.cjs')
     if ($LASTEXITCODE) { throw 'Terms/startup source audit failed.' }
+    & node (Join-Path $PSScriptRoot 'test-native-quality.cjs')
+    if ($LASTEXITCODE) { throw 'Paired benchmark statistical regressions failed.' }
     & python (Join-Path $PSScriptRoot 'test-release-prerelease.py')
     if ($LASTEXITCODE) { throw 'Synthetic release state checks failed.' }
     # 隔离构建输出，避免覆盖用户可能仍在运行的应用文件。

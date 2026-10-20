@@ -1,9 +1,9 @@
 # Same test driver, isolated processes and synthetic data for both libraries. Never invokes the app.
-param([string]$BuildRoot,[string]$Output,[int]$Rounds=3)
+param([string]$BuildRoot,[string]$Output)
 $ErrorActionPreference='Stop'
 $taskRoot=Split-Path $PSScriptRoot -Parent
 if(-not $BuildRoot){$BuildRoot=Join-Path $taskRoot 'artifacts/verify-vendor'}
-if(-not $Output){$Output=Join-Path $taskRoot 'artifacts/qa/native-rebuild'}
+if(-not $Output){$Output=Join-Path $taskRoot ('artifacts/qa/native-rebuild/paired-'+[Guid]::NewGuid().ToString('N'))}
 New-Item -ItemType Directory -Force -Path $Output|Out-Null
 $nativeRoot=Join-Path $taskRoot 'artifacts/native-runtime/win-x64'
 & node (Join-Path $PSScriptRoot 'verify-native-runtime.cjs') $nativeRoot
@@ -25,14 +25,8 @@ if((Get-FileHash -LiteralPath $vendorDll -Algorithm SHA256).Hash -ine $baseline.
 & dotnet build (Join-Path $taskRoot 'tests/Screenshot.Ocr.Tests/Screenshot.Ocr.Tests.csproj') -c Release -p:ScreenshotNativeRuntime=Vendor --artifacts-path $BuildRoot --maxcpucount:1
 if($LASTEXITCODE){throw 'Isolated comparison driver build failed.'}
 $runner=Join-Path $BuildRoot 'bin/Screenshot.Ocr.Tests/release/Screenshot.Ocr.Tests.dll'
-foreach($round in 1..$Rounds){
-    $profiles=if($round%2){@('vendor','source')}else{@('source','vendor')}
-    foreach($profile in $profiles){
-        $library=if($profile -eq 'vendor'){$vendorDll}else{Join-Path $nativeRoot 'OpenCvSharpExtern.dll'}
-        $hash=if($profile -eq 'vendor'){$baseline.binarySha256}else{$source.binary.sha256}
-        & dotnet $runner --native-quality (Join-Path $Output "$profile-$round.json") (Join-Path $taskRoot 'models/pp-ocrv5-mobile') $library $hash
-        if($LASTEXITCODE){throw "Native OCR quality failed: $profile round $round"}
-    }
-}
-& node (Join-Path $PSScriptRoot 'compare-native-quality.cjs') $Output $Rounds
+# 两个常驻测试进程按固定协议短周期交错，不再按进程分组后合并样本。
+& node (Join-Path $PSScriptRoot 'run-native-quality.cjs') $runner (Join-Path $taskRoot 'models/pp-ocrv5-mobile') $vendorDll $baseline.binarySha256 (Join-Path $nativeRoot 'OpenCvSharpExtern.dll') $source.binary.sha256 $Output
+if($LASTEXITCODE){throw "Paired OCR sampling failed; raw evidence retained: $Output"}
+& node (Join-Path $PSScriptRoot 'compare-native-quality.cjs') $Output
 if($LASTEXITCODE){throw 'Native source/vendor comparison requires repair or investigation.'}
