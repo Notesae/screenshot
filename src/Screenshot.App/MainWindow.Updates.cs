@@ -8,7 +8,6 @@ namespace Screenshot.App;
 
 public partial class MainWindow
 {
-    private readonly GitHubLogin _updateLogin = new(GitHubUpdateIdentity.ClientId(typeof(App).Assembly));
     // 设置对话框阻止编辑；仍有异步任务或正在编辑文字时拒绝安装，快照持久化失败则保持应用打开。
     private async Task<bool> SaveBeforeUpdateAsync()
     {

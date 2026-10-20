@@ -21,7 +21,7 @@ internal static class UpdateTests
         }
         async Task RejectAsync(Func<Task> action, string message)
         {
-            try { await action(); } catch (Exception e) when (e is IOException or InvalidDataException or InvalidOperationException or OperationCanceledException or HttpRequestException or GitHubLoginException) { checks++; return; }
+            try { await action(); } catch (Exception e) when (e is IOException or InvalidDataException or InvalidOperationException or OperationCanceledException or HttpRequestException or UpdateSourceException) { checks++; return; }
             throw new Exception("更新测试未拒绝：" + message);
         }
         var root = Path.Combine(Path.GetTempPath(), "Screenshot-update-tests-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(root);
@@ -38,7 +38,7 @@ internal static class UpdateTests
             object Release(string version, bool preview, bool draft = false, string? digest = null, string? url = null) => new
             {
                 tag_name = "v" + version, prerelease = preview, draft, body = "隔离模拟版本说明",
-                assets = new[] { new { name = $"Screenshot-{version}-win-x64.zip", size = 4, digest = digest ?? "sha256:" + new string('a', 64), browser_download_url = url ?? $"https://github.com/Notesae/screenshot/releases/download/v{version}/Screenshot-{version}-win-x64.zip" } }
+                assets = new[] { new { id = 42, url = "https://api.github.com/repos/Notesae/screenshot/releases/assets/42", name = $"Screenshot-{version}-win-x64.zip", size = 4, digest = digest ?? "sha256:" + new string('a', 64), browser_download_url = url ?? $"https://github.com/Notesae/screenshot/releases/download/v{version}/Screenshot-{version}-win-x64.zip" } }
             };
             var releases = JsonSerializer.Serialize(new[] { Release("0.4.9", true), Release("0.4.8", false), Release("9.0.0", false, true), Release("0.4.6", false) });
             using (var source = Source(_ => JsonResponse(releases)))
@@ -54,7 +54,7 @@ internal static class UpdateTests
             using (var source = Source(_ => JsonResponse(JsonSerializer.Serialize(new[] { Release("0.4.8", false, url: "https://evil.example/a.zip") })))) await RejectAsync(() => source.CheckAsync(ReleaseVersion.Parse("0.4.7"), false, default), "非官方资产");
 
             var bytes = Encoding.UTF8.GetBytes("test"); var digestValue = Convert.ToHexStringLower(SHA256.HashData(bytes));
-            var candidate = new UpdateRelease(ReleaseVersion.Parse("0.4.8"), false, "", new("https://github.com/Notesae/screenshot/releases/download/v0.4.8/Screenshot-0.4.8-win-x64.zip"), bytes.Length, digestValue);
+            var candidate = new UpdateRelease(ReleaseVersion.Parse("0.4.8"), false, "", new("https://github.com/Notesae/screenshot/releases/download/v0.4.8/Screenshot-0.4.8-win-x64.zip"), bytes.Length, digestValue, 42, new("https://api.github.com/repos/Notesae/screenshot/releases/assets/42"));
             using (var source = Source(request => { Check(request.Headers.Authorization is null && !request.Headers.Contains("Cookie"), "请求无认证头"); return new(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) }; }))
             {
                 var destination = Path.Combine(root, "download.zip");
@@ -104,6 +104,24 @@ internal static class UpdateTests
                 Check(File.ReadAllText(Path.Combine(sessionTarget, "Screenshot.exe")) == "fixture-0.4.6", "交接前原安装保持原样");
                 prepared.Apply(); Check(PortablePackage.ReadVersion(sessionTarget).ToString() == "0.4.8", "下载到隔离目录事务闭环"); prepared.Recover();
                 session.Invalidate(); Check(session.Extracted is null && session.Release is null, "切换通道作废候选并清理临时文件");
+            }
+            // 第二次下载/切通道必须在清理首笔暂存之前拒绝，首笔仍能完成校验。
+            var concurrentTarget = Path.Combine(root, "session-concurrent"); MakePackage(concurrentTarget, "0.4.6");
+            var downloadStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var finishDownload = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using (var session = new UpdateSession(concurrentTarget, ReleaseVersion.Parse("0.4.6"), new GitHubUpdateSource(new HttpClient(new HeldHttp(async (request, token) =>
+            {
+                if (request.RequestUri!.Host == "api.github.com") return JsonResponse("{\"id\":1425162253,\"full_name\":\"Notesae/screenshot\",\"private\":false}");
+                downloadStarted.TrySetResult(); await finishDownload.Task.WaitAsync(token);
+                return new(HttpStatusCode.OK) { Content = new ByteArrayContent(fixtureZip) };
+            })))))
+            {
+                session.Release = candidate with { Size = fixtureZip.Length, Sha256 = Convert.ToHexStringLower(SHA256.HashData(fixtureZip)) };
+                var first = session.DownloadAsync(new InlineProgress(), default); await downloadStarted.Task;
+                await RejectAsync(() => session.DownloadAsync(new InlineProgress(), default), "重复下载不清理首笔目录");
+                Reject(() => session.Invalidate(), "下载中不能作废或删除暂存");
+                finishDownload.TrySetResult(); await first;
+                Check(session.Extracted is not null && Directory.Exists(session.Extracted), "重复操作后首笔完整校验成功");
             }
             var expanded = Path.Combine(root, "expanded"); PortablePackage.Extract(zip, expanded, ReleaseVersion.Parse("0.4.8"), default);
             Check(File.ReadAllText(Path.Combine(expanded, "Screenshot.exe")) == "fixture-0.4.8", "安全解压");
@@ -166,12 +184,14 @@ internal static class UpdateTests
             if (full.StartsWith(Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) && Path.GetFileName(full).StartsWith("Screenshot-update-tests-")) Directory.Delete(full, true);
         }
     }
-    private static GitHubUpdateSource Source(Func<HttpRequestMessage, HttpResponseMessage> handle) => new(new HttpClient(new FakeHttp(handle)));
+    private static GitHubUpdateSource Source(Func<HttpRequestMessage, HttpResponseMessage> handle) => new(new HttpClient(new FakeHttp(request => request.RequestUri!.AbsolutePath == "/repos/Notesae/screenshot" ? JsonResponse("{\"id\":1425162253,\"full_name\":\"Notesae/screenshot\",\"private\":false}") : handle(request))));
     private sealed class InlineProgress(Action<UpdateProgress>? onProgress = null) : IProgress<UpdateProgress> { public void Report(UpdateProgress value) => onProgress?.Invoke(value); }
     private sealed class FakeHttp(Func<HttpRequestMessage, HttpResponseMessage> handle) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) { token.ThrowIfCancellationRequested(); return Task.FromResult(handle(request)); }
     }
+    private sealed class HeldHttp(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> handle) : HttpMessageHandler
+    { protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) => handle(request, token); }
     private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
     private static void MakePackage(string directory, string version)
     {

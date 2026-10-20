@@ -221,3 +221,22 @@ WGC 后端、窗口捕获、指定显示器/完整选区微调、自定义热键
 本机完整Source解决方案构建0警告0错误；原生508项通过，其中授权模拟199（本增量新增56）及原更新93。构建使用既有缓存和NuGetAudit=false，漏洞数据库限制仍有效。前端首轮因沙箱TEMP重命名EPERM而没有运行测试，切换工作区专用TEMP后重试，最终结果随下方记录。没有实际安装替换、桌面交互、读取开发机凭据、新Release或改变仓库权限。真实登录和私有源读取仍为阻塞，原会话已结束；下次设备请求需要新的明确确认。
 
 专用TEMP下前端71项与TypeScript/Vite构建通过，保留615.17kB主chunk提示；同一完整构建产物的模拟AI18、OCR算法16、SQLite56通过。隔离探针仅重新编译（0警告0错误）以使用新受控阶段，没有运行或申请短码。精确提交的完整远端CI以PR状态为准，未把本地通过或旧head运行冒充新提交CI。
+
+
+## 0.4.8 公开源免登录候选（2026-10-20）
+
+用户自行将Notesae/screenshot与Notesae/md改为public，明确要求本任务将screenshot更新改为免登录。当前分支删除GitHubLogin、设备授权/令牌逻辑及199项已失去运行路径的OAuth测试，移除原生登录入口与Client ID构建配置；以55项公开源专用测试替代，原更新93项保留并新增3项重复下载/切换保护。主程序不再持有更新认证对象，React桥接不增加权限。
+
+匿名独立客户端不带Authorization/Cookie、不使用代理或凭据，两个仓库网页及Release页均200/Public。最新screenshot v0.4.7、md v0.1.2各5个附件，经github.com→release-assets.githubusercontent.com重定向后均206、成功读取范围0-0的1字节；此项证明匿名访问，不等于本次完整下载或哈希验证。API初次403，X-RateLimit-Remaining=0、Reset=2026-10-20 05:33:26 UTC，受控分类确认为匿名出口限流；没有改用凭据或提前反复请求。后续真实API结果另行记录，不把网页成功替代API验证。
+
+本机完整Source解决方案构建0警告0错误；原生367项，其中公开源55和更新隔离96，覆盖固定仓库ID/公开状态、匿名请求、资产ID/URL/摘要、预发布通道、限流截止前零新请求、重复/取消后重试与原有ZIP/故障恢复/回滚。测试夹具.exe为文本，绝不启动。前端71及TypeScript/Vite构建、模拟AI18、SQLite56、OCR算法16/固定模型合成推理17、发布流程模拟8、条款源码审查、publish语法、无头更新健康/未保存快照2项通过；保留615.17kB chunk提示及NuGetAudit=false/缓存依赖的漏洞数据库限制。
+
+候选本地打包首轮因PATH解析到无SDK运行时而失败，已改用已有10.0.102 SDK目录重试；不修改global.json或安装SDK。候选静态包审查与匿名实际下载结果见后续增量，不能把首轮失败或计划当作通过。真实WPF页面可读性/键盘/焦点、Windows退出交接/重启/真实回滚、UAC/只读介质/杀毒软件/断电未实机测试；桌面暂停与不覆盖用户安装继续有效。没有新设备流程、扩权、远端撤销、合并或Release发布。
+
+
+公开源核验增量：05:33 UTC在服务端限流重置后再试，两个仓库匿名API均200，private=false/visibility=public；screenshot ID=1425162253、md ID=1425132652，各3个Release，最新分别为v0.4.7/v0.1.2且均prerelease，均有5个附件和官方API SHA-256。没有使用认证、Cookie或代理。生产更新代码对真实0.4.8候选执行稳定/含预发布检查，两者均无更高版本，HasPreviewReleases=true、HasStableReleases=false；不伪造较低当前版本以制造升级。
+
+本地自包含候选 artifacts/update-048-public-candidate-sdk（提交前静态证据）打包与Node审查765文件/192组件通过；原生重新验证包内版本及全清单，manifest SHA-256=01b9fa9be624922099f635038de648bdd50d9aa752aff77ebd40c17cd307dfc8。原生与Node条款摘要一致f3a3f3f21f14b0f4b6203596182b5a873da9df41b27758e506812f9adf30d548，221份，accepted=false/hostStarted=false。没有启动该候选，保留既有stackback告知/完整法律与干净机器限制；此目录不能代替精确新提交CI的发行制品。
+
+
+真实匿名下载增量：生产GitHubUpdateSource/PortablePackage代码成功下载官方v0.4.7 ZIP至全新隔离目录，115632314字节，SHA-256=bcf83d7cae05e2caee04cc8a7937bdae3acf99c4647140bf8515df6a271fd794，与匿名官方API一致；解压全清单/版本验证通过，manifest SHA-256=504340792331a743343e7ee02d83c305161c86feebf40f029abccb2fe7ee430d。探针没有链接UpdateTransaction，没有启动EXE、保存授权凭据或覆盖安装，no_upgrade_performed=true。0.4.7仅用于真实下载/完整性验收，不作为0.4.8的升级候选，不伪造版本比较；md只验证匿名API与附件范围访问，本任务不修改其工程或运行安装。
