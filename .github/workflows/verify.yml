@@ -34,18 +34,6 @@ jobs:
       - name: Build and automated checks with synthetic OCR inference
         shell: pwsh
         run: ./scripts/verify.ps1 -WithOcrIntegration
-      - name: Compare source and vendor native runtime on synthetic CPU OCR
-        id: native_quality
-        continue-on-error: true
-        shell: pwsh
-        run: ./scripts/native-quality.ps1
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: Screenshot-native-quality-evidence
-          path: artifacts/qa/native-rebuild/
-          if-no-files-found: warn
-          retention-days: 14
       - name: Synthetic headless editor regressions
         shell: pwsh
         run: |
@@ -87,12 +75,17 @@ jobs:
           path: artifacts/qa/redesign/
           if-no-files-found: error
           retention-days: 14
-      # 保留性能失败，同时让后续独立合成回归提供证据；失败不能进入打包候选。
-      - name: Require native comparison before packaging
-        if: always()
+      # 先收集独立合成回归；性能比较仍是直接失败并阻止打包的硬门禁。
+      - name: Compare source and vendor native runtime on synthetic CPU OCR
         shell: pwsh
-        run: |
-          if ('${{ steps.native_quality.outcome }}' -ne 'success') { throw 'Native comparison failed or is inconclusive; packaging remains blocked.' }
+        run: ./scripts/native-quality.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Screenshot-native-quality-evidence
+          path: artifacts/qa/native-rebuild/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Publish portable Windows x64 directory
         shell: pwsh
         run: ./scripts/publish.ps1 -SkipRestore

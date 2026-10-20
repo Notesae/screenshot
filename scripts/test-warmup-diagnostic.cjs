@@ -1,6 +1,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),{spawnSync}=require('node:child_process');
 const {DIAGNOSTIC,analyzeWarmup,collectAfterFailure}=require('./native-warmup-diagnostic.cjs');
 const {comparePaired,PROTOCOL}=require('./compare-native-quality.cjs');let checks=0;
+const {warmupWorkers}=require('./run-native-quality.cjs');
 function report(values){return {failure:'Warmup remained unstable: small-text',failedScenario:'small-text',samples:['vendor','source'].flatMap(profile=>values.map(milliseconds=>({profile,scenario:'small-text',phase:'warmup',milliseconds}))),diagnosticSamples:[]};}
 function check(label,test){test();checks++;console.log('PASS '+label);}
 check('short trace cannot distinguish budget from persistent variation',()=>assert.equal(analyzeWarmup(report(Array(16).fill(100))).classification,'insufficient-long-trace'));
@@ -14,6 +15,10 @@ check('interrupted NDJSON cannot be overwritten',()=>{
  const run=spawnSync(process.execPath,['scripts/run-native-quality.cjs',...Array(6).fill('unused'),root],{encoding:'utf8',windowsHide:true});assert.equal(run.status,1);assert.match(run.stderr,/Refuse to overwrite/);assert.equal(fs.readFileSync(file,'utf8'),'preserve');
 });
 (async()=>{
+ const late=[...Array.from({length:13},(_,i)=>i%2?100:120),...Array(5).fill(100)];let warmCalls=0;
+ assert.equal(await warmupWorkers(async(profile,round)=>{warmCalls++;return late[round];},()=>0),true);assert.equal(warmCalls,36);checks++;console.log('PASS controller reaches the first valid window at eighteen without discarding earlier warmup');
+ let unstableCalls=0;assert.equal(await warmupWorkers(async(profile,round)=>{unstableCalls++;return round%2?100:120;},()=>0),false);assert.equal(unstableCalls,128);checks++;console.log('PASS permanently unstable warmup fails at the fixed count budget');
+ let budgetClock=0,budgetCalls=0;assert.equal(await warmupWorkers(async()=>{budgetCalls++;return 100;},()=>budgetClock++?PROTOCOL.warmupMaximumMs:0),false);assert.equal(budgetCalls,0);checks++;console.log('PASS expired warmup budget cannot start another request pair');
  const r=report(Array(16).fill(130));let calls=0;
  await assert.rejects(()=>collectAfterFailure(r,async(profile,scenario,phase,block,slot)=>{assert.ok(r.failure);calls++;r.diagnosticSamples.push({profile,scenario,phase,milliseconds:100});},'small-text',()=>0),/Warmup remained unstable/);
  assert.equal(calls,DIAGNOSTIC.extraRounds*2);assert.equal(r.diagnosticAnalysis.accepted,false);assert.equal(r.diagnosticAnalysis.classification,'stable-tail-observed-after-failure');checks++;console.log('PASS later stability cannot resume acceptance or stop diagnostic sampling selectively');

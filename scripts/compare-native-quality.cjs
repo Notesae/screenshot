@@ -1,7 +1,7 @@
 // 采样前固定的配对门禁；完整协议见 docs/OCR-BENCHMARK-PROTOCOL.md。
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const SCENARIOS=['small-text','large-text','large-png-decode-and-detection-preprocess'];
-const PROTOCOL={version:2,blocks:12,warmupMinimum:8,warmupMaximum:16,warmupWindow:5,warmupSpread:1.10,maximumBlockMs:8000,regressionRatio:1.15,intervalConfidence:0.96142578125};
+const PROTOCOL={version:3,blocks:12,warmupMinimum:8,warmupMaximum:64,warmupMaximumMs:30000,warmupWindow:5,warmupSpread:1.10,maximumBlockMs:8000,regressionRatio:1.15,intervalConfidence:0.96142578125};
 const median=values=>{const a=[...values].sort((x,y)=>x-y);return (a[Math.floor((a.length-1)/2)]+a[Math.floor(a.length/2)])/2;};
 const stable=values=>values.length>=PROTOCOL.warmupMinimum&&Math.max(...values.slice(-5))/Math.min(...values.slice(-5))<=PROTOCOL.warmupSpread;
 function comparePaired(report){
@@ -53,6 +53,8 @@ function comparePaired(report){
    const warmup=report.samples.filter(s=>s.scenario===name&&s.profile===profile&&s.phase==='warmup');
    assert.ok(warmup.length>=PROTOCOL.warmupMinimum&&warmup.length<=PROTOCOL.warmupMaximum&&stable(warmup.map(s=>s.milliseconds)),'Unstable or incomplete warmup');
   }
+  const warmupRows=report.samples.filter(s=>s.scenario===name&&s.phase==='warmup');
+  assert.ok((warmupRows.at(-1).end-warmupRows[0].start)*1000/warmupRows[0].frequency<=PROTOCOL.warmupMaximumMs,'Warmup exceeds fixed time budget');
   const samples=report.samples.filter(s=>s.scenario===name&&s.phase==='sample');assert.equal(samples.length,PROTOCOL.blocks*4,'Missing or extra paired samples');
   const blocks=[];
   for(let block=0;block<PROTOCOL.blocks;block++){

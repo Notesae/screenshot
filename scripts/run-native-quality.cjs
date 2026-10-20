@@ -1,6 +1,16 @@
 const fs=require('node:fs'),path=require('node:path'),readline=require('node:readline'),{spawn}=require('node:child_process');
 const {PROTOCOL,SCENARIOS,stable}=require('./compare-native-quality.cjs');
 const {collectAfterFailure}=require('./native-warmup-diagnostic.cjs');
+// 诊断证实 16 次可能截断过渡；只增加有界预算，原稳定条件和全部原始记录仍保留。
+async function warmupWorkers(measure,clock=()=>performance.now()){
+ const values={vendor:[],source:[]},start=clock();
+ for(let round=0;round<PROTOCOL.warmupMaximum;round++){
+  if(clock()-start>=PROTOCOL.warmupMaximumMs)return false;
+  for(const profile of round%2?['source','vendor']:['vendor','source'])values[profile].push(await measure(profile,round));
+  if(clock()-start<=PROTOCOL.warmupMaximumMs&&stable(values.vendor)&&stable(values.source))return true;
+ }
+ return false;
+}
 // 控制器只串行发请求；每次原始响应立即落盘，失败也保留已获得的数据。
 async function run(){
  const [runner,models,vendor,vendorHash,source,sourceHash,output]=process.argv.slice(2);if(!output)throw new Error('Missing paired benchmark paths');
@@ -28,11 +38,7 @@ async function run(){
    (diagnostic?report.diagnosticSamples:report.samples).push(row);persist(row);return sample.milliseconds;
   }
   for(const scenario of SCENARIOS){
-   const warmup={vendor:[],source:[]};let warmed=false;
-   for(let round=0;round<PROTOCOL.warmupMaximum;round++){
-    for(const profile of round%2?['source','vendor']:['vendor','source'])warmup[profile].push(await measure(profile,scenario,'warmup',-1,round));
-    if(stable(warmup.vendor)&&stable(warmup.source)){warmed=true;break;}
-   }
+   const warmed=await warmupWorkers((profile,round)=>measure(profile,scenario,'warmup',-1,round));
    if(!warmed)await collectAfterFailure(report,measure,scenario);
    for(let block=0;block<PROTOCOL.blocks;block++){
     const order=block%2?['source','vendor','vendor','source']:['vendor','source','source','vendor'];
@@ -53,4 +59,5 @@ async function run(){
   if(report.failure)throw new Error(report.failure);
  }
 }
-run().catch(error=>{console.error('FAIL paired native benchmark: '+error.message);process.exitCode=1;});
+module.exports={warmupWorkers};
+if(require.main===module)run().catch(error=>{console.error('FAIL paired native benchmark: '+error.message);process.exitCode=1;});

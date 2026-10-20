@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict');
 const {comparePaired,PROTOCOL,SCENARIOS}=require('./compare-native-quality.cjs');
 const hash='a'.repeat(64);let checks=0;
-function fixture(ratio=1,drift=false,speed=()=>1){
+function fixture(ratio=1,drift=false,speed=()=>1,warmupValues=Array(8).fill(100)){
  const workers=['vendor','source'].map((profile,i)=>({kind:'ready',protocol:2,profile,pid:101+i,nativeSha256:hash,nativeBytes:100,frequency:1000000,
   modelVersion:'fixed-test',tieredCompilation:'0',inputHashes:Object.fromEntries(SCENARIOS.map(n=>[n,hash])),buildInfo:'To be built: core imgcodecs imgproc\nIntel IPP: NO\nOpenCL: NO\nTrace: NO'}));
  const samples=[];let tick=100000;
@@ -12,7 +12,7 @@ function fixture(ratio=1,drift=false,speed=()=>1){
   samples.push({kind:'measurement',id,sequence:id,profile,pid:profile==='vendor'?101:102,scenario,phase,block,slot,start,end,frequency:1000000,milliseconds:(end-start)/1000,startedUtc:'2026-10-20T00:00:00Z',correctness});
  }
  for(const scenario of SCENARIOS){
-  for(let i=0;i<8;i++)for(const p of ['vendor','source'])sample(p,scenario,'warmup',-1,i,100);
+  for(let i=0;i<warmupValues.length;i++)for(const p of ['vendor','source'])sample(p,scenario,'warmup',-1,i,warmupValues[i]);
   for(let block=0;block<12;block++){
    const order=block%2?['source','vendor','vendor','source']:['vendor','source','source','vendor'];
    for(let slot=0;slot<4;slot++){
@@ -30,6 +30,9 @@ check('log-linear time drift cancels within ABBA/BAAB blocks',()=>{for(const s o
 check('real 30% regression still fails while drifting',()=>{for(const s of comparePaired(fixture(1.3,true)).scenarios)assert.equal(s.status,'regression');});
 check('interval crossing unchanged 15% gate is inconclusive',()=>{for(const s of comparePaired(fixture(i=>i<9?1.1:1.3)).scenarios)assert.equal(s.status,'inconclusive');});
 check('no hidden relaxation just below/above threshold',()=>{assert.equal(comparePaired(fixture(1.149)).performanceReviewRequired,false);assert.equal(comparePaired(fixture(1.151)).performanceReviewRequired,true);});
+check('stable warmup beyond the former sixteen-observation budget remains fully checked',()=>assert.equal(comparePaired(fixture(1,false,()=>1,[...Array.from({length:13},(_,i)=>i%2?100:120),...Array(5).fill(100)])).performanceReviewRequired,false));
+check('warmup still has an absolute count limit',()=>assert.throws(()=>comparePaired(fixture(1,false,()=>1,Array(65).fill(100)))));
+check('warmup still has an absolute elapsed-time limit',()=>assert.throws(()=>comparePaired(fixture(1,false,()=>1,Array(64).fill(300))),/fixed time budget/));
 check('same machine-speed steps falsely fail old grouping but pass short pairing',()=>{
  const speed=t=>[1,1,1.3,1,1.3,1.3][Math.min(5,Math.floor(t*6))],old={vendor:[],source:[]},order=['vendor','source','source','vendor','vendor','source'];
  for(let i=0;i<30;i++)old[order[Math.floor(i/5)]].push(100*speed(i/30));
