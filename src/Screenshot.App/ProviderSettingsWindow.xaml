@@ -1,50 +1,31 @@
 <Window x:Class="Screenshot.App.ProviderSettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Screenshot.App"
         Title="设置" Width="680" Height="780" MinWidth="600" MinHeight="560"
         WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True" ShowInTaskbar="False"
-        WindowStartupLocation="CenterOwner" Background="Transparent" Foreground="{DynamicResource ClayInk}" FontFamily="Microsoft YaHei UI" FontSize="13">
+        WindowStartupLocation="CenterOwner" Background="Transparent" Foreground="{DynamicResource ClayInk}" FontFamily="{DynamicResource ClayFont}" FontSize="{DynamicResource ClayBodySize}">
     <Window.Resources>
-        <!-- 本地样式显式保留文字颜色，避免覆盖全局 Label 样式后回落到系统黑色。 -->
-        <Style TargetType="Label"><Setter Property="FontSize" Value="12"/><Setter Property="Foreground" Value="{DynamicResource ClayMuted}"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0,0,0,8"/></Style>
-        <Style TargetType="TextBox" BasedOn="{StaticResource ClayPanelField}"/>
-        <Style TargetType="PasswordBox" BasedOn="{StaticResource ClayPanelField}"/>
-        <Style TargetType="Button" BasedOn="{StaticResource ClayPanelButton}"/>
-        <Style TargetType="ComboBox" BasedOn="{StaticResource ClayPanelComboBox}"/>
-        <Style TargetType="TabItem" BasedOn="{StaticResource ClayPanelTab}"/>
-        <Style TargetType="ScrollBar" BasedOn="{StaticResource ClayPanelScrollBar}"/>
-        <Style TargetType="ScrollViewer"><Setter Property="FocusVisualStyle" Value="{x:Null}"/><Setter Property="Padding" Value="0"/></Style>
-        <Style TargetType="ComboBoxItem" BasedOn="{StaticResource ClayItem}"><Setter Property="FontSize" Value="13"/><Style.Triggers><Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#1AFFFFFF"/></Trigger></Style.Triggers></Style>
-        <Style TargetType="ListBoxItem" BasedOn="{StaticResource ClayItem}"><Setter Property="Margin" Value="0,0,0,6"/><Style.Triggers><Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#1AFFFFFF"/></Trigger></Style.Triggers></Style>
+        <!-- 仅保留此表单的布局角色，控件模板统一从全局共享资源取得。 -->
         <Style x:Key="FieldGroup" TargetType="StackPanel"><Setter Property="Margin" Value="0,0,0,16"/></Style>
-        <Style x:Key="FieldHint" TargetType="TextBlock"><Setter Property="Foreground" Value="{DynamicResource ClayMuted}"/><Setter Property="TextWrapping" Value="Wrap"/><Setter Property="LineHeight" Value="20"/><Setter Property="FontSize" Value="12"/><Setter Property="Margin" Value="0,6,0,0"/></Style>
-        <Style TargetType="Expander">
-            <Setter Property="Foreground" Value="{DynamicResource ClayInk}"/>
-            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Expander"><StackPanel>
-                <ToggleButton x:Name="Disclosure" IsChecked="{Binding IsExpanded,Mode=TwoWay,RelativeSource={RelativeSource TemplatedParent}}" HorizontalContentAlignment="Stretch" Foreground="{DynamicResource ClayInk}">
-                    <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><Border x:Name="Face" Background="Transparent" Padding="0,12" BorderBrush="#20FFFFFF" BorderThickness="0,1,0,0"><Grid><ContentPresenter/><Path x:Name="Arrow" HorizontalAlignment="Right" VerticalAlignment="Center" Data="M 0,0 L 4,4 L 8,0" Stroke="{DynamicResource ClayMuted}" StrokeThickness="1.5" RenderTransformOrigin="0.5,0.5"/></Grid></Border><ControlTemplate.Triggers><Trigger Property="IsChecked" Value="True"><Setter TargetName="Arrow" Property="RenderTransform"><Setter.Value><RotateTransform Angle="180"/></Setter.Value></Setter></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Face" Property="BorderBrush" Value="{DynamicResource ClayFocus}"/></Trigger></ControlTemplate.Triggers></ControlTemplate></ToggleButton.Template>
-                    <ContentPresenter Content="{TemplateBinding Header}"/>
-                </ToggleButton>
-                <ContentPresenter x:Name="Expansion" Visibility="Collapsed" Margin="0,8,0,0"/>
-            </StackPanel><ControlTemplate.Triggers><Trigger Property="IsExpanded" Value="True"><Setter TargetName="Expansion" Property="Visibility" Value="Visible"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
-        </Style>
+        <Style x:Key="FieldHint" TargetType="TextBlock"><Setter Property="Foreground" Value="{DynamicResource ClayMuted}"/><Setter Property="TextWrapping" Value="Wrap"/><Setter Property="LineHeight" Value="20"/><Setter Property="FontSize" Value="{DynamicResource ClayLabelSize}"/><Setter Property="Margin" Value="0,6,0,0"/></Style>
+        <Style x:Key="FeedbackText" TargetType="TextBlock" BasedOn="{StaticResource FieldHint}"><Setter Property="Margin" Value="0,0,0,12"/><Setter Property="AutomationProperties.LiveSetting" Value="Polite"/><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers></Style>
     </Window.Resources>
     <!-- 与编辑器属性卡相同的暖灰渐变、圆角、高光和外投影；窗口只承担原生安全边界。 -->
-    <Border Margin="16" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClaySurface}" BorderBrush="#29FFFFFF" BorderThickness="1">
-        <Border.Effect><DropShadowEffect BlurRadius="20" ShadowDepth="5" Opacity="0.5"/></Border.Effect>
+    <local:SoftClaySurface Margin="16" Style="{StaticResource ClayFloatingSurface}">
+
     <Grid Margin="20,12,20,18">
-        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-        <Grid Margin="-4,0,-4,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <Grid Margin="-4,0,-4,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <Grid Background="Transparent" MouseLeftButtonDown="Header_MouseLeftButtonDown" Cursor="SizeAll" MinHeight="32">
-                <TextBlock Text="设置" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <TextBlock Text="设置" FontSize="{DynamicResource ClayTitleSize}" FontWeight="SemiBold" VerticalAlignment="Center"/>
             </Grid>
-            <Button Grid.Column="1" IsCancel="True" Width="32" MinHeight="32" Padding="8" Background="Transparent" BorderThickness="0" AutomationProperties.Name="关闭设置" ToolTip="关闭">
-                <Path Data="M 0,0 L 10,10 M 10,0 L 0,10" Stroke="{DynamicResource ClayMuted}" StrokeThickness="1.5" Width="10" Height="10"/>
-            </Button>
+            <Button x:Name="TermsButton" Grid.Column="1" Content="使用条款" Click="Terms_Click" Style="{StaticResource ClayTextButton}" Margin="0,0,12,0"/>
+            <Button Grid.Column="2" IsCancel="True" Style="{StaticResource ClayCloseButton}" AutomationProperties.Name="关闭设置"/>
         </Grid>
         <TabControl x:Name="SettingsTabs" Grid.Row="1" Background="Transparent">
             <TabItem x:Name="CaptureTab" Header="截图与快捷键">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,20,0,0"><StackPanel x:Name="CapturePreferences" Margin="0,0,8,0">
+                <ScrollViewer Style="{StaticResource ClayPageScrollViewer}"><StackPanel x:Name="CapturePreferences">
                     <StackPanel Style="{StaticResource FieldGroup}">
                         <Label Content="截图方式" Target="{Binding ElementName=CaptureBackend}"/>
                         <ComboBox x:Name="CaptureBackend" AutomationProperties.Name="截图方式"><ComboBoxItem Content="推荐 · WGC" Tag="wgc"/><ComboBoxItem Content="兼容 · GDI" Tag="gdi"/></ComboBox>
@@ -56,7 +37,7 @@
                         <ComboBox x:Name="SnapArea"><ComboBoxItem Content="包含标题栏"/><ComboBoxItem Content="仅窗口内容"/></ComboBox>
                     </StackPanel>
                     <Button Content="应用截图设置" Click="ApplyCapture_Click" HorizontalAlignment="Left" Margin="0,0,0,24"/>
-                    <Border BorderBrush="#20FFFFFF" BorderThickness="0,1,0,0" Padding="0,20,0,0"><StackPanel>
+                    <Border BorderThickness="0" Padding="0,20,0,0"><StackPanel>
                         <TextBlock Text="区域截图快捷键" FontWeight="SemiBold" Margin="0,0,0,16"/>
                         <CheckBox x:Name="HotkeyEnabled" Content="启用全局快捷键" Margin="0,0,0,20"/>
                         <Label Content="组合键"/>
@@ -67,6 +48,7 @@
                         <Button Content="应用快捷键" Click="ApplyHotkey_Click" HorizontalAlignment="Left" Margin="0,16,0,0"/>
                         <TextBlock x:Name="HotkeyMessage" Style="{StaticResource FieldHint}" AutomationProperties.LiveSetting="Polite"/>
                     </StackPanel></Border>
+                    <TextBlock x:Name="CaptureStatus" Style="{StaticResource FeedbackText}" Margin="0,16,0,0"/>
                 </StackPanel></ScrollViewer>
             </TabItem>
             <TabItem x:Name="ServicesTab" Header="识别与翻译">
@@ -74,21 +56,23 @@
                     <Grid.ColumnDefinitions><ColumnDefinition x:Name="ProviderSidebarColumn" Width="0"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                     <!-- 有已保存连接才展示侧栏，首次打开不保留空列表占位。 -->
                     <Grid x:Name="ProviderSidebar" Visibility="Collapsed" Margin="0,0,16,0">
-                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                        <TextBlock Text="我的服务" Foreground="{DynamicResource ClayMuted}" FontSize="12" Margin="4,0,0,12"/>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                        <Grid Margin="0,0,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <TextBlock Text="我的服务" Foreground="{DynamicResource ClayMuted}" FontSize="{DynamicResource ClayLabelSize}" Margin="4,0,8,0" VerticalAlignment="Center"/>
+                            <Button Grid.Column="1" Content="添加" Click="AddOpenAi_Click" Style="{StaticResource ClayTextButton}" ToolTip="添加服务" AutomationProperties.Name="添加服务"/>
+                        </Grid>
                         <ListBox x:Name="ProviderList" Grid.Row="1" SelectionChanged="ProviderList_SelectionChanged" Background="Transparent" Padding="0" BorderThickness="0" HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="已保存的服务">
-                            <ListBox.ItemTemplate><DataTemplate><StackPanel><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Model}" Foreground="{DynamicResource ClayMuted}" FontSize="11" Margin="0,5,0,0" TextTrimming="CharacterEllipsis"/></StackPanel></DataTemplate></ListBox.ItemTemplate>
+                            <ListBox.ItemTemplate><DataTemplate><StackPanel><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Model}" Foreground="{DynamicResource ClayMuted}" FontSize="{DynamicResource ClayLabelSize}" Margin="0,5,0,0" TextTrimming="CharacterEllipsis"/></StackPanel></DataTemplate></ListBox.ItemTemplate>
                         </ListBox>
-                        <Button Grid.Row="2" Content="＋ 添加服务" Click="AddOpenAi_Click" Margin="0,16,0,0"/>
                     </Grid>
                     <Grid Grid.Column="1" HorizontalAlignment="Stretch">
                         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                         <StackPanel Margin="0,0,0,16">
-                            <TextBlock x:Name="FormTitle" Text="连接 AI 服务" FontSize="13" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="FormTitle" Text="连接 AI 服务" FontSize="{DynamicResource ClayBodySize}" FontWeight="SemiBold"/>
                             <TextBlock Text="用于云端识别和翻译" Style="{StaticResource FieldHint}"/>
                         </StackPanel>
-                        <ScrollViewer x:Name="ProviderScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                            <StackPanel Margin="0,0,8,0">
+                        <ScrollViewer x:Name="ProviderScroll" Grid.Row="1" Style="{StaticResource ClayPageScrollViewer}" Margin="0,0,-16,0">
+                            <StackPanel>
                                 <StackPanel Style="{StaticResource FieldGroup}">
                                     <Label Content="服务类型" Target="{Binding ElementName=ProviderKind}"/>
                                     <ComboBox x:Name="ProviderKind" SelectedIndex="0" AutomationProperties.Name="服务类型">
@@ -110,9 +94,9 @@
                                     <TextBlock Text="截图翻译优先本地识别，再交给此模型翻译文字。" Style="{StaticResource FieldHint}"/>
                                 </StackPanel>
                                 <StackPanel Style="{StaticResource FieldGroup}">
-                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Label Content="API 密钥" Target="{Binding ElementName=ApiKey}"/><TextBlock x:Name="KeyBadge" Grid.Column="1" FontSize="12" Foreground="{DynamicResource ClayFocus}"/></Grid>
+                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Label Content="API 密钥" Target="{Binding ElementName=ApiKey}"/><TextBlock x:Name="KeyBadge" Grid.Column="1" FontSize="{DynamicResource ClayLabelSize}" Foreground="{DynamicResource ClayMuted}"/></Grid>
                                     <!-- 占位只表示保存状态，不读回密钥或把示意圆点当作新密码保存。 -->
-                                    <Grid><PasswordBox x:Name="ApiKey" MaxLength="8192" AutomationProperties.Name="API 密钥"/><TextBlock x:Name="KeyPlaceholder" Text="填写 API 密钥" Foreground="{DynamicResource ClayMuted}" Margin="12,0" VerticalAlignment="Center" IsHitTestVisible="False" FontSize="12"/></Grid>
+                                    <Grid><PasswordBox x:Name="ApiKey" MaxLength="8192" AutomationProperties.Name="API 密钥"/><TextBlock x:Name="KeyPlaceholder" Text="填写 API 密钥" Foreground="{DynamicResource ClayMuted}" Margin="12,0" VerticalAlignment="Center" IsHitTestVisible="False" FontSize="{DynamicResource ClayLabelSize}"/></Grid>
                                     <TextBlock x:Name="KeyState" Style="{StaticResource FieldHint}"/>
                                 </StackPanel>
                                 <Expander x:Name="MoreSettings" Header="更多设置" Margin="0,0,0,12">
@@ -122,20 +106,20 @@
                                         <CheckBox x:Name="MakeDefault" Content="设为默认服务" Margin="0,0,0,16"/>
                                         <CheckBox x:Name="ClearKey" Content="删除已保存的密钥" Visibility="Collapsed" Margin="0,0,0,12"/>
                                         <TextBlock Text="密钥加密保存在当前 Windows 账户下。" Style="{StaticResource FieldHint}"/>
+                                        <Button x:Name="DeleteButton" Content="删除服务" Click="Delete_Click" Style="{StaticResource ClayDangerButton}" Visibility="Collapsed" HorizontalAlignment="Left" Margin="0,16,0,0"/>
                                     </StackPanel>
                                 </Expander>
                             </StackPanel>
                         </ScrollViewer>
-                        <!-- 保存和删除固定在表单下方，滚动或展开设置不遮住主要操作。 -->
-                        <Border Grid.Row="2" BorderBrush="#20FFFFFF" BorderThickness="0,1,0,0" Padding="0,14,0,0" Margin="0,12,8,0">
+                        <!-- 固定区只保留当前连接的反馈、测试和保存，服务管理放回列表与更多设置。 -->
+                        <Border Grid.Row="2" BorderThickness="0" Margin="0,20,0,0">
                             <StackPanel>
-                            <TextBlock x:Name="ConnectionTestResult" TextWrapping="Wrap" Margin="0,0,0,10" FontSize="12" Foreground="{DynamicResource ClayMuted}" AutomationProperties.LiveSetting="Polite"><TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
-                            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <TextBlock x:Name="ConnectionTestResult" Style="{StaticResource FeedbackText}"/>
+                            <TextBlock Text="测试仅发送示例文字，服务商可能计费。" Style="{StaticResource FieldHint}" Margin="0,0,0,12"/>
+                            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                 <StackPanel Orientation="Horizontal"><Button x:Name="TestConnectionButton" Content="测试连接" Click="TestConnection_Click"/><Button x:Name="CancelConnectionTestButton" Content="取消" Click="CancelConnectionTest_Click" Visibility="Collapsed" Margin="8,0,0,0"/></StackPanel>
-                                <Button x:Name="DeleteButton" Grid.Column="1" Content="删除" Click="Delete_Click" Visibility="Collapsed" Margin="0,0,10,0"/>
-                                <Button x:Name="SaveButton" Grid.Column="2" Content="保存连接" Click="Save_Click" Background="{StaticResource ClayPanelPrimary}" MinWidth="104"/>
+                                <Button x:Name="SaveButton" Grid.Column="1" Content="保存连接" Click="Save_Click" Style="{StaticResource ClayPrimaryButton}" MinWidth="104" Margin="16,0,0,0"/>
                             </Grid>
-                            <TextBlock Text="测试发送固定翻译示例，不上传截图；服务商可能计费。" Style="{StaticResource FieldHint}" FontSize="11"/>
                             </StackPanel>
                         </Border>
                     </Grid>
@@ -143,10 +127,6 @@
             </TabItem>
             <TabItem Header="应用更新" x:Name="UpdateTab"/>
         </TabControl>
-        <Grid Grid.Row="2" Margin="0,14,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-            <TextBlock x:Name="Status" TextWrapping="Wrap" Foreground="{DynamicResource ClayMuted}" VerticalAlignment="Center" FontSize="12" Margin="0,0,12,0" AutomationProperties.LiveSetting="Polite"/>
-            <Button x:Name="TermsButton" Grid.Column="1" Content="使用条款" Click="Terms_Click" MinHeight="32" Padding="8,5" Background="Transparent" BorderThickness="0"/>
-        </Grid>
     </Grid>
-    </Border>
+    </local:SoftClaySurface>
 </Window>

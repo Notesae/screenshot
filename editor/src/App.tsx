@@ -13,7 +13,7 @@ import { fileToImage, imageForProcessing, normalizeImage } from './render';
 import type { CanvasHandle, CanvasRenderStatus, CanvasSelection } from './EditorCanvas';
 import { overlayForImportedImage, parseCapture, type CaptureEnvelope, type OverlayMetadata, type PixelRect } from './overlay';
 import { CompactOverlay } from './CompactOverlay';
-import { parseImageTranslation, renderImageTranslation } from './imageTranslation';
+import { groupImageTextLines, ocrImageRegions, parseImageTranslation, prepareImageTranslation, shouldTranslateImageText } from './imageTranslation';
 import { useEditorHistory } from './useEditorHistory';
 import { annotationKeyAction, historyKeyAction } from './keyboard';
 
@@ -174,7 +174,7 @@ export default function App() {
       if(revision!==generation.current||overlayRef.current?.captureId!==source.captureId)return;
       captureGeometry.current.set(image,result.overlay);
       const editor=document.editor.mode==='reflow'?document.editor:transformContent(document,null,null).editor;
-      history.commitDocument({...document,image,editor:{...editor,crop:null,resize:null,ocr:null}});
+      history.commitDocument({...document,image,editor:{...editor,crop:null,resize:null,ocr:null,imageTranslation:null}});
       setSelection(null);accepted=true;
     });}finally{captureAdjusting.current=false;}
     return accepted;
@@ -304,7 +304,7 @@ export default function App() {
   }
   // 身份、历史修订和请求序号共同保护结果；本地与云端都只响应明确点击。
   function requestStamp(sequence = aiSequence.current): RequestStamp { return { documentId: documentIdRef.current, generation: generation.current, revision: history.currentRevision(), sequence }; }
-  // 图片翻译只在明确点击后发送遮盖过的当前内容，全部完成后一次替换底图，支持整步撤销。
+  // 图片翻译只响应明确点击；独立译文图层同一次入历史，原图保留供撤销、重译和阅读。
   async function translateImage() {
     if(aiBusy||aiTaskId.current||operationRef.current||hostLock.current)return;
     const snapshot=history.current();
@@ -324,24 +324,23 @@ export default function App() {
         if(!matches())return;
         const ocr=parseOcr(recognized,{crop:snapshot.editor.crop,resize:snapshot.editor.resize});
         if(ocr.imageWidth!==input.width||ocr.imageHeight!==input.height)throw new Error('识别位置与截图尺寸不一致。');
-        const foreign=ocr.blocks.filter(block=>Array.from(block.text).some(char=>/\p{Letter}/u.test(char)&&!/\p{Script=Han}/u.test(char)));
-        if(foreign.length>250||foreign.reduce((sum,block)=>sum+block.text.length+1,0)>20000)throw new Error('选区文字过多，请缩小范围后翻译。');
+        const foreign=groupImageTextLines(ocrImageRegions(ocr).filter(block=>shouldTranslateImageText(block.source)));
+        if(foreign.length>250||foreign.reduce((sum,block)=>sum+block.source.length+1,0)>20000)throw new Error('选区文字过多，请缩小范围后翻译。');
         const blocks=[];
         const translated=new Map<string,string>();
         for(const [index,block] of foreign.entries()){
           if(!matches())return;
           setNotice({text:'正在翻译 '+(index+1)+' / '+foreign.length+' 处文字…'});
-          let text=translated.get(block.text);
+          let text=translated.get(block.source);
           if(text===undefined){
             const id=crypto.randomUUID();aiTaskId.current=id;
-            const response=await native.request<{text:string}>('ai.translate',{taskId:id,providerId,providerRevision,text:block.text,targetLanguage:'简体中文'});
+            const response=await native.request<{text:string}>('ai.translate',{taskId:id,providerId,providerRevision,text:block.source,targetLanguage:'简体中文',purpose:'image'});
             if(!matches())return;
             if(typeof response.text!=='string'||!response.text.trim()||response.text.length>2000)throw new Error('有一段译文无效或过长，截图尚未修改。');
-            text=response.text;translated.set(block.text,text);
+            text=response.text;translated.set(block.source,text);
           }
-          const xs=block.polygon.map(point=>point.x),ys=block.polygon.map(point=>point.y);
-          const x=Math.min(...xs)/ocr.imageWidth*1000,y=Math.min(...ys)/ocr.imageHeight*1000;
-          blocks.push({source:block.text,text,x,y,width:Math.max(...xs)/ocr.imageWidth*1000-x,height:Math.max(...ys)/ocr.imageHeight*1000-y});
+          if(text.trim()===block.source.trim())continue;
+          blocks.push({...block,text});
         }
         result={blocks};
       }else{
@@ -351,15 +350,15 @@ export default function App() {
         catch(error){throw new Error(message(error)+' 当前未能使用本地识别，图片直译需要支持图片输入的模型。');}
       }
       if(!matches())return;
-      const blocks=parseImageTranslation(result);
+      const returned=parseImageTranslation(result),blocks=returned.filter(block=>shouldTranslateImageText(block.source)&&block.source.trim()!==block.text.trim());
       if(!blocks.length){setNotice({text:'没有发现需要替换的外语文字，截图保持原样。'});return;}
-      const image=await renderImageTranslation(snapshot,blocks);
+      // 短标签被扩写成解释时明确拒绝，避免将错误长文回填到图中；不自动追加付费重试。
+      if(blocks.some(block=>block.source.trim().length<=40&&block.text.trim().length>Math.max(40,block.source.trim().length*2.5)))throw new Error('服务将短语扩写成了说明，未修改截图。请换用直接翻译的模型后重试。');
+      const imageTranslation=await prepareImageTranslation(snapshot,blocks,canvas.current?.getDisplayScale?.());
       if(!matches())return;
-      const geometry=captureGeometry.current.get(snapshot.image);
-      if(geometry)captureGeometry.current.set(image,geometry);
       const text=blocks.map(block=>block.source).join('\n'),translation=blocks.map(block=>block.text).join('\n');
-      history.commitDocument({...snapshot,image,editor:{...snapshot.editor,ocr:null,text,translation,translationSource:text,translationData:null}});
-      setNotice({text:'已替换为中文，可用撤销恢复原图。'});
+      history.commitDocument({...snapshot,editor:{...snapshot.editor,imageTranslation,ocr:null,text,translation,translationSource:text,translationData:null}});
+      setNotice({text:imageTranslation.blocks.some(block=>block.overflow)?'已按原位置排版；空间不足处保留节选或原文，点击“阅读译文”可看全文。':imageTranslation.blocks.some(block=>block.needsReading)?'已按原位置排版；点击“阅读译文”可放大查看小字和长段落。':'已按原位置翻译，可用撤销恢复原图。'});
     }catch(error){if(sequence===aiSequence.current)errorNotice(error);}
     finally{if(sequence===aiSequence.current){aiTaskId.current=null;setAiBusy('');}}
   }

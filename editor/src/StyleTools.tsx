@@ -1,4 +1,5 @@
 import { Select } from './Select';
+import { ColorField } from './ColorField';
 import { useState } from 'react';
 import type { EditorState } from './document';
 import { BUILTIN_STYLES,editorStyle,parsePresets,type StylePreset } from './stylePresets';
@@ -18,7 +19,7 @@ export function StyleTools({editor,update,onError}:{editor:EditorState;update:(c
       <label>新样式名称<input aria-label="新样式名称" maxLength={40} value={name} onChange={event=>setName(event.target.value)}/></label>
       <div className="text-copy-actions"><button disabled={!name.trim()} onClick={()=>{try{const id=crypto.randomUUID();persist([...saved,{id,name:name.trim(),style:editorStyle(editor)}]);setSelected(id);setName('');}catch(error){onError(error);}}}>保存当前样式</button><button disabled={!saved.some(p=>p.id===selected)} onClick={()=>{try{persist(saved.filter(p=>p.id!==selected));setSelected('simple');}catch(error){onError(error);}}}>删除所选样式</button></div>
       <label>边框宽度<input aria-label="边框宽度" type="number" min={0} max={12} value={editor.borderWidth} onChange={event=>{const value=Number(event.target.value);if(value>=0&&value<=12)update({borderWidth:value,mode:'beauty'});}}/></label>
-      <label>边框颜色<input aria-label="边框颜色" type="color" value={editor.borderColor} onChange={event=>update({borderColor:event.target.value,mode:'beauty'})}/></label>
+      <label>边框颜色<ColorField label="边框颜色" value={editor.borderColor} onChange={borderColor=>update({borderColor,mode:'beauty'})}/></label>
     </details>
   </section>;
 }

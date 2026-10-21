@@ -271,7 +271,7 @@ async function main() {
         await page.getByRole('button', { name:'打开图片', exact:true }).waitFor();
         if (scenario.name !== 'ready-gate') {
           await page.evaluate(() => window.__drawingHost.capture()); await page.waitForSelector('.is-presented'); await settle(page);
-          await closeWithoutJump(page);
+          assert.equal(await page.locator('.clay-card').count(), 0, '原样截图不默认打开说明浮卡');
         }
         await scenario.run(page); assert.deepEqual(errors, [], '无头页面不得报错');
         results.push({ name:scenario.name, passed:true }); console.log('PASS ' + scenario.name);

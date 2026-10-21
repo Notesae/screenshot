@@ -31,6 +31,8 @@ internal static class SoftClayThemeTests
                     control.Resources.MergedDictionaries.Add(resources);control.Style=(Style)resources[type];
                     if(control is ContentControl item)item.Content="合成选项";
                     Check(control.ApplyTemplate(),"custom native template loads: "+type.Name);
+                    Check(control.FocusVisualStyle is null,"native focus adorners remain replaced: "+type.Name);
+                    if(control is TextBox or PasswordBox or ComboBox)Check(control.BorderThickness==new Thickness(0),"fields have no decorative outline: "+type.Name);
                     if(control is ListBoxItem or ComboBoxItem)Check(control.Template.FindName("ItemContent",control) is ContentPresenter { Content: "合成选项" },"native item text remains visible");
                     if(control is TextBox or PasswordBox or RichTextBox)Check(control.Template.FindName("PART_ContentHost",control) is ScrollViewer,"native text host preserved");
                     if(control is ComboBox)Check(control.Template.FindName("PART_Popup",control) is System.Windows.Controls.Primitives.Popup,"native keyboard dropdown part preserved");

@@ -111,7 +111,7 @@ public partial class UpdateSettingsControl : UserControl, IDisposable
     {
         if (_installedWithMsi) throw new InvalidOperationException("安装版请从官方 Release 下载新版 MSI 进行升级；也可以将便携包解压到其他新目录。");
         var owner = Window.GetWindow(this);
-        if (MessageBox.Show(owner, "将保存当前编辑到本机恢复库，然后关闭 Screenshot、替换便携目录并重启。未保存项目可在重启后从恢复记录打开。旧版本保留用于回滚。继续安装？", "安装并重启", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK) return;
+        if (SoftClayDialog.Show(owner, "将关闭 Screenshot、替换便携目录并重启，不会自动保存当前编辑。需要保留时请先取消并手动保存项目。旧版本会保留用于回滚。继续安装？", "安装并重启", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK) return;
         UpdateStatus.Text = "正在准备隔离更新目录与旧版恢复工具…"; Progress.IsIndeterminate = true;
         var transaction = await _session.PrepareAsync(token); token.ThrowIfCancellationRequested();
         if (SaveBeforeExit is null || !await SaveBeforeExit()) throw new IOException("当前编辑未能安全保存，已阻止退出。");
@@ -123,7 +123,7 @@ public partial class UpdateSettingsControl : UserControl, IDisposable
     {
         if (_installedWithMsi) throw new InvalidOperationException("安装版请使用系统卸载和 MSI 重新安装，不执行便携目录回滚。");
         var transaction = UpdateTransaction.Find(_session.Target) ?? throw new IOException("未找到旧版本备份。");
-        if (MessageBox.Show(Window.GetWindow(this), "将保存当前编辑，关闭并恢复上一版本；当前版本目录保留为故障备份。继续？", "回滚并重启", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK) return;
+        if (SoftClayDialog.Show(Window.GetWindow(this), "将关闭并恢复上一版本，不会自动保存当前编辑。需要保留时请先取消并手动保存项目。当前版本目录会保留为故障备份。继续回滚？", "回滚并重启", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK) return;
         if (SaveBeforeExit is null || !await SaveBeforeExit()) throw new IOException("当前编辑未能安全保存，已阻止回滚。");
         token.ThrowIfCancellationRequested(); CancelButton.IsEnabled = false;
         _handoff = true;

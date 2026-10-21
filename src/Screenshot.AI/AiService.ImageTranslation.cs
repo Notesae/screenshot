@@ -18,7 +18,10 @@ public sealed partial class AiService
         Coordinates are relative to THIS IMAGE: x and width use 0..1000 of image width; y and height use 0..1000 of image height.
         Each rectangle must tightly enclose an original text line or a compact paragraph, NOT an entire panel or image.
         Keep reading order and translate related lines together when necessary. Do not invent obscured or unreadable text.
-        Do not include already-Chinese text, numbers alone, icons, code blocks or unchanged translations.
+        Translate only the original words. A short label must stay a short label; never define or explain a term, add examples, use cases, background information or alternative translations.
+        Keep numbers, prices, units (GB, MB, USD, px, etc.), model identifiers, URLs, code, brand names and proper names unchanged.
+        Preserve the original hierarchy and paragraph boundaries. The Chinese will replace only the original rectangle; do not request a larger area for the translation.
+        Do not include already-Chinese text, numbers or units alone, icons, code blocks or unchanged translations.
         Return at most 250 non-overlapping rectangles, each wholly inside the image. If no foreign text exists, return {"blocks":[]}.
         """;
 

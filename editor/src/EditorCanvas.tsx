@@ -9,7 +9,7 @@ import { annotationFromObject as serialize, annotationToObject as restore, patch
 
 export type CanvasSelection = Pick<Annotation, 'id' | 'type' | 'color' | 'fontSize'>;
 export type CanvasRenderStatus = 'loading' | 'ready' | 'error';
-export type CanvasHandle = { exportPng: (scale: number) => Promise<string>; add: (type: AnnotationKind) => void; remove: () => void; patchSelection: (change: {color: string; fontSize: number}) => boolean; interactionState: () => { editing: boolean; selected: boolean }; exitSelection: () => void; hasAnnotationAt: (event:PointerEvent) => boolean };
+export type CanvasHandle = { exportPng: (scale: number) => Promise<string>; add: (type: AnnotationKind) => void; remove: () => void; patchSelection: (change: {color: string; fontSize: number}) => boolean; interactionState: () => { editing: boolean; selected: boolean }; exitSelection: () => void; hasAnnotationAt: (event:PointerEvent) => boolean; getDisplayScale?: () => number };
 // 设置与历史面板可隐藏视图工具，不卸载画布或影响文档。
 type Props = { showViewControls?:boolean; document: ProjectDocument; onAnnotations: (objects: Annotation[], group?: string) => void; onError: (error: unknown) => void; fixedDisplayScale?: { x: number; y: number }; onReady?: () => void; onRenderStatus?: (status: CanvasRenderStatus) => void; onSelection?: (selection:CanvasSelection|null)=>void; onDrawingToolChange?: (tool:AnnotationKind|null)=>void };
 // 每个底图都是renderBase私有canvas；替换/卸载时归零背板，避免等待GC回收大图像素。
@@ -165,6 +165,7 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
     if (loaded.current && rendered.current?.image === current.current.image && rendered.current?.properties === latestProperties.current) onReady?.();
   }, [displayScale.x, displayScale.y, size]);
   useImperativeHandle(ref, () => ({
+    getDisplayScale: () => Math.min(displayScaleRef.current.x, displayScaleRef.current.y),
     // 命中标注时交还 Fabric，空白背景才可拖动截图选区。
     hasAnnotationAt(event) { if(tool.current||drawing.current)return true;const target=fabric.current?.findTarget(event).target;return Boolean(target?.selectable||target?.evented); },
     async exportPng(scale) {
@@ -176,7 +177,7 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
       canvas.renderAll();
       // 未编辑的原样 PNG 跳过重编码，完整保留透明像素数据。
       const doc = current.current;
-      if (scale === 1 && doc.editor.mode === 'raw' && !doc.editor.crop && !doc.editor.resize && !doc.editor.annotations.length && doc.image?.dataUrl.startsWith('data:image/png;base64,')) return doc.image.dataUrl;
+      if (scale === 1 && doc.editor.mode === 'raw' && !doc.editor.crop && !doc.editor.resize && !doc.editor.annotations.length && !doc.editor.imageTranslation && doc.image?.dataUrl.startsWith('data:image/png;base64,')) return doc.image.dataUrl;
       // 重排文字在目标倍率重新绘制，避免仅放大预览底图；标注仍由同一 Fabric 对象内核合成。
       const size = outputSize(doc.image, doc.editor, scale), base = await renderBase(doc, scale);
       // 无标注时底图已经是目标像素，直接编码，避免额外Fabric画布及一次整图复制。

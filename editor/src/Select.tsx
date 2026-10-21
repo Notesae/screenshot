@@ -1,6 +1,7 @@
 import { Children, isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown } from 'lucide-react';
+import { containsScrollTarget } from './OverlayScrollbars';
 
 // 下拉统一使用同一套菜单，选项沿用现有声明；值变化直接回调，不伪造原生事件。
 type Props = { value:string|number; onChange:(value:string)=>void; children:ReactNode; disabled?:boolean; id?:string; 'aria-label'?:string; title?:string; className?:string };
@@ -47,7 +48,7 @@ export function Select(props:Props) {
   useEffect(()=>{if(open&&button.current?.matches(':disabled'))setOpen(false);});
   useEffect(()=>{
     if(!open)return;
-    const outside=(event:PointerEvent)=>{if(!button.current?.contains(event.target as Node)&&!menu.current?.contains(event.target as Node))setOpen(false);};
+    const outside=(event:PointerEvent)=>{if(!button.current?.contains(event.target as Node)&&!containsScrollTarget(menu.current,event.target))setOpen(false);};
     const moved=(event:Event)=>{if(!menu.current?.contains(event.target as Node))setOpen(false);};
     document.addEventListener('pointerdown',outside,true);window.addEventListener('resize',moved);window.addEventListener('scroll',moved,true);
     return()=>{document.removeEventListener('pointerdown',outside,true);window.removeEventListener('resize',moved);window.removeEventListener('scroll',moved,true);};
@@ -58,7 +59,7 @@ export function Select(props:Props) {
     if(option){const top=option.offsetTop,bottom=top+option.offsetHeight;if(top<menu.current.scrollTop)menu.current.scrollTop=top;else if(bottom>menu.current.scrollTop+menu.current.clientHeight)menu.current.scrollTop=bottom-menu.current.clientHeight;}
   },[open,active]);
   return <span className={'clay-select '+(props.className??'')}>
-    <button ref={button} id={props.id} type="button" className="clay-select-trigger" role="combobox" aria-label={props['aria-label']} aria-expanded={open} aria-controls={open?id:undefined} aria-haspopup="listbox" title={props.title} disabled={props.disabled} onClick={()=>open?setOpen(false):reveal()} onKeyDown={navigate}><span>{options[selected]?.label??options[0]?.label}</span><ChevronDown aria-hidden="true"/></button>
+    <button ref={button} id={props.id} type="button" className="clay-select-trigger" role="combobox" aria-label={props['aria-label']} aria-expanded={open} aria-controls={open?id:undefined} aria-haspopup="listbox" data-tooltip={props.title} disabled={props.disabled} onClick={()=>open?setOpen(false):reveal()} onKeyDown={navigate}><span>{options[selected]?.label??options[0]?.label}</span><ChevronDown aria-hidden="true"/></button>
     {open&&createPortal(<div ref={menu} id={id} className="clay-select-menu" role="listbox" tabIndex={-1} aria-label={props['aria-label']} aria-activedescendant={active>=0?`${id}-${active}`:undefined} style={{left:placement.left,top:placement.top,width:placement.width,maxHeight:placement.height}} onKeyDown={navigate}>
       {options.map((option,index)=><button key={index} id={`${id}-${index}`} type="button" role="option" tabIndex={-1} data-option-index={index} aria-selected={index===selected} disabled={option.disabled} className={index===active?'is-active':''} onPointerMove={()=>{if(!option.disabled)setActive(index);}} onPointerDown={event=>event.preventDefault()} onClick={()=>choose(index)}><span>{option.label}</span>{index===selected&&<Check aria-hidden="true"/>}</button>)}
     </div>,button.current?.closest('.clay-editor')??document.body)}

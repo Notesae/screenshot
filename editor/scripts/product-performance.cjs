@@ -17,20 +17,20 @@ let browser;
  await p.waitForFunction(()=>document.querySelector('.lower-canvas')?.width===3840);await p.waitForFunction(()=>!document.querySelector('button[aria-label="完成"]').disabled);
  await p.getByRole('button',{name:'矩形标注',exact:true}).click();await drawRect(p);
  // 只修改原样模式中不可见的校对文本；观察解码次数与选择状态，而非只看总耗时。
- await p.getByRole('button',{name:'文字',exact:true}).click();await p.evaluate(()=>window.__imageAssignments=0);const edits=[];
+ await p.getByRole('button',{name:'提取文字',exact:true}).click();await p.evaluate(()=>window.__imageAssignments=0);const edits=[];
  for(let i=0;i<12;i++){
   const started=await p.evaluate(()=>performance.now());await p.locator('#compact-text').fill('合成校对文本 '+i+'，原样画布不需要重绘。');
   await p.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(r)))));
   await p.waitForFunction(()=>!document.querySelector('button[aria-label="完成"]').disabled);edits.push(await p.evaluate(()=>performance.now())-started);
  }
  const imageAssignments=await p.evaluate(()=>window.__imageAssignments);
- await p.keyboard.press('Escape');await p.keyboard.press('Delete');await p.getByRole('button',{name:'更多操作',exact:true}).click();await p.getByRole('button',{name:'保存可编辑项目',exact:true}).click();await p.waitForFunction(()=>window.__messages.some(m=>m.method==='project.save'));
- await p.waitForFunction(()=>!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='保存可编辑项目')?.disabled);
+ await p.keyboard.press('Escape');await p.keyboard.press('Delete');await p.getByRole('button',{name:'更多操作',exact:true}).click();await p.getByRole('button',{name:'保存项目',exact:true}).click();await p.waitForFunction(()=>window.__messages.some(m=>m.method==='project.save'));
+ await p.waitForFunction(()=>!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='保存项目')?.disabled);
  const selectedObjectSurvivesTextEdit=await p.evaluate(()=>window.__messages.filter(m=>m.method==='project.save').at(-1).payload.document.editor.annotations.length===0);
  // 面板开启动画：验证只动画 opacity/transform，并验证减弱动效偏好。
  await p.evaluate(()=>{const image={dataUrl:window.__performanceImage,name:'synthetic-4k.png',width:3840,height:2160};window.__emit({event:'image.loaded',payload:{image,overlay:{captureId:'perf',desktopBounds:{x:0,y:0,width:4096,height:2304},selection:{x:50,y:60,width:3840,height:2160},screens:[{bounds:{x:0,y:0,width:4096,height:2304},primary:true}]}}});});
  await p.waitForFunction(()=>window.__messages.some(m=>m.method==='presentation.ready'));
- await p.getByRole('button',{name:'美化',exact:true}).click();await p.locator('.clay-card').waitFor();
+ await p.getByRole('button',{name:'美化图片',exact:true}).click();await p.locator('.clay-card').waitFor();
  const motion=await p.locator('.clay-card').evaluate(e=>({duration:getComputedStyle(e).animationDuration,keyframes:e.getAnimations().flatMap(a=>a.effect?.getKeyframes()||[])}));
  await p.emulateMedia({reducedMotion:'reduce'});const reducedDuration=await p.locator('.clay-card').evaluate(e=>getComputedStyle(e).animationDuration);
  assert.deepEqual(errors,[]);if(process.argv.includes('--verify')){assert.equal(imageAssignments,0);assert.equal(selectedObjectSurvivesTextEdit,true);assert.ok(parseFloat(reducedDuration)<=.001);assert.ok(parseFloat(motion.duration)<=.35);for(const frame of motion.keyframes)assert.ok(Object.keys(frame).every(k=>['offset','computedOffset','easing','composite','opacity','transform'].includes(k)),'panel animates only opacity and transform');}

@@ -100,7 +100,7 @@ public partial class MainWindow : Window
         menu.Items.Add(SoftClayTrayMenu.Command("打开项目…","M3 7h7l2 2h9v11H3z M3 7V4h7l2 3",()=>ShowEditorAction("open-project")));
         menu.Items.Add(SoftClayTrayMenu.Command("粘贴图片","M9 4H5v17h14V4h-4 M9 2h6v4H9z M8 12h8 M8 16h5",()=>ShowEditorAction("paste")));
         menu.Items.Add(SoftClayTrayMenu.Divider(menu));
-        menu.Items.Add(SoftClayTrayMenu.Command("历史与恢复","M3 3v6h6 M3 9a9 9 0 1 1 1 9 M12 7v5l3 2",()=>ShowEditorAction("recovery")));
+        menu.Items.Add(SoftClayTrayMenu.Command("历史记录","M3 3v6h6 M3 9a9 9 0 1 1 1 9 M12 7v5l3 2",()=>ShowEditorAction("recovery")));
         menu.Items.Add(SoftClayTrayMenu.Command("设置","M4 7h16 M4 17h16 M8 4v6 M16 14v6",()=>ShowEditorAction("settings")));
         menu.Items.Add(SoftClayTrayMenu.Divider(menu));
         menu.Items.Add(SoftClayTrayMenu.Command("退出应用","M10 3H4v18h6 M14 8l5 4-5 4 M8 12h11",Close));
@@ -533,7 +533,14 @@ public partial class MainWindow : Window
             case "app.updateReady": _editorMounted.TrySetResult(); MarkUpdateHealthy(); return new { ready = true };
             case "ai.ocr": return await RunInferenceAsync(payload, async token => await _ai.OcrAsync(RequiredString(payload, "providerId"), RequiredString(payload, "imageDataUrl"),OptionalString(payload,"providerRevision"), token));
             case "ai.translateImage": return await RunInferenceAsync(payload, async token => await _ai.TranslateImageAsync(RequiredString(payload, "providerId"), RequiredString(payload, "imageDataUrl"), OptionalString(payload, "providerRevision"), token));
-            case "ai.translate": return await RunInferenceAsync(payload, async token => await _ai.TranslateAsync(RequiredString(payload, "providerId"), RequiredString(payload, "text"), RequiredString(payload, "targetLanguage"),OptionalString(payload,"providerRevision"), token));
+            case "ai.translate": return await RunInferenceAsync(payload, async token =>
+            {
+                var purpose = OptionalString(payload, "purpose");
+                if (purpose is not (null or "image")) throw new InvalidOperationException("不支持此翻译用途。");
+                return purpose == "image"
+                    ? await _ai.TranslateImageTextAsync(RequiredString(payload, "providerId"), RequiredString(payload, "text"), RequiredString(payload, "targetLanguage"), OptionalString(payload, "providerRevision"), token)
+                    : await _ai.TranslateAsync(RequiredString(payload, "providerId"), RequiredString(payload, "text"), RequiredString(payload, "targetLanguage"), OptionalString(payload, "providerRevision"), token);
+            });
             default: throw new InvalidOperationException("不支持的原生命令：" + method);
         }
     }

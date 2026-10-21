@@ -83,7 +83,8 @@ async function main(){
   await page.waitForFunction(()=>window.__mock.state.requests.includes('presentation.ready'));
   assert.equal(await page.locator('.clay-rail').evaluate(e=>getComputedStyle(e).animationName),'none','hidden native handoff must not consume the entrance animation');
   await page.evaluate(()=>{window.__mock.state.holdReady=false;window.__mock.state.releaseReady();});
-  await page.getByRole('region',{name:'原样截图',exact:true}).waitFor();
+  await page.waitForSelector('.is-presented');
+  assert.equal(await page.getByRole('region',{name:'原样截图',exact:true}).count(),0,'原样截图不再打开说明浮卡');
   assert.equal(await page.getByRole('button',{name:'移动截图选区',exact:true}).count(),0,'no separate move icon');
   await page.screenshot({path:path.join(out,'01-raw.png')});
   // 以下指针和键盘均在无头页面中模拟；验证松手后的调整不要求额外确认。
@@ -134,7 +135,7 @@ async function main(){
   await page.mouse.move(objectX,objectY);await page.mouse.down();await page.mouse.move(objectX+12,objectY+8,{steps:4});await page.mouse.up();
   await page.waitForFunction(left=>window.screenshotPrepareUpdate().document.editor.annotations[0].left>left+5,annotationBefore.left);
   assert.equal(await page.evaluate(()=>window.__mock.state.requests.filter(m=>m==='capture.adjust').length),captureCount,'annotation drag must stay in Fabric');
-  await click('美化');await click('柔和留白');await page.waitForFunction(()=>!document.querySelector('button[aria-label="完成"]').disabled);
+  await click('美化图片');await click('柔和留白');await page.waitForFunction(()=>!document.querySelector('button[aria-label="完成"]').disabled);
   assert.equal(await page.evaluate(()=>window.screenshotPrepareUpdate().document.editor.annotations[0].id),original);
   await page.screenshot({path:path.join(out,'02-beauty.png')});
   // 这里只移动无头页面内的虚拟指针；不涉及 Windows 鼠标或实际窗口。
@@ -144,7 +145,7 @@ async function main(){
   const railAfter=await page.locator('.clay-rail').boundingBox();assert.equal(Math.round(railAfter.x-railBefore.x),32);assert.equal(Math.round(railAfter.y-railBefore.y),20);
   await grip.focus();await page.keyboard.press('ArrowLeft');assert.equal(Math.round((await page.locator('.clay-rail').boundingBox()).x-railAfter.x),-8);
   assert.equal(await page.evaluate(()=>window.screenshotPrepareUpdate().document.editor.annotations[0].id),original);
-  await click('文字');assert.equal(await page.evaluate(()=>window.__mock.state.ocr),0);
+  await click('提取文字');assert.equal(await page.evaluate(()=>window.__mock.state.ocr),0);
   await click('本地识别文字');await page.waitForFunction(()=>document.querySelector('#compact-text')?.value==='合成校对文字');
   assert.equal(await page.evaluate(()=>window.screenshotPrepareUpdate().document.editor.mode),'beauty');
   await page.screenshot({path:path.join(out,'03-text.png')});
@@ -177,7 +178,7 @@ async function main(){
   // 成功后开始下一张，不能恢复刚完成的内容；后续分层 Escape 继续使用新文档。
   await page.evaluate(()=>{window.__mock.resume();window.__mock.capture();});await page.waitForFunction(()=>!window.screenshotPrepareUpdate().error&&!document.querySelector('button[aria-label="完成"]').disabled);
   assert.equal(await page.evaluate(()=>window.screenshotPrepareUpdate().document.editor.annotations.length),0);
-  await click('矩形标注');await drawRect(page);await click('文字');await page.locator('#compact-text').focus();
+  await click('矩形标注');await drawRect(page);await click('提取文字');await page.locator('#compact-text').focus();
   await page.keyboard.press('Escape');assert.equal(await page.locator('#compact-text').evaluate(node=>node===document.activeElement),false);assert.equal(await page.locator('.clay-card').count(),1);
   await page.keyboard.press('Escape');assert.equal(await page.locator('.clay-card').count(),1);assert.equal(await page.evaluate(()=>window.__mock.state.hidden),false);
   await page.keyboard.press('Escape');await page.waitForSelector('.clay-card',{state:'detached'});
@@ -212,7 +213,7 @@ async function main(){
     await dpiPage.addInitScript(mockHost);await dpiPage.goto('http://127.0.0.1:'+server.address().port+'/index.html');
     await dpiPage.getByRole('button',{name:'打开图片',exact:true}).waitFor();await dpiPage.evaluate(()=>window.__mock.capture());
     await dpiPage.waitForFunction(()=>window.__mock.state.requests.includes('presentation.ready')&&!document.querySelector('button[aria-label="完成"]').disabled);
-    for(const [surface,label]of [['raw',null],['beauty','美化'],['text','文字'],['more','更多操作']]){
+    for(const [surface,label]of [['raw',null],['beauty','美化图片'],['text','提取文字'],['more','更多操作']]){
       if(label)await dpiPage.getByRole('button',{name:label,exact:true}).click();
       await dpiPage.screenshot({path:path.join(out,'mock-dpr-'+dpr+'-'+surface+'.png')});
     }
@@ -222,7 +223,7 @@ async function main(){
     assert.equal(Math.round((await dpiPage.locator('.clay-capture-selection').boundingBox()).x-beforeMove.x),1);
     await dpiContext.close();
   }
-  assert.deepEqual(errors,[]);fs.writeFileSync(path.join(out,'report.json'),JSON.stringify({syntheticOnly:true,desktopAccess:false,checks:['entry animation starts only after host accepts layout','no separate move icon','body drag holds frame and toolbar while recrop is pending','annotation drag does not adjust capture','automatic entry with path card','physical selection move/resize/undo','Escape cancels adjustment first','blank click does not reselect','failed recrop preserves document','stale recrop cannot replace newer capture','synthetic DPR 1 and 1.5','shared annotation history','virtual pointer drag and keyboard adjustment','explicit OCR','text copy separation','visible text copy','panel scroll reset','autosave never requested after debounce','one completion action','clipboard error and false result stay open','rejected completion retains document','completion releases backdrop and clears document','no continuation toast or button','late clipboard and completion replies preserve a newer capture','four-level Escape','bounded responsive chrome','reduced motion'],screenshots:fs.readdirSync(out).filter(name=>name.endsWith('.png'))},null,2));
+  assert.deepEqual(errors,[]);fs.writeFileSync(path.join(out,'report.json'),JSON.stringify({syntheticOnly:true,desktopAccess:false,checks:['entry animation starts only after host accepts layout','no separate move icon','body drag holds frame and toolbar while recrop is pending','annotation drag does not adjust capture','automatic entry without explanatory card','physical selection move/resize/undo','Escape cancels adjustment first','blank click does not reselect','failed recrop preserves document','stale recrop cannot replace newer capture','synthetic DPR 1 and 1.5','shared annotation history','virtual pointer drag and keyboard adjustment','explicit OCR','text copy separation','visible text copy','panel scroll reset','autosave never requested after debounce','one completion action','clipboard error and false result stay open','rejected completion retains document','completion releases backdrop and clears document','no continuation toast or button','late clipboard and completion replies preserve a newer capture','four-level Escape','bounded responsive chrome','reduced motion'],screenshots:fs.readdirSync(out).filter(name=>name.endsWith('.png'))},null,2));
   console.log('PASS synthetic editor lifecycle and responsive checks');await browser.close();server.close();
 }
 main().catch(async error=>{console.error(error);if(activePage){console.error(await activePage.evaluate(()=>{const s=window.__mock?.state;return {requests:s?.requests.slice(-16),completion:s?.completion,copied:s?.copied,hidden:s?.hidden,notice:document.querySelector('[role=alert]')?.textContent,handles:Array.from(document.querySelectorAll('.clay-selection-handle')).map(e=>({class:e.className,disabled:e.disabled,box:e.getBoundingClientRect().toJSON()})),snapshot:window.screenshotPrepareUpdate?.()};}).then(value=>{if(value.snapshot?.document)value.snapshot.document='synthetic document omitted';return value;}).catch(()=>({})));}await activeBrowser?.close();server.close();process.exitCode=1;});

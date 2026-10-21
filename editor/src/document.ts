@@ -2,16 +2,17 @@ import {parseTranslationDocument,type TranslationDocument} from './translationDo
 import { parseOcr, type OcrData } from './ocr';
 import { textLayout, type TextLayoutMode } from './textLayout';
 import type { LoadedImage } from './bridge';
+import { parseImageTranslationDocument, type ImageTranslationDocument } from './imageTranslationLayout';
 export type Mode = 'raw' | 'beauty' | 'reflow';
 // 标注只保存受支持字段，不恢复可以加载资源或执行行为的 Fabric 对象 JSON。
 export type AnnotationKind = 'text' | 'rect' | 'arrow' | 'highlight' | 'cover';
-export type Annotation = { id?: string; type: AnnotationKind; left: number; top: number; width: number; height: number; scaleX: number; scaleY: number; angle: number; text: string; color: string; fontSize: number };
+export type Annotation = { id?: string; type: AnnotationKind; left: number; top: number; width: number; height: number; scaleX: number; scaleY: number; angle: number; text: string; color: string; fontSize: number; backgroundColor?: string };
 export type SourceCrop = { x: number; y: number; width: number; height: number };
 export type ContentResize = { width: number; height: number };
-export type EditorState = { mode: Mode; padding: number; radius: number; background: string; shadow: boolean; borderWidth: number; borderColor: string; lineSpacing: number; paragraphSpacing: number; translationSource: string | null; translationData:TranslationDocument|null; text: string; title: string; fontSize: number; textWidth: number; annotations: Annotation[]; ocr: OcrData | null; translation: string; textLayout: TextLayoutMode; crop: SourceCrop | null; resize: ContentResize | null };
+export type EditorState = { mode: Mode; padding: number; radius: number; background: string; shadow: boolean; borderWidth: number; borderColor: string; lineSpacing: number; paragraphSpacing: number; translationSource: string | null; translationData:TranslationDocument|null; imageTranslation?:ImageTranslationDocument|null; text: string; title: string; fontSize: number; textWidth: number; annotations: Annotation[]; ocr: OcrData | null; translation: string; textLayout: TextLayoutMode; crop: SourceCrop | null; resize: ContentResize | null };
 export type ProjectDocument = { schemaVersion: 1 | 2; image: LoadedImage | null; editor: EditorState };
 export const MAX_IMAGE_BYTES = 24 * 1024 * 1024;
-export function defaultEditor(): EditorState { return { mode: 'raw', padding: 48, radius: 18, background: '#e9dfd1', shadow: true, borderWidth: 0, borderColor: '#d7cbb9', lineSpacing: 1.7, paragraphSpacing: 0, translationSource: null, translationData:null, text: '', title: '一段值得留下的文字', fontSize: 26, textWidth: 720, annotations: [], ocr: null, translation: '', textLayout: 'source', crop: null, resize: null }; }
+export function defaultEditor(): EditorState { return { mode: 'raw', padding: 48, radius: 18, background: '#e9dfd1', shadow: true, borderWidth: 0, borderColor: '#d7cbb9', lineSpacing: 1.7, paragraphSpacing: 0, translationSource: null, translationData:null, imageTranslation:null, text: '', title: '一段值得留下的文字', fontSize: 26, textWidth: 720, annotations: [], ocr: null, translation: '', textLayout: 'source', crop: null, resize: null }; }
 /** 原图与美化间按有效留白平移标注；对象回调已有完整坐标，文字重排保持卡片画布语义。 */
 export function applyEditorChange(editor: EditorState, change: Partial<EditorState>): EditorState {
   const next = { ...editor, ...change };
@@ -62,7 +63,7 @@ export function parseDocument(value: unknown): ProjectDocument {
     if (!['text', 'rect', 'arrow', 'highlight', 'cover'].includes(String(a.type))) throw new Error('不支持此标注类型。');
     const id = a.id === undefined ? `legacy-${index}` : string(a.id, 80);
     if (!/^[a-z0-9-]+$/i.test(id)) throw new Error('标注标识无效。');
-    return { id, type: a.type, left: number(a.left, -32000, 32000), top: number(a.top, -32000, 32000), width: number(a.width, 1, 16000), height: number(a.height, 1, 16000), scaleX: number(a.scaleX, .01, 100), scaleY: number(a.scaleY, .01, 100), angle: number(a.angle, -360, 360), text: string(a.text, 5000), color: color(a.color), fontSize: number(a.fontSize, 8, 240) } as Annotation;
+    return { id, type: a.type, left: number(a.left, -32000, 32000), top: number(a.top, -32000, 32000), width: number(a.width, 1, 16000), height: number(a.height, 1, 16000), scaleX: number(a.scaleX, .01, 100), scaleY: number(a.scaleY, .01, 100), angle: number(a.angle, -360, 360), text: string(a.text, 5000), color: color(a.color), fontSize: number(a.fontSize, 8, 240), ...(a.type === 'text' && a.backgroundColor !== undefined ? { backgroundColor: color(a.backgroundColor) } : {}) } as Annotation;
   });
   const image = doc.image === null ? null : parseImage(doc.image);
   if (new Set(annotations.map(annotation => annotation.id)).size !== annotations.length) throw new Error('项目中存在重复标注标识。');
@@ -77,7 +78,9 @@ export function parseDocument(value: unknown): ProjectDocument {
   }
   const layout = e.textLayout ?? 'source';
   if (!['source', 'translated', 'parallel', 'stacked'].includes(String(layout))) throw new Error('文字布局无效。');
-  const editor: EditorState = { translationData:parseTranslationDocument(e.translationData), borderWidth: number(e.borderWidth ?? 0, 0, 12), borderColor: color(e.borderColor ?? '#d7cbb9'), lineSpacing: number(e.lineSpacing ?? 1.7, 1, 3), paragraphSpacing: number(e.paragraphSpacing ?? 0, 0, 80), translationSource: e.translationSource == null ? null : string(e.translationSource, 20000), ocr, translation: string(e.translation ?? '', 20000), textLayout: layout as TextLayoutMode, mode: e.mode as Mode, padding: number(e.padding, 0, 200), radius: number(e.radius, 0, 100), background: color(e.background), shadow: e.shadow, text: string(e.text, 20000), title: string(e.title, 240), fontSize: number(e.fontSize, 14, 64), textWidth: number(e.textWidth, 360, 1400), annotations, ...transform };
+  const imageTranslation=parseImageTranslationDocument(e.imageTranslation);
+  if(imageTranslation&&!image)throw new Error('图片译文缺少原图。');
+  const editor: EditorState = { imageTranslation, translationData:parseTranslationDocument(e.translationData), borderWidth: number(e.borderWidth ?? 0, 0, 12), borderColor: color(e.borderColor ?? '#d7cbb9'), lineSpacing: number(e.lineSpacing ?? 1.7, 1, 3), paragraphSpacing: number(e.paragraphSpacing ?? 0, 0, 80), translationSource: e.translationSource == null ? null : string(e.translationSource, 20000), ocr, translation: string(e.translation ?? '', 20000), textLayout: layout as TextLayoutMode, mode: e.mode as Mode, padding: number(e.padding, 0, 200), radius: number(e.radius, 0, 100), background: color(e.background), shadow: e.shadow, text: string(e.text, 20000), title: string(e.title, 240), fontSize: number(e.fontSize, 14, 64), textWidth: number(e.textWidth, 360, 1400), annotations, ...transform };
   outputSize(image, editor);
   return { schemaVersion: 2, image, editor };
 }

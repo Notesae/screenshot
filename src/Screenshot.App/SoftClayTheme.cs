@@ -17,86 +17,93 @@ internal static class SoftClayTheme
         ?? throw new IOException("缺少共享设计 token。"));
     public static double Number(string group, string name) => Tokens.RootElement.GetProperty(group).GetProperty(name).GetDouble();
     public static string Text(string group, string name) => Tokens.RootElement.GetProperty(group).GetProperty(name).GetString()!;
-    public static Color Color(string name)
+    public static Color Color(string name, string group = "colors")
     {
-        var hex=Text("colors",name);
+        var hex=Text(group,name);
         return (Color)ColorConverter.ConvertFromString(hex.Length==9?"#"+hex.Substring(7,2)+hex.Substring(1,6):hex);
     }
     public static SolidColorBrush Brush(string name) => new(Color(name));
-    public static LinearGradientBrush Surface(bool primary = false) => new(Color(primary ? "accentTop" : "surfaceTop"), Color(primary ? "accentBottom" : "surfaceBottom"), 90);
+    // 以原截图导轨的材质为基准，WPF 与网页使用相同色阶与停靠位置。
+    public static LinearGradientBrush Surface(bool primary = false) => new()
+    {
+        StartPoint = new Point(0, 0), EndPoint = new Point(0, 1),
+        GradientStops = primary
+            ? new GradientStopCollection { new(Color("accentTop"), 0), new(Color("accentBottom"), .35), new(Color("accentLow"), 1) }
+            : new GradientStopCollection { new(Color("surfaceTop"), 0), new(Color("surfaceMid"), .35), new(Color("surfaceLow"), .7), new(Color("surfaceBase"), 1) }
+    };
+    public static LinearGradientBrush Raised() => new()
+    {
+        StartPoint = new Point(0, 0), EndPoint = new Point(0, 1),
+        GradientStops = new GradientStopCollection { new(Color("raisedTop"), 0), new(Color("raisedMid"), .5), new(Color("raisedBottom"), 1) }
+    };
+    // 大浮卡沿用原属性卡的暖灰渐变，导轨的深色四段曲面只用于短小表面。
+    public static LinearGradientBrush CardSurface() => new(Color("surfaceTop"), Color("surfaceBottom"), 90);
     public static DropShadowEffect Shadow() => new() { BlurRadius = Number("shadow", "blur"), ShadowDepth = Number("shadow", "depth"), Opacity = Number("shadow", "opacity") };
     public static IEasingFunction Spring() => new SharedSpringEase { EasingMode = EasingMode.EaseIn };
 
     // 控件资源只含视觉值；不创建窗口，不注册热键，不改变条款或服务的启动顺序。
+    public static FontFamily Font => new(Tokens.RootElement.GetProperty("font").GetString()!);
+    private static bool _buttonFeedbackInstalled;
+
     public static void Install(ResourceDictionary resources)
     {
-        foreach(var color in Tokens.RootElement.GetProperty("colors").EnumerateObject())
-            resources["Clay"+char.ToUpperInvariant(color.Name[0])+color.Name.Substring(1)]=Brush(color.Name);
-        resources["ClayControlRadius"]=new CornerRadius(Number("radius","control"));
-        resources["ClaySurface"]=Surface();
-        // 设置浮卡主操作与编辑器共用蓝色渐变，普通导航和次要按钮保持中性。
-        resources["ClayPanelPrimary"]=Surface(true);
-        var button=ButtonStyle();resources["ClayButton"]=button;resources[typeof(Button)]=button;
-        resources.MergedDictionaries.Add(new ResourceDictionary { Source=new Uri("/"+typeof(SoftClayTheme).Assembly.GetName().Name+";component/SoftClayControls.xaml",UriKind.Relative) });
+        foreach (var color in Tokens.RootElement.GetProperty("colors").EnumerateObject())
+            resources["Clay" + char.ToUpperInvariant(color.Name[0]) + color.Name.Substring(1)] = Brush(color.Name);
+        foreach (var size in Tokens.RootElement.GetProperty("type").EnumerateObject())
+            resources["Clay" + char.ToUpperInvariant(size.Name[0]) + size.Name.Substring(1) + "Size"] = size.Value.GetDouble();
+        resources["ClayFont"] = Font;
+        resources["ClayControlRadius"] = new CornerRadius(Number("radius", "control"));
+        resources["ClayFloatingRadius"] = new CornerRadius(Number("radius", "floating"));
+        resources["ClayControlHeight"] = Number("size", "control");
+        resources["ClayCompactHeight"] = Number("size", "compact");
+        resources["ClayDisabledOpacity"] = Number("state", "disabledOpacity");
+        resources["ClayScrollThickness"] = Number("scroll", "thickness");
+        var scrollInset = (Number("scroll", "thickness") - Number("scroll", "thumb")) / 2;
+        resources["ClayScrollThumbMargin"] = new Thickness(scrollInset);
+        resources["ClayScrollMinThumb"] = Number("scroll", "minThumb") + scrollInset * 2;
+        resources["ClaySurface"] = CardSurface();
+        resources["ClayRaised"] = Raised();
+        resources["ClayButtonShadow"] = new DropShadowEffect { BlurRadius = 10, ShadowDepth = 5, Opacity = .33 };
+        resources["ClayPrimaryShadow"] = new DropShadowEffect { BlurRadius = 16, ShadowDepth = 7, Opacity = .3, Color = Color("accent") };
+        resources["ClayPrimary"] = resources["ClayPanelPrimary"] = Surface(true);
+        resources["ClayShadow"] = Shadow();
+        resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri("/" + typeof(SoftClayTheme).Assembly.GetName().Name + ";component/SoftClayControls.xaml", UriKind.Relative)
+        });
+        InstallButtonFeedback();
     }
 
-    // 完整替换按钮模板并定义悬停、按压、焦点及禁用态，杜绝默认 Windows 控件外观。
-    public static Style ButtonStyle()
+    // 启动提示与声明式窗口使用完全相同的按钮模板，不再在代码中维护第二套外观。
+    public static Style ButtonStyle() => (Style)Application.Current.FindResource("ClayButton");
+
+    // 类处理器仅安装一次；所有共享按钮复用原导轨的按压和释放反馈。
+    private static void InstallButtonFeedback()
     {
-        var style = new Style(typeof(Button));
-        style.Setters.Add(new Setter(Control.ForegroundProperty, Brush("ink")));
-        style.Setters.Add(new Setter(Control.BackgroundProperty, Surface()));
-        style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(14, 8, 14, 8)));
-        style.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, Number("size", "control")));
-        style.Setters.Add(new Setter(Control.FontFamilyProperty, new FontFamily(Tokens.RootElement.GetProperty("font").GetString()!)));
-        style.Setters.Add(new Setter(Control.FontSizeProperty, 13d));
-        var face = new FrameworkElementFactory(typeof(Border), "Face");
-        face.SetValue(Border.CornerRadiusProperty, new CornerRadius(Number("radius", "control")));
-        face.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
-        face.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
-        face.SetValue(Border.BorderThicknessProperty, new Thickness(1));
-        face.SetValue(Border.BorderBrushProperty, new LinearGradientBrush(System.Windows.Media.Color.FromArgb(65, 255, 255, 255), System.Windows.Media.Color.FromArgb(100, 0, 0, 0), 90));
-        face.SetValue(UIElement.EffectProperty, Shadow());
-        face.SetValue(UIElement.RenderTransformOriginProperty, new Point(.5, .5));
-        var content = new FrameworkElementFactory(typeof(ContentPresenter));
-        content.SetValue(ContentPresenter.RecognizesAccessKeyProperty, true);
-        content.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
-        content.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
-        face.AppendChild(content);
-        var template = new ControlTemplate(typeof(Button)) { VisualTree = face };
-        var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
-        hover.Setters.Add(new Setter(Border.BorderBrushProperty, Brush("focus"), "Face"));
-        template.Triggers.Add(hover);
-        var focus = new Trigger { Property = UIElement.IsKeyboardFocusedProperty, Value = true };
-        focus.Setters.Add(new Setter(Border.BorderBrushProperty, Brush("focus"), "Face"));
-        focus.Setters.Add(new Setter(Border.BorderThicknessProperty, new Thickness(2), "Face"));
-        template.Triggers.Add(focus);
-        var press = new Trigger { Property = Button.IsPressedProperty, Value = true };
-        press.Setters.Add(new Setter(UIElement.EffectProperty, null, "Face"));
-        template.Triggers.Add(press);
-        var disabled = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
-        disabled.Setters.Add(new Setter(UIElement.OpacityProperty, .4, "Face"));
-        disabled.Setters.Add(new Setter(UIElement.EffectProperty, null, "Face"));
-        template.Triggers.Add(disabled);
-        style.Setters.Add(new Setter(Control.TemplateProperty, template));
-        style.Setters.Add(new EventSetter(UIElement.PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler((sender, _) => AnimatePress((Button)sender, true))));
-        style.Setters.Add(new EventSetter(UIElement.PreviewMouseLeftButtonUpEvent, new MouseButtonEventHandler((sender, _) => AnimatePress((Button)sender, false))));
-        style.Setters.Add(new EventSetter(UIElement.LostMouseCaptureEvent, new MouseEventHandler((sender, _) => AnimatePress((Button)sender, false))));
-        style.Setters.Add(new EventSetter(UIElement.PreviewKeyDownEvent, new KeyEventHandler((sender, e) => { if(e.Key is Key.Space or Key.Enter)AnimatePress((Button)sender,true); })));
-        style.Setters.Add(new EventSetter(UIElement.PreviewKeyUpEvent, new KeyEventHandler((sender, e) => { if(e.Key is Key.Space or Key.Enter)AnimatePress((Button)sender,false); })));
-        return style;
+        if (_buttonFeedbackInstalled) return;
+        _buttonFeedbackInstalled = true;
+        EventManager.RegisterClassHandler(typeof(Button), UIElement.PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler((sender, _) => AnimatePress((Button)sender, true)));
+        EventManager.RegisterClassHandler(typeof(Button), UIElement.PreviewMouseLeftButtonUpEvent, new MouseButtonEventHandler((sender, _) => AnimatePress((Button)sender, false)));
+        EventManager.RegisterClassHandler(typeof(Button), UIElement.LostMouseCaptureEvent, new MouseEventHandler((sender, _) => AnimatePress((Button)sender, false)));
+        EventManager.RegisterClassHandler(typeof(Button), UIElement.PreviewKeyDownEvent, new KeyEventHandler((sender, e) => { if (e.Key is Key.Space or Key.Enter) AnimatePress((Button)sender, true); }));
+        EventManager.RegisterClassHandler(typeof(Button), UIElement.PreviewKeyUpEvent, new KeyEventHandler((sender, e) => { if (e.Key is Key.Space or Key.Enter) AnimatePress((Button)sender, false); }));
     }
 
-    // 指针与键盘按压共用 token；系统关闭动态效果时只改变最终状态。
     private static void AnimatePress(Button button, bool pressed)
     {
-        if(button.RenderTransform is not ScaleTransform scale){scale=new ScaleTransform(1,1);button.RenderTransform=scale;button.RenderTransformOrigin=new Point(.5,.5);}
-        var target=pressed?Number("motion","pressedScale"):1;
-        if(!SystemParameters.ClientAreaAnimation){scale.BeginAnimation(ScaleTransform.ScaleXProperty,null);scale.BeginAnimation(ScaleTransform.ScaleYProperty,null);scale.ScaleX=scale.ScaleY=target;return;}
-        var animation=new DoubleAnimation(target,TimeSpan.FromMilliseconds(Number("motion",pressed?"press":"release"))){EasingFunction=Spring()};
-        scale.BeginAnimation(ScaleTransform.ScaleXProperty,animation);scale.BeginAnimation(ScaleTransform.ScaleYProperty,animation);
+        if (button.RenderTransform is not ScaleTransform scale)
+        {
+            scale = new ScaleTransform(1, 1); button.RenderTransform = scale; button.RenderTransformOrigin = new Point(.5, .5);
+        }
+        var target = pressed ? Number("motion", "pressedScale") : 1;
+        if (!SystemParameters.ClientAreaAnimation)
+        {
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, null); scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+            scale.ScaleX = scale.ScaleY = target; return;
+        }
+        var animation = new DoubleAnimation(target, TimeSpan.FromMilliseconds(Number("motion", pressed ? "press" : "release"))) { EasingFunction = Spring() };
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, animation); scale.BeginAnimation(ScaleTransform.ScaleYProperty, animation);
     }
-
     // 反解 CSS cubic-bezier 的时间轴，使原生回弹与网页使用同一组控制点。
     private sealed class SharedSpringEase : EasingFunctionBase
     {
@@ -131,14 +138,18 @@ internal static class SoftClayDrawing
         path.AddArc(box.Right-diameter, box.Bottom-diameter, diameter, diameter, 0, 90); path.AddArc(box.X, box.Bottom-diameter, diameter, diameter, 90, 90);
         path.CloseFigure(); return path;
     }
-    // 顶部高光和底部暗边形成凸面，所有几何尺寸由调用方按目标 DPI 计算。
+    // 渐变形成凸面，不再额外勾边；所有几何尺寸由调用方按目标 DPI 计算。
     public static void Surface(System.Drawing.Graphics graphics, System.Drawing.RectangleF box, float radius, bool active = false)
     {
         using var path = Rounded(box, radius);
         using var face = new System.Drawing.Drawing2D.LinearGradientBrush(box, Color(active?"accentTop":"surfaceTop"), Color(active?"accentBottom":"surfaceBottom"), 90);
+        face.InterpolationColors = new System.Drawing.Drawing2D.ColorBlend
+        {
+            Colors = active ? [Color("accentTop"), Color("accentBottom"), Color("accentLow")]
+                : [Color("surfaceTop"), Color("surfaceMid"), Color("surfaceLow"), Color("surfaceBase")],
+            Positions = active ? [0, .35f, 1] : [0, .35f, .7f, 1]
+        };
         graphics.FillPath(face, path);
-        using var rim = new System.Drawing.Drawing2D.LinearGradientBrush(box, System.Drawing.Color.FromArgb(70,255,255,255), System.Drawing.Color.FromArgb(80,0,0,0), 90);
-        using var pen = new System.Drawing.Pen(rim, 1); graphics.DrawPath(pen, path);
     }
 }
 
@@ -147,7 +158,7 @@ internal static class SoftClayTrayMenu
 {
     public static ContextMenu Create()
     {
-        var menu=new ContextMenu{Placement=System.Windows.Controls.Primitives.PlacementMode.MousePoint,StaysOpen=false,HasDropShadow=false,FontFamily=new FontFamily("Microsoft YaHei UI")};
+        var menu=new ContextMenu{Placement=System.Windows.Controls.Primitives.PlacementMode.MousePoint,StaysOpen=false,HasDropShadow=false,FontFamily=SoftClayTheme.Font};
         SoftClayTheme.Install(menu.Resources);menu.Style=(Style)menu.Resources["ClayTrayMenu"];
         return menu;
     }

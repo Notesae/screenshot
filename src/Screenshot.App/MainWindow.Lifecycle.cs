@@ -53,16 +53,16 @@ public partial class MainWindow
     private void ShowStartupNotice(string text,string actionText="关闭提示",Action? action=null)
     {
         _startupNotice?.Close();
-        var notice=new Window{Width=440,SizeToContent=SizeToContent.Height,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,ShowInTaskbar=false,Topmost=true,AllowsTransparency=true,Background=Brushes.Transparent,WindowStartupLocation=WindowStartupLocation.CenterScreen};
+        var notice=new Window{FontFamily=SoftClayTheme.Font,FontSize=SoftClayTheme.Number("type","body"),Width=440,SizeToContent=SizeToContent.Height,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,ShowInTaskbar=false,Topmost=true,AllowsTransparency=true,Background=Brushes.Transparent,WindowStartupLocation=WindowStartupLocation.CenterScreen};
         var panel=new StackPanel{Margin=new Thickness(18)};
-        panel.Children.Add(new TextBlock{Text="Screenshot",FontSize=15,FontWeight=FontWeights.SemiBold,Foreground=SoftClayTheme.Brush("ink")});
+        panel.Children.Add(new TextBlock{Text="Screenshot",FontSize=SoftClayTheme.Number("type","title"),FontWeight=FontWeights.SemiBold,Foreground=SoftClayTheme.Brush("ink")});
         panel.Children.Add(new TextBlock{Text=text,TextWrapping=TextWrapping.Wrap,Foreground=SoftClayTheme.Brush("muted"),Margin=new Thickness(0,10,0,16)});
         var actions=new StackPanel{Orientation=Orientation.Horizontal,HorizontalAlignment=HorizontalAlignment.Right};
-        var retry=new Button{Content=actionText,Style=SoftClayTheme.ButtonStyle(),Background=SoftClayTheme.Surface(true)};
+        var retry=new Button{Content=actionText,Style=(Style)FindResource("ClayPrimaryButton")};
         retry.Click+=(_,_)=>{notice.Close();action?.Invoke();};actions.Children.Add(retry);
         var exit=new Button{Content="退出应用",Style=SoftClayTheme.ButtonStyle(),Margin=new Thickness(10,0,0,0)};
         exit.Click+=(_,_)=>{notice.Close();Close();};actions.Children.Add(exit);panel.Children.Add(actions);
-        notice.Content=new Border{Background=SoftClayTheme.Surface(),CornerRadius=new CornerRadius(SoftClayTheme.Number("radius","floating")),Margin=new Thickness(14),Effect=SoftClayTheme.Shadow(),Child=panel};
+        notice.Content=new SoftClaySurface{Style=(Style)FindResource("ClayFloatingSurface"),Margin=new Thickness(16),Child=panel};
         notice.Closed+=(_,_)=>{if(ReferenceEquals(_startupNotice,notice))_startupNotice=null;};
         _startupNotice=notice;notice.Show();
     }
@@ -124,8 +124,8 @@ public partial class MainWindow
         {
             _transientNotice?.Close();
             var area=SystemParameters.WorkArea;
-            var notice=new Window{Width=Math.Min(440,area.Width-32),SizeToContent=SizeToContent.Height,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,ShowActivated=false,ShowInTaskbar=false,Topmost=true,AllowsTransparency=true,Background=Brushes.Transparent,IsHitTestVisible=false};
-            notice.Content=new Border{Margin=new Thickness(12),Padding=new Thickness(16,12,16,12),Background=SoftClayTheme.Surface(),CornerRadius=new CornerRadius(12),Effect=SoftClayTheme.Shadow(),Child=new TextBlock{Text=text,TextWrapping=TextWrapping.Wrap,Foreground=SoftClayTheme.Brush("ink"),FontSize=13}};
+            var notice=new Window{FontFamily=SoftClayTheme.Font,FontSize=SoftClayTheme.Number("type","body"),Width=Math.Min(440,area.Width-32),SizeToContent=SizeToContent.Height,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,ShowActivated=false,ShowInTaskbar=false,Topmost=true,AllowsTransparency=true,Background=Brushes.Transparent,IsHitTestVisible=false};
+            notice.Content=new SoftClaySurface{Style=(Style)FindResource("ClayFloatingSurface"),Margin=new Thickness(16),Padding=new Thickness(16,12,16,12),Child=new TextBlock{Text=text,TextWrapping=TextWrapping.Wrap,Foreground=SoftClayTheme.Brush("ink"),FontSize=SoftClayTheme.Number("type","body")}};
             var timer=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromSeconds(4)};
             timer.Tick+=(_,_)=>notice.Close();
             notice.Loaded+=(_,_)=>{notice.Left=area.Right-notice.ActualWidth-16;notice.Top=area.Bottom-notice.ActualHeight-16;timer.Start();};
@@ -163,7 +163,7 @@ public partial class MainWindow
         catch (Exception error)
         {
             ShowEditorNotice(error.Message);
-            if (MessageBox.Show(this, error.Message + "\n\n是否明确放弃未保存的更改并退出？选择“否”可继续编辑或保存项目。", "尚未安全保存", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes)
+            if (SoftClayDialog.Show(this, error.Message + "\n\n是否明确放弃未保存的更改并退出？选择“否”可继续编辑或保存项目。", "当前编辑尚未保存", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes)
             { _closingAllowed = true; Close(); }
         }
         finally { _closingPending = false; }

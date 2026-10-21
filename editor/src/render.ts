@@ -3,6 +3,7 @@ import { processingMasks } from './processingPrivacy';
 import { contentGeometry, outputSize, type ProjectDocument } from './document';
 import { parseImage, MAX_IMAGE_BYTES } from './document';
 import type { LoadedImage } from './bridge';
+import { drawImageTranslations } from './imageTranslationLayout';
 
 export const FONT = '"Microsoft YaHei", "PingFang SC", sans-serif';
 // 只缓存最近一张解码结果，复用校验与首次画布渲染；不按撤销历史积累整图像素。
@@ -52,6 +53,12 @@ export async function renderBase(doc: ProjectDocument, scale = 1): Promise<HTMLC
     ctx.beginPath(); ctx.roundRect(padding, padding, content.width, content.height, Math.min(editor.radius, content.width / 2, content.height / 2)); ctx.clip();
   }
   ctx.drawImage(source, content.crop.x, content.crop.y, content.crop.width, content.crop.height, padding, padding, content.width, content.height);
+  if(editor.imageTranslation){
+    // 译文存原图坐标；裁剪、等比缩放和导出倍率统一映射，始终裁切在当前内容与各原文字框内。
+    ctx.save();ctx.beginPath();ctx.rect(padding,padding,content.width,content.height);ctx.clip();
+    ctx.translate(padding,padding);ctx.scale(content.width/content.crop.width,content.height/content.crop.height);ctx.translate(-content.crop.x,-content.crop.y);
+    drawImageTranslations(ctx,editor.imageTranslation,image);ctx.restore();
+  }
   if (editor.mode === 'beauty') {
     ctx.restore();
     if (editor.borderWidth) {
@@ -94,7 +101,7 @@ export async function imageForProcessing(doc: ProjectDocument): Promise<LoadedIm
   if (!doc.editor.crop && !doc.editor.resize && !masks.length) return doc.image;
   const geometry = contentGeometry(doc.image, doc.editor);
   // 在原始分辨率遮住信息后才进行任何重采样，避免缩放先把敏感像素混入边缘。
-  const editor = { ...doc.editor, mode: 'raw' as const, resize: null, annotations: [] };
+  const editor = { ...doc.editor, mode: 'raw' as const, resize: null, annotations: [], imageTranslation:null };
   const source = await renderBase({ ...doc, editor });
   const ctx = source.getContext('2d')!;
   for (const mask of masks) { ctx.fillStyle = mask.color; ctx.fillRect(mask.x, mask.y, mask.width, mask.height); }

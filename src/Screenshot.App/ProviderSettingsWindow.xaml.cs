@@ -67,7 +67,7 @@ public partial class ProviderSettingsWindow : Window
         KeyBadge.Text = ClearKey.IsChecked == true ? "待删除" : ApiKey.Password.Length > 0 ? "新密钥 · 尚未保存" : _hasStoredKey ? "✓ 已保存" : "未保存";
         KeyPlaceholder.Text = _hasStoredKey ? "••••••••  已保存，留空继续使用" : "填写 API 密钥";
         KeyPlaceholder.Visibility = ApiKey.Password.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-        ConnectionTestResult.Text = "";
+        SetStatus("");
     }
 
     // 测试当前草稿而非后台旧配置；只发送固定文字，不保存、不截图，并可取消或随窗口关闭终止。
@@ -76,8 +76,7 @@ public partial class ProviderSettingsWindow : Window
         if (_connectionTest is not null) return;
         if (string.IsNullOrWhiteSpace(ProviderBaseUrl.Text) || string.IsNullOrWhiteSpace(ProviderModel.Text))
         {
-            ConnectionTestResult.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 195, 182));
-            ConnectionTestResult.Text = "请填写服务地址和模型名称后再测试。";
+            SetStatus("请填写服务地址和模型名称后再测试。", true);
             return;
         }
         if (ClearKey.IsChecked == true && ApiKey.Password.Length > 0)
@@ -91,8 +90,7 @@ public partial class ProviderSettingsWindow : Window
         ProviderSidebar.IsEnabled = ProviderScroll.IsEnabled = SaveButton.IsEnabled = DeleteButton.IsEnabled = TestConnectionButton.IsEnabled = false;
         CancelConnectionTestButton.Visibility = Visibility.Visible;
         TestConnectionButton.Content = "测试中…";
-        ConnectionTestResult.Foreground = SoftClayTheme.Brush("muted");
-        ConnectionTestResult.Text = "正在测试当前配置…";
+        SetStatus("正在测试当前配置…");
         try
         {
             var draft = new ProviderUpdate(_selectedId ?? "connection-draft", ProviderName.Text,
@@ -102,8 +100,7 @@ public partial class ProviderSettingsWindow : Window
             cancellation.Token.ThrowIfCancellationRequested();
             if (!_settingsClosed)
             {
-                ConnectionTestResult.Foreground = SoftClayTheme.Brush("focus");
-                ConnectionTestResult.Text = "✓ 文字翻译请求成功。";
+                SetStatus("文字翻译请求成功。");
             }
         }
         catch (Exception error)
@@ -111,8 +108,7 @@ public partial class ProviderSettingsWindow : Window
             if (!_settingsClosed)
             {
                 var cancelled = cancellation.IsCancellationRequested;
-                ConnectionTestResult.Foreground = cancelled ? SoftClayTheme.Brush("muted") : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 195, 182));
-                ConnectionTestResult.Text = cancelled ? "测试已取消。" : "连接失败：" + (error is AiProviderException ? error.Message : "请检查服务地址和网络后重试。");
+                SetStatus(cancelled ? "测试已取消。" : "连接失败：" + (error is AiProviderException ? error.Message : "请检查服务地址和网络后重试。"), !cancelled);
             }
         }
         finally
@@ -146,7 +142,7 @@ public partial class ProviderSettingsWindow : Window
             HotkeyKey.SelectedItem = hotkey.Binding.Key;
             HotkeyMessage.Text = hotkey.Message;
         }
-        catch (Exception error) { CapturePreferences.IsEnabled = false; SetStatus("无法读取截图设置：" + error.Message, true); }
+        catch (Exception error) { CapturePreferences.IsEnabled = false; SetCaptureStatus("无法读取截图设置：" + error.Message, true); }
     }
 
     // 截图配置与热键分别提交，热键冲突不会造成其他设置保存结果含糊。
@@ -157,9 +153,9 @@ public partial class ProviderSettingsWindow : Window
         {
             var payload = JsonSerializer.SerializeToElement(new { backend = CaptureBackend.SelectedIndex == 1 ? "gdi" : "wgc", snapWindows = SnapWindows.IsChecked == true, windowArea = SnapArea.SelectedIndex == 1 ? "client" : "window" });
             await _executeSettings!("capture.configure", payload);
-            SetStatus("截图设置已应用。");
+            SetCaptureStatus("截图设置已应用。");
         }
-        catch (Exception error) { SetStatus(error.Message, true); }
+        catch (Exception error) { SetCaptureStatus(error.Message, true); }
         finally { CapturePreferences.IsEnabled = true; }
     }
 
@@ -172,9 +168,9 @@ public partial class ProviderSettingsWindow : Window
             var payload = JsonSerializer.SerializeToElement(new { enabled = HotkeyEnabled.IsChecked == true, ctrl = HotkeyCtrl.IsChecked == true, alt = HotkeyAlt.IsChecked == true, shift = HotkeyShift.IsChecked == true, key = HotkeyKey.SelectedItem as string ?? "S" });
             var result = (HotkeyStatus)(await _executeSettings!("hotkey.configure", payload))!;
             HotkeyMessage.Text = result.Message;
-            SetStatus(result.Applied ? "快捷键已应用。" : result.Message, !result.Applied);
+            SetCaptureStatus(result.Applied ? "快捷键已应用。" : result.Message, !result.Applied);
         }
-        catch (Exception error) { SetStatus(error.Message, true); }
+        catch (Exception error) { SetCaptureStatus(error.Message, true); }
         finally { CapturePreferences.IsEnabled = true; }
     }
 
@@ -261,11 +257,18 @@ public partial class ProviderSettingsWindow : Window
 
     private void AddOpenAi_Click(object sender, RoutedEventArgs e) => NewProvider("openai-compatible");
 
-    // 只有实际失败才使用错误颜色，初次打开与成功保存不显示红色警告。
+    // 保存和测试共用表单内反馈，不在窗口底部同时堆积两条状态。
     private void SetStatus(string text, bool error = false)
     {
-        Status.Text = text;
-        Status.Foreground = error ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 195, 182)) : SoftClayTheme.Brush("muted");
+        ConnectionTestResult.Text = text;
+        ConnectionTestResult.Foreground = error ? SoftClayTheme.Brush("error") : SoftClayTheme.Brush("muted");
+    }
+
+    // 截图页的结果留在所属页面，避免与服务连接的保存/测试消息混在一起。
+    private void SetCaptureStatus(string text, bool error = false)
+    {
+        CaptureStatus.Text = text;
+        CaptureStatus.Foreground = error ? SoftClayTheme.Brush("error") : SoftClayTheme.Brush("muted");
     }
 
     // 将用户明确的保存/清除操作交给原生服务，等待期间禁止重复编辑。
@@ -316,7 +319,7 @@ public partial class ProviderSettingsWindow : Window
     // 明确确认删除服务和密钥后刷新列表，并显示可读的本地错误。
     private async void Delete_Click(object sender, RoutedEventArgs e)
     {
-        if (_selectedId is null || MessageBox.Show(this, "删除这个连接及其已保存的密钥？", "删除连接", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        if (_selectedId is null || SoftClayDialog.Show(this, "删除这个连接及其已保存的密钥？", "删除连接", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
         SettingsForm.IsEnabled = false;
         try
         {

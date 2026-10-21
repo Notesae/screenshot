@@ -190,7 +190,8 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
     // 尺寸和指针读数使用同一凸面胶囊；文字随窗口 DPI 缩放，截图像素保持原样。
     private void DrawHint(Graphics graphics,string text,int x,int y)
     {
-        using var font=new Font("Microsoft YaHei UI",10);var size=graphics.MeasureString(text,font);
+        // WPF/CSS 字号以 DIP 记录，GDI 的点数换算后继续随窗口 DPI 缩放。
+        using var font=new Font(SoftClayTheme.Font.Source.Split(',')[0].Trim(),(float)SoftClayTheme.Number("type","body")*72/96,GraphicsUnit.Point);var size=graphics.MeasureString(text,font);
         x=Math.Clamp(x,0,Math.Max(0,ClientSize.Width-(int)size.Width-16));y=Math.Clamp(y,0,Math.Max(0,ClientSize.Height-(int)size.Height-12));
         graphics.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         SoftClayDrawing.Surface(graphics,new RectangleF(x,y,size.Width+16,size.Height+12),(float)SoftClayTheme.Number("radius","pill"));

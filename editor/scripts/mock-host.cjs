@@ -2,7 +2,7 @@
 async function installMock(page, options = {}) {
   await page.addInitScript(options => {
     const listeners = [];
-    window.__mockOptions=options; window.__failNext={}; window.__messages = []; window.__heldMethods = []; window.__holdMethod = null; window.__recoveries = {}; window.__captureBackend = 'gdi';
+    window.__mockOptions=options; window.__failNext={}; window.__messages = []; window.__heldMethods = []; window.__holdMethod = null; window.__recoveries = {}; window.__captureBackend = options.backend||'gdi';
     window.__heldDecodes = []; window.__heldReady = []; window.__holdReady = false; window.__currentCaptureId = null; window.__hotkey={enabled:true,ctrl:true,alt:false,shift:true,key:'S'};window.__snapSettings={snapWindows:true,windowArea:'window'};window.__providerRevision='a'.repeat(64);
     window.__emit = data => {
       if (data.event === 'image.loaded' && data.payload.overlay) window.__currentCaptureId = data.payload.overlay.captureId;
@@ -26,6 +26,7 @@ async function installMock(page, options = {}) {
         if (request.method === 'presentation.ready' && window.__holdReady) { window.__heldReady.push(request); return; }
         const results = { 'app.updateReady':{ready:true}, 'document.preserve':{saved:true}, 'settings.read': { providers: [{ id: 'synthetic', name: '模拟服务', kind: 'ollama', model: 'test', baseUrl: 'http://127.0.0.1:0', hasApiKey: false, revision:window.__providerRevision }], defaultProviderId: 'synthetic' }, 'image.open': window.__openImage, 'image.copy': { copied: true }, 'text.copy': { copied:true }, 'image.save': { saved: true }, 'project.save': { saved: true }, 'ai.ocr': { text: '仅用于无头测试的合成文字' } };
         let result = request.method==='settings.read'&&options.settings?options.settings:request.method==='project.open'?window.__projectDocument:results[request.method];
+        if (request.method === 'settings.configure') result = options.settings||results['settings.read'];
         if (request.method === 'ocr.status') result = options.localStatus || { available: true, modelVersion: 'synthetic', message: 'synthetic only', missingFiles: [] };
         if (request.method === 'ai.cancel') result={cancelled:true};
         if (request.method === 'ocr.cancel') result = { cancelled: true };
@@ -34,7 +35,7 @@ async function installMock(page, options = {}) {
           if(window.__failBlockB&&request.payload.text==='second'&&!window.__failedBlockB){window.__failedBlockB=true;setTimeout(()=>window.__emit({id:request.id,ok:false,error:{code:'provider_rate_limited',message:'synthetic rate limit'}}),0);return;}
 
           if(window.__chunkMode && request.payload.text.startsWith('乙') && !window.__failedChunk){window.__failedChunk=true;setTimeout(()=>window.__emit({id:request.id,ok:false,error:{code:'provider_rate_limited',message:'模拟429限流'}}),0);return;}
-          result = { text:window.__chunkMode?'translated-'+request.payload.text.slice(0,1):'synthetic translation' };
+          result = { text:window.__translations?.[request.payload.text]??(window.__chunkMode?'translated-'+request.payload.text.slice(0,1):'synthetic translation') };
         }
         if(request.method==='ai.test')result={text:'PROBE_OK'};
         if(request.method==='ai.usage')result={items:[]};

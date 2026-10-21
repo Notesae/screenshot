@@ -1,10 +1,11 @@
 import { useEffect, useState, type RefObject } from 'react';
+import { ColorField } from './ColorField';
 import { ArrowUpRight, Highlighter, Redo2, Square, Undo2 } from 'lucide-react';
 import { contentGeometry, type ContentResize, type ProjectDocument, type SourceCrop } from './document';
 import type { CanvasHandle, CanvasSelection } from './EditorCanvas';
 
 export function HistoryButtons({ canUndo, canRedo, undo, redo }: { canUndo: boolean; canRedo: boolean; undo: () => void; redo: () => void }) {
-  return <><button title="撤销 Ctrl+Z" aria-label="撤销" disabled={!canUndo} onClick={undo}><Undo2/></button><button title="重做 Ctrl+Y" aria-label="重做" disabled={!canRedo} onClick={redo}><Redo2/></button></>;
+  return <><button data-tooltip="撤销 Ctrl+Z" aria-label="撤销" disabled={!canUndo} onClick={undo}><Undo2/></button><button data-tooltip="重做 Ctrl+Y" aria-label="重做" disabled={!canRedo} onClick={redo}><Redo2/></button></>;
 }
 /** 属性只针对当前标注，修改即时应用且沿用画布撤销；不重复堆放绘制工具。 */
 export function AnnotationPalette({ canvasRef, onError, selection, disabled=false }: { canvasRef: RefObject<CanvasHandle | null>; onError: (error: unknown) => void; selection:CanvasSelection|null; disabled?:boolean }) {
@@ -15,7 +16,7 @@ export function AnnotationPalette({ canvasRef, onError, selection, disabled=fals
   return <div className="annotation-palette">
     <p className="selection-summary">{({text:'文字',rect:'矩形',arrow:'箭头',highlight:'高亮',cover:'实色遮盖'})[selection.type]}</p>
     <div className="annotation-properties">
-      <label>颜色<div className="clay-color-field"><input aria-label="标注颜色" disabled={disabled} type="color" value={color} onChange={event=>{const next=event.target.value;setColor(next);if(!canvasRef.current?.patchSelection({color:next,fontSize:selection.fontSize}))onError(new Error('当前标注暂时无法修改，请稍后重试。'));}}/><output>{color.toUpperCase()}</output></div></label>
+      <label>颜色<ColorField label="标注颜色" disabled={disabled} value={color} onChange={next=>{setColor(next);if(!canvasRef.current?.patchSelection({color:next,fontSize:selection.fontSize}))onError(new Error('当前标注暂时无法修改，请稍后重试。'));}}/></label>
       {selection.type==='text'&&<label>字号<div className="clay-unit-field"><input aria-label="标注字号" aria-invalid={invalidFont||undefined} disabled={disabled} type="number" min={8} max={240} value={Number.isNaN(fontSize)?'':fontSize} onChange={event=>{const next=event.target.valueAsNumber;setFontSize(next);if(next>=8&&next<=240&&!canvasRef.current?.patchSelection({color,fontSize:next}))onError(new Error('当前标注暂时无法修改，请稍后重试。'));}} onBlur={()=>{if(invalidFont)setFontSize(selection.fontSize);}}/><span>px</span></div></label>}
     </div>
     {selection.type==='text'&&invalidFont&&<p className="field-error">字号范围为 8–240 px。</p>}

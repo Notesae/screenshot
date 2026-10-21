@@ -139,7 +139,11 @@ async function presented(page, key) {
   await page.waitForFunction(value => window.__repeatHost.state.events.some(event => event.type === 'painted-reply' && event.captureId === 'repeat-' + value && event.accepted) && document.querySelector('.is-presented'), key);
 }
 async function snapshot(page) { return page.evaluate(() => window.screenshotPrepareUpdate()); }
-async function clickRecapture(page) { await page.getByRole('button', { name:'重新框选', exact:true }).click(); }
+async function clickRecapture(page) {
+  const more=page.getByRole('button',{name:'更多操作',exact:true});
+  if(await more.getAttribute('aria-expanded')!=='true')await more.click();
+  await page.getByRole('button', { name:'重新框选', exact:true }).click();
+}
 
 /** 新结果尚未解码时，旧选区边框/遮罩/工具必须先退出；底图是否显示由宿主遮挡决定，不在此伪造。 */
 function summarize(recording, name, initial, final, finalChromeVisible) {
