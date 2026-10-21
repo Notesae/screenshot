@@ -9,11 +9,11 @@
  --clay-float:var(--clay-shadow),0 24px 48px #0008,inset 0 3px 5px var(--clay-highlight),inset 0 -4px 10px var(--clay-shade);
  position:fixed;inset:0;overflow:hidden;color:var(--clay-ink);font-size:13px;line-height:1.6;
  font-family:var(--clay-font),sans-serif;
- color-scheme:dark;scrollbar-color:#68615b #262320;
+ color-scheme:dark;scrollbar-color:auto;scrollbar-width:auto;
 }
 .clay-editor.is-neutral{background:var(--clay-canvas)}
 .clay-editor.is-overlay{pointer-events:none}
-.clay-editor *{box-sizing:border-box}
+.clay-editor *{box-sizing:border-box;scrollbar-color:auto;scrollbar-width:auto}
 .clay-editor ::selection{background:#3b82f666;color:white}
 .clay-editor button,.clay-editor input,.clay-editor select,.clay-editor textarea{font:inherit;color:var(--clay-ink);accent-color:var(--accent)}
 .clay-editor button{border:0;display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:var(--clay-size-control);padding:8px 12px;border-radius:var(--clay-radius-control);background:var(--clay-raised);box-shadow:var(--clay-button);cursor:pointer;transition:transform var(--clay-time-release) var(--clay-spring),filter 140ms ease,box-shadow 140ms ease}
@@ -31,10 +31,16 @@
 .clay-canvas-stage .canvas-zoom select{color:var(--clay-ink);background:transparent}
 .clay-chrome{border:0;padding:0;margin:0;min-width:0}
 .clay-rail,.clay-card{position:absolute;pointer-events:auto;z-index:5}
-.clay-rail{animation:clay-rail-in var(--clay-time-card) var(--clay-spring);display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px;padding:10px 12px;background:var(--clay-face);border-radius:var(--clay-radius-floating);box-shadow:var(--clay-float);overflow:auto;overscroll-behavior:contain}
+/* 依据按钮的自然宽度收缩，仅在可用屏幕宽度不足时换行；尺寸回传给定位逻辑。 */
+.clay-rail{animation:clay-rail-in var(--clay-time-card) var(--clay-spring);display:flex;width:max-content;max-width:calc(100vw - 32px);align-items:center;justify-content:center;flex-wrap:wrap;gap:6px;padding:10px 12px;background:var(--clay-face);border-radius:var(--clay-radius-floating);box-shadow:var(--clay-float);overflow:auto;overscroll-behavior:contain}
+.clay-rail>*{flex-shrink:0}
 .clay-rail button{min-width:34px;min-height:36px;padding:7px 9px;border-radius:var(--clay-radius-control);white-space:nowrap}
-.clay-paths{display:flex;gap:4px;padding:3px;border-radius:17px;background:#171513;box-shadow:inset 0 2px 5px #0008,inset 0 -1px 1px #ffffff12}
-.clay-paths button{min-width:48px}
+/* 工具入口只标记面板展开状态，蓝色主操作留给完成按钮。 */
+.clay-image-tools{display:flex;gap:6px;padding-right:10px;margin-right:2px;border-right:1px solid #ffffff1a}
+.clay-editor .clay-image-tools button{width:38px;height:36px;min-width:38px;padding:8px;border:1px solid transparent;background:#ffffff08;box-shadow:inset 0 1px 0 #ffffff12;color:var(--clay-ink)}
+.clay-image-tools button>svg{width:21px;height:21px}
+.clay-editor .clay-image-tools button[aria-expanded=true]{background:#ffffff1a;border-color:#ffffff28;box-shadow:inset 0 1px 2px #0003;color:var(--clay-ink)}
+.clay-editor .clay-image-tools button:hover:enabled{background:#ffffff14;filter:none}
 .clay-grip{display:flex;align-items:center;justify-content:center;min-width:20px;min-height:36px;color:var(--muted);cursor:grab;touch-action:none;border-radius:8px}
 .clay-grip:active,.clay-card-heading:active{cursor:grabbing}
 .clay-card{border-radius:var(--clay-radius-floating);display:flex;flex-direction:column;overflow:hidden;background:var(--clay-card);box-shadow:0 4px 10px #0005,0 18px 36px #0008,inset 0 3px 4px #ffffff29,inset 0 -3px 8px #0005;transform-origin:50% 100%;animation:clay-card-in var(--clay-time-card) var(--clay-spring)}
@@ -147,3 +153,129 @@
 
 /* 捕获替换前同步隐去整组旧呈现，文档和历史仍保留以支持取消。 */
 .clay-editor.is-suspended{visibility:hidden!important;pointer-events:none}
+/* 本轮重排：面板采用统一分组与字段节奏，正文区域只在内容确实超出视口时滚动。 */
+.clay-card{border:1px solid #ffffff12;border-radius:16px;animation-name:clay-panel-fade;transform-origin:center}
+.clay-card-heading{padding:14px 18px 12px;border-bottom:1px solid #ffffff0c;user-select:none}
+.clay-card-heading h2{font-size:14px;letter-spacing:.02em}
+.clay-card-content{display:flex;flex-direction:column;gap:18px;padding:18px;overflow-x:hidden;overflow-y:auto;scrollbar-gutter:stable}
+.clay-card-content>*{flex-shrink:0;min-width:0}
+.clay-card-content label,.clay-card-content .control-label{display:grid;gap:8px;align-items:start;font-size:12px;line-height:1.5;color:var(--clay-muted);margin:0}
+.clay-card-content input:not([type=checkbox]):not([type=range]):not([type=color]),.clay-card-content textarea{min-height:40px;padding:10px 12px;font-size:13px;border:1px solid #ffffff0c;border-radius:9px;box-shadow:inset 0 1px 3px #0003}
+.clay-card-content input[type=number]{width:100%;font-variant-numeric:tabular-nums}
+.clay-card-content textarea{min-height:126px;line-height:1.7}
+.clay-card-content button{min-height:38px;border-radius:9px;box-shadow:inset 0 1px 0 #ffffff12;background:#ffffff09;font-size:12px;font-weight:500;line-height:1.5;padding:9px 12px}
+.clay-card-content button:hover:enabled{background:#ffffff14;filter:none}
+.clay-card-content button:active:enabled{transform:none;background:#ffffff1a;box-shadow:inset 0 1px 3px #0003}
+.clay-card-content button.clay-primary,.clay-card-content button[aria-pressed=true]{background:var(--clay-accentBottom);color:var(--clay-ink);box-shadow:inset 0 1px 0 #ffffff24}
+.clay-card-content details{width:100%;margin:0;border-top:1px solid #ffffff12;padding-top:8px}
+.clay-card-content details[open]{display:grid;gap:14px}
+.clay-card-content summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:36px;padding:6px 0;font-size:12px;color:var(--clay-ink);list-style:none;user-select:none}
+.clay-card-content summary::-webkit-details-marker{display:none}
+.clay-card-content summary::after{content:'';width:7px;height:7px;margin-right:4px;border-right:1.5px solid var(--clay-muted);border-bottom:1.5px solid var(--clay-muted);transform:rotate(45deg);flex-shrink:0}
+.clay-card-content details[open]>summary{margin:0}
+.clay-card-content details[open]>summary::after{transform:rotate(225deg)}
+.clay-section{display:grid;gap:12px}
+.clay-section+.clay-section{border-top:1px solid #ffffff12;padding-top:16px}
+.clay-section h3,.clay-card-content .transform-controls h3{font-size:11px;font-weight:600;color:var(--clay-muted);margin:0;letter-spacing:.04em}
+/* 不适用的工具说明前置，不显示可展开却没有内容的入口。 */
+.clay-unavailable-tool{display:grid;gap:8px;padding-top:14px;border-top:1px solid #ffffff12;color:var(--clay-muted);font-size:12px}
+.clay-unavailable-tool>p{margin:0;font-size:12px;line-height:1.7}
+.clay-action-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.clay-action-grid>button{width:100%;justify-content:flex-start;min-width:0}
+.clay-card-content .annotation-palette{display:grid;gap:18px;margin:0}
+.clay-card-content .selection-summary{margin:0;font-size:12px;color:var(--clay-muted)}
+.clay-card-content .annotation-properties{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;margin:0;align-items:start}
+.clay-card-content .annotation-properties:has(>label:nth-child(2)){grid-template-columns:repeat(2,minmax(0,1fr))}
+.clay-card-content .annotation-properties label{display:grid;gap:8px;font-size:12px}
+/* 颜色与数值共用一层 40px 内凹容器，内部输入不再重复绘制边框和背景。 */
+.clay-color-field,.clay-unit-field{display:flex;align-items:center;gap:10px;min-width:0;height:40px;min-height:40px;background:var(--clay-well);border:1px solid #ffffff0c;border-radius:9px;padding:5px 10px;box-shadow:inset 0 1px 3px #0003}
+.clay-color-field:focus-within,.clay-unit-field:focus-within{border-color:var(--clay-focus);outline:2px solid #82b1ff33;outline-offset:1px}
+.clay-editor .clay-color-field input[type=color]{width:28px;height:28px;min-height:0;border:0;border-radius:5px;padding:0;background:transparent;cursor:pointer;flex-shrink:0}
+.clay-color-field input::-webkit-color-swatch-wrapper{padding:0}
+.clay-color-field input::-webkit-color-swatch{border:1px solid #ffffff29;border-radius:5px}
+.clay-color-field output{color:var(--clay-ink);font-size:13px;letter-spacing:.03em;font-variant-numeric:tabular-nums}
+.clay-editor .clay-card-content .clay-unit-field input[type=number]{width:100%;min-width:0;height:28px;min-height:28px;margin:0;padding:0;background:transparent;border:0;border-radius:0;box-shadow:none;font-size:13px;line-height:28px}
+.clay-color-field input:focus-visible,.clay-unit-field input:focus-visible{outline:none}
+/* 数字仍支持键盘微调，移除系统步进按钮，避免混入另一套控件外观。 */
+.clay-editor input[type=number]{appearance:textfield;-moz-appearance:textfield}
+.clay-editor input[type=number]::-webkit-inner-spin-button,.clay-editor input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;appearance:none;margin:0}
+.clay-unit-field>span{font-size:11px;color:var(--clay-muted)}
+.clay-card-content .clay-danger{border-top:1px solid #ffffff12;padding-top:14px;background:transparent;box-shadow:none;color:#e7a99d;justify-content:center}
+.clay-card-content .clay-danger:hover:enabled{background:#a743361c}
+.clay-card-content .clay-preset-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.clay-preset-list button{border-radius:9px;padding:10px 12px;min-width:0}
+.clay-card-content .clay-style-tools{gap:18px}
+.clay-card-content .clay-range{gap:8px;margin:0}
+.clay-card-content .text-tools{display:grid;gap:16px}
+.clay-card-content .compact-provider{display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:8px}
+.clay-card-content .translate-row{display:grid;grid-template-columns:minmax(0,1fr) 96px;align-items:end;gap:12px}
+.clay-card-content .text-copy-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+/* 折叠层内部由实际内容容器控制节奏，避免原生 details 匿名层吞掉网格间距。 */
+.clay-card-content .text-tools .translation-section,.clay-card-content .text-tools .provider-tests{display:block}
+.clay-card-content .translation-content{display:grid;gap:16px;padding-top:12px;min-width:0}
+.clay-card-content .provider-choice{display:grid;gap:8px;min-width:0}
+.clay-card-content .compact-provider>button{height:40px;min-height:40px;padding:0;justify-content:center}
+.clay-card-content .translate-row>button{height:40px;min-height:40px;white-space:nowrap;justify-content:center}
+.clay-card-content .translation-content>label{gap:10px}
+.clay-card-content .translation-content textarea{min-height:160px}
+.clay-card-content .translation-content .ai-note{line-height:1.8}
+.clay-card-content .translation-content>.provider-tests{border-top:1px solid #ffffff12;padding-top:12px}
+.clay-card-content .provider-test-content{display:grid;gap:12px;padding-top:12px;min-width:0}
+/* 诊断操作统一为次要按钮，蓝色仅用于当前翻译动作。 */
+.clay-card-content .provider-test-content .text-copy-actions>button:first-child{background:#ffffff09;box-shadow:inset 0 1px 0 #ffffff12}
+.clay-card-content .provider-test-content .text-copy-actions>button:first-child:hover:enabled{background:#ffffff14}
+.clay-card-content .provider-test-content .usage-refresh{width:100%;justify-content:center}
+.clay-card-content .text-tools .ocr-correction{box-shadow:none;padding:12px;border-radius:10px;gap:12px}
+.clay-card-content .transform-controls{display:grid;gap:12px}
+.clay-card-content .crop-inputs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.clay-card-content .crop-inputs label,.clay-card-content .resize-width{display:grid;gap:8px;font-size:12px}
+.clay-card-content .capture-controls{display:grid;gap:12px}
+.clay-card-content .capture-controls:not([open]){display:block}
+.clay-card-content .capture-controls fieldset{display:grid;gap:12px;margin:0;padding:12px 0 0;border-top:1px solid #ffffff12}
+.clay-card-content .capture-controls legend{font-size:12px;padding:0;color:var(--clay-muted)}
+.clay-card-content .hotkey-modifiers{display:flex;flex-wrap:wrap;gap:16px}
+.clay-card-content .hotkey-modifiers label,.clay-card-content .checkbox-row{display:flex;align-items:center;gap:8px;margin:0}
+/* 标准滚动条属性保持 auto，让 WebView 使用下方完整绘制的无箭头滚动条。 */
+.clay-editor::-webkit-scrollbar,.clay-editor ::-webkit-scrollbar{width:8px;height:8px;background:transparent}
+.clay-editor::-webkit-scrollbar-thumb,.clay-editor ::-webkit-scrollbar-thumb{background:#a39a9070;background-clip:padding-box;border:2px solid transparent;border-radius:999px;min-height:32px}
+.clay-editor::-webkit-scrollbar-thumb:hover,.clay-editor ::-webkit-scrollbar-thumb:hover{background-color:#c0b6ac99}
+.clay-editor::-webkit-scrollbar-track,.clay-editor ::-webkit-scrollbar-track,.clay-editor ::-webkit-scrollbar-corner{background:transparent}
+.clay-editor::-webkit-scrollbar-button,.clay-editor ::-webkit-scrollbar-button,.clay-editor ::-webkit-scrollbar-button:single-button{display:none;-webkit-appearance:none;appearance:none;width:0;height:0;background:transparent;border:0}
+/* 菜单与触发器都由应用绘制，展开后仍保持同一套材质、间距和键盘交互。 */
+.clay-select{display:inline-flex;position:relative;width:100%;min-width:0;vertical-align:middle}
+.clay-editor .clay-select-trigger{width:100%;min-width:0;min-height:40px;display:flex;justify-content:space-between;gap:12px;padding:9px 12px;border:1px solid #ffffff0c;border-radius:9px;background:var(--clay-well);box-shadow:inset 0 1px 3px #0003;text-align:left;font-size:13px;font-weight:400;transform:none}
+.clay-editor .clay-select-trigger:hover:enabled{background:#292623;filter:none;border-color:#ffffff22}
+.clay-select-trigger>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clay-select-trigger>svg{width:15px;height:15px;color:var(--clay-muted)}
+.clay-editor .clay-select-trigger[aria-expanded=true]{border-color:var(--clay-focus)}
+.clay-select-menu{position:fixed;z-index:40;padding:5px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;pointer-events:auto;background:#302d29;border:1px solid #ffffff1c;border-radius:11px;box-shadow:0 12px 32px #0007,0 2px 6px #0004;outline:none;scrollbar-width:auto}
+.clay-editor .clay-select-menu>button{display:flex;justify-content:space-between;gap:12px;width:100%;min-height:38px;margin:0;padding:9px 10px;border:0;border-radius:6px;box-shadow:none;background:transparent;color:var(--clay-ink);font-size:13px;line-height:1.5;text-align:left;transform:none;font-weight:400}
+.clay-select-menu>button>span{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.clay-editor .clay-select-menu>button.is-active,.clay-editor .clay-select-menu>button:hover:enabled{background:#ffffff10;filter:none}
+.clay-editor .clay-select-menu>button[aria-selected=true]{color:#93bcff}
+.clay-select-menu>button>svg{width:16px;height:16px}
+.clay-canvas-stage .canvas-zoom .clay-select{width:154px;flex-shrink:1}
+.clay-canvas-stage .canvas-zoom .clay-select-trigger{min-height:30px;font-size:11px;padding:5px 8px;background:transparent;box-shadow:none;border-color:transparent}
+@keyframes clay-panel-fade{from{opacity:0}to{opacity:1}}
+@keyframes clay-panel-close{to{opacity:0}}
+.clay-card.is-closing{animation-name:clay-panel-close}
+@media(prefers-reduced-motion:reduce){.clay-card,.clay-card.is-closing{animation:none}}
+/* 设置折叠区使用真实内容容器分组，避免 details 的匿名内容层吞掉网格间距。 */
+.clay-settings .clay-card-content{gap:24px;padding:20px}
+.clay-settings .clay-section{gap:14px}
+.clay-settings .capture-controls{display:block}
+.clay-capture-sections{display:grid;gap:24px;padding-top:18px}
+.clay-card-content .capture-controls .clay-capture-section{display:grid;gap:16px;min-width:0;margin:0;padding:0;border:0}
+.clay-card-content .capture-controls .clay-capture-section+.clay-capture-section{border-top:1px solid #ffffff12;padding-top:24px}
+.clay-capture-section h3{margin:0;font-size:12px;font-weight:600;color:var(--clay-ink);line-height:1.5}
+.clay-card-content .clay-capture-section button{min-height:40px;padding:10px 12px}
+.clay-capture-section .clay-action-grid{gap:10px}
+.clay-card-content .clay-capture-section .clay-capture-apply{width:100%;justify-content:center}
+.clay-card-content .clay-capture-section .ai-note{font-size:12px;line-height:1.8;margin:0}
+.clay-card-content .clay-capture-section .checkbox-row{min-height:30px;gap:10px}
+.clay-hotkey-field{display:grid;gap:10px;font-size:12px;color:var(--clay-muted)}
+.clay-hotkey-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.clay-editor .clay-hotkey-options button{border:1px solid #ffffff15;font-size:13px}
+.clay-editor .clay-hotkey-options button[aria-pressed=true]{border-color:#82b1ff77;background:#2c4a70;box-shadow:inset 0 1px 0 #ffffff15;color:#e4efff}
+.clay-hotkey-preview{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid #ffffff10;border-radius:9px;background:var(--clay-well);font-size:12px;color:var(--clay-muted)}
+.clay-hotkey-preview output{color:var(--clay-ink);font-size:13px;font-variant-numeric:tabular-nums}

@@ -182,3 +182,18 @@ presentation.ready {captureId} 先登记准备阶段，在原生选区遮挡后�
 菜单和标注状态不跨原生桥。文档仍使用 v2 的 left/top/width/height/scale/angle 表示箭头，端点由局部中心及矩阵映射；没有保存 Fabric 任意 JSON 或新增项目 schema。
 
 原生遮挡在宿主 Show 之前用 GWLP_HWNDPARENT 建立顶层 owned-window 关系，随后才显示和定位宿主，避免两个无所有权的 TopMost 窗口先后置顶时短暂交换层级；只对当前捕获有效。[Windows owned-window 层级规则](https://learn.microsoft.com/en-us/windows/win32/winmsg/window-features)。
+
+## 2026-10-21 统一设置入口
+settings.configure 增加可选 section（capture / services / updates），在同一原生设置浮卡中切换截图与快捷键、识别与翻译、应用更新；未知或缺省值进入截图页，返回仍为原 PublicSettings。网页不再呈现一层包含“服务设置与应用更新”的独立设置卡。文字工具齿轮指定 services，其余设置入口进入 capture。原生页复用 capture.settings/configure 与 hotkey.read/configure 的宿主处理，仅点击应用才更改配置/注册热键；打开设置只读现有配置，不枚举显示器或截图。原生服务保存与密钥边界不变。关闭后前端重新读取 capture.settings，避免截图方式缓存过期。显示器选择与截图动作在更多操作下保留；条款仍通过只读查看窗口提供。
+
+## 2026-10-21 图片原位翻译
+新增 ai.translateImage {providerId,providerRevision?,imageDataUrl,taskId?}，仅由轨道“翻译图片为中文”的显式动作调用，使用已有 AI 门控、任务取消、原生配置与图片验证。发送当前裁剪/缩放内容，沿用实色隐私遮盖，不发送冻结桌面、装饰或其他标注。要求用户所选服务支持图片输入。原生返回 {blocks:[{source,text,x,y,width,height}]}，坐标为所发图片宽高的千分比；仅接受最多 250 块、有限数值和图内正面积矩形，文字量有界。服务返回的代码、URL、HTML 不执行；格式不合规整体拒绝，无自动重试。前端二次检查并将矩形映射回源图裁剪范围，边缘主色覆盖原外语，中文按框内空间换行和缩放，完整结果作为一次文档历史事务替换图片，保持原图尺寸、裁剪、标注及选区关系。取消、文档/修订/代数/服务配置变化均拒绝迟到结果。原位译文烘焙到当前图片，项目 schema 不变；原图留在当前内存撤销历史内，不自动写盘。复杂背景/旋转文字不提供修复或精确还原保证。
+
+## 2026-10-21 原生设置测试连接
+统一设置的服务页新增“测试连接”，直接使用原生表单草稿发送一次固定文字请求，明确提示可能计费；不上传截图、不保存草稿、不使用缓存，也不新增可传密钥的网页桥。空密钥沿用当前服务已存的本机密钥，填写新密钥仅用于本次草稿测试，显式删除密钥草稿不再沿用旧值。成功仅表明这次文字请求返回，不宣称图片识别/图片翻译能力。测试可取消，关闭设置取消本次请求，修改连接信息清空旧测试状态。已保存密钥以状态和示意圆点展示，不解密回填 PasswordBox，不把占位内容作为密码提交。
+
+## 2026-10-21 设置与截图翻译路径修正
+托盘 settings 直接由原生浮卡打开，隐藏宿主不作为其 Owner，不激活工作台或作废旧截图身份；编辑器 settings.configure 复用同一窗口。关闭发送 editor.action {action:"settings-updated"}，前端仅重新读取 settings.read 与 capture.settings，不加载图片。截图翻译若本地 OCR 可用，先以 taskId 调用 ocr.local，再对外语块通过新 taskId 顺序调用 ai.translate（简体中文），重复文本在本次操作内复用结果；位置来自 OCR polygon，仍按所发内容尺寸映射回填。全部请求及回填沿用身份/修订/配置和取消保护，不自动重试。无本地 OCR 的视觉路线保留，已知 Hunyuan-MT/HY-MT 文字模型会提示准备本地 OCR，不发送图片。专用混元文字翻译改用官方单 user 模板；设置连接测试改为固定翻译示例，仍不上传截图或保存草稿。
+
+## 2026-10-21 框选交接等待调整
+presentation.ready / presentation.painted 字段与当前捕获、DPI、alpha 样本确认条件不变。等待现有 WebView 图像的样本核对改在 Dispatcher.Loaded（渲染后）队列执行，并仅在等待期间每 32ms 重查同一现有 Source，补足原地缓冲更新或通知合并未及时触发核对的情况。仅有验帧谓词才启用重查，超时/取消/结束均停止；时间本身不构成成功依据。确认后不再等 ContextIdle，改等 Render 队列，再执行现有 DwmFlush 与身份/几何复核。网页几何循环保留动画帧，但增加 32ms 定时后备，仅推进布局采样，仍由宿主真实帧检查放行。原总期限和拒绝旧帧规则保持。

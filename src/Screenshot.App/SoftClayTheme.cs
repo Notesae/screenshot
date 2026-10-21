@@ -34,6 +34,8 @@ internal static class SoftClayTheme
             resources["Clay"+char.ToUpperInvariant(color.Name[0])+color.Name.Substring(1)]=Brush(color.Name);
         resources["ClayControlRadius"]=new CornerRadius(Number("radius","control"));
         resources["ClaySurface"]=Surface();
+        // 设置浮卡主操作与编辑器共用蓝色渐变，普通导航和次要按钮保持中性。
+        resources["ClayPanelPrimary"]=Surface(true);
         var button=ButtonStyle();resources["ClayButton"]=button;resources[typeof(Button)]=button;
         resources.MergedDictionaries.Add(new ResourceDictionary { Source=new Uri("/"+typeof(SoftClayTheme).Assembly.GetName().Name+";component/SoftClayControls.xaml",UriKind.Relative) });
     }

@@ -32,7 +32,7 @@ public partial class UpdateSettingsControl : UserControl, IDisposable
         var installedDirectory = Registry.GetValue(@"HKEY_CURRENT_USER\Software\Notesae\Screenshot", "InstallDirectory", null) as string;
         _installedWithMsi = installedDirectory is not null && string.Equals(Path.TrimEndingDirectorySeparator(installedDirectory), _session.Target, StringComparison.OrdinalIgnoreCase);
         InitializeComponent(); CurrentVersion.Text = "当前版本：" + _session.Current + (_installedWithMsi ? " · Windows x64 安装版（升级请运行新版 MSI）" : " · Windows x64 便携版");
-        UpdateStatus.Text = "尚未检查。点击检查以匿名读取官方公开发布源。";
+        UpdateStatus.Text = "点击“检查更新”获取新版本。";
         RefreshRecovery();
     }
     private void RefreshRecovery()
@@ -62,6 +62,7 @@ public partial class UpdateSettingsControl : UserControl, IDisposable
         finally
         {
             _operation.Dispose(); _operation = null; _busy = _handoff = false; Progress.IsIndeterminate = false;
+            DownloadProgress.Visibility = Visibility.Collapsed;
             if (_disposed) _session.Dispose();
             if (!_disposed)
             {
@@ -77,6 +78,7 @@ public partial class UpdateSettingsControl : UserControl, IDisposable
     private void ClearCandidate()
     {
         _generation++; Progress.Value = 0; ProgressText.Text = "";
+        ReleaseDetails.Visibility = DownloadProgress.Visibility = Visibility.Collapsed;
         LatestVersion.Text = ""; ReleaseNotes.Text = ""; DownloadButton.IsEnabled = InstallButton.IsEnabled = ExportButton.IsEnabled = false;
         try { _session.Invalidate(); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
@@ -85,15 +87,21 @@ public partial class UpdateSettingsControl : UserControl, IDisposable
     private async void Check_Click(object sender, RoutedEventArgs e) => await RunAsync(async token =>
     {
         ClearCandidate();
-        Progress.IsIndeterminate = true; UpdateStatus.Text = "正在检查官方版本…";
+        UpdateStatus.Text = "正在检查更新…";
         var release = await _session.Source.CheckAsync(_session.Current, Channel.SelectedIndex == 1, token);
         _session.Release = release;
-        LatestVersion.Text = release is null ? "当前通道没有更高版本。" : $"最新版本：{release.Version} · {(release.Preview ? "预发布" : "稳定版")} · {release.Size / 1048576.0:F1} MiB";
-        ReleaseNotes.Text = release?.Notes ?? ""; UpdateStatus.Text = release is null ? (Channel.SelectedIndex == 0 && _session.Source.HasPreviewReleases && !_session.Source.HasStableReleases ? "官方当前只有预发布。可主动切换通道后重新检查；不会自动安装。" : "检查完成，当前通道没有更高版本。") : "可下载新版本；下载完成后还需明确确认安装。";
+        LatestVersion.Text = release is null ? "" : $"最新版本：{release.Version} · {(release.Preview ? "预发布" : "稳定版")} · {release.Size / 1048576.0:F1} MiB";
+        // 无候选时只留状态文字；有候选但没有说明时给出明确文案，不展示空输入框。
+        ReleaseDetails.Visibility = release is null ? Visibility.Collapsed : Visibility.Visible;
+        ReleaseNotes.Text = string.IsNullOrWhiteSpace(release?.Notes) ? "此版本未提供更新说明。" : release.Notes;
+        UpdateStatus.Text = release is null ? (Channel.SelectedIndex == 0 && _session.Source.HasPreviewReleases && !_session.Source.HasStableReleases ? "暂无稳定版，可切换到预发布通道后重新检查。" : "已是当前通道的最新版本。") : "发现新版本，下载后可选择安装。";
     });
     private async void Download_Click(object sender, RoutedEventArgs e) => await RunAsync(async token =>
     {
-        Progress.Value = 0; UpdateStatus.Text = "正在下载，完成后解压并验证全部文件…";
+        // 下载开始才揭示细进度条，完成、失败或取消统一由操作出口收起。
+        DownloadProgress.Visibility = Visibility.Visible;
+        Progress.IsIndeterminate = false; Progress.Value = 0; ProgressText.Text = "正在准备下载…";
+        UpdateStatus.Text = "正在下载，完成后解压并验证全部文件…";
         // Dispatcher 中迟到的进度不能覆盖取消结果、通道切换或下一笔操作。
         var generation = _generation;
         var progress = new Progress<UpdateProgress>(p => { if (_disposed || !_busy || token.IsCancellationRequested || generation != _generation) return; Progress.IsIndeterminate = p.Phase == "verifying"; if (p.Phase == "verifying") UpdateStatus.Text = "下载完成，正在解压并校验全部文件…"; Progress.Value = p.Received * 100.0 / p.Total; ProgressText.Text = $"{p.Received / 1048576.0:F1} / {p.Total / 1048576.0:F1} MiB"; });

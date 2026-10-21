@@ -1,3 +1,4 @@
+import { Select } from './Select';
 import { useEffect, useLayoutEffect, useRef, useState, forwardRef, useImperativeHandle, type PointerEvent as ReactPointerEvent } from 'react';
 import { Canvas, StaticCanvas, FabricImage, FabricObject, Path, Point, Textbox } from 'fabric';
 import { Minus, Plus } from 'lucide-react';
@@ -9,13 +10,14 @@ import { annotationFromObject as serialize, annotationToObject as restore, patch
 export type CanvasSelection = Pick<Annotation, 'id' | 'type' | 'color' | 'fontSize'>;
 export type CanvasRenderStatus = 'loading' | 'ready' | 'error';
 export type CanvasHandle = { exportPng: (scale: number) => Promise<string>; add: (type: AnnotationKind) => void; remove: () => void; patchSelection: (change: {color: string; fontSize: number}) => boolean; interactionState: () => { editing: boolean; selected: boolean }; exitSelection: () => void; hasAnnotationAt: (event:PointerEvent) => boolean };
-type Props = { document: ProjectDocument; onAnnotations: (objects: Annotation[], group?: string) => void; onError: (error: unknown) => void; fixedDisplayScale?: { x: number; y: number }; onReady?: () => void; onRenderStatus?: (status: CanvasRenderStatus) => void; onSelection?: (selection:CanvasSelection|null)=>void; onDrawingToolChange?: (tool:AnnotationKind|null)=>void };
+// 设置与历史面板可隐藏视图工具，不卸载画布或影响文档。
+type Props = { showViewControls?:boolean; document: ProjectDocument; onAnnotations: (objects: Annotation[], group?: string) => void; onError: (error: unknown) => void; fixedDisplayScale?: { x: number; y: number }; onReady?: () => void; onRenderStatus?: (status: CanvasRenderStatus) => void; onSelection?: (selection:CanvasSelection|null)=>void; onDrawingToolChange?: (tool:AnnotationKind|null)=>void };
 // 每个底图都是renderBase私有canvas；替换/卸载时归零背板，避免等待GC回收大图像素。
 function releaseBackground(canvas:Canvas){
   for(const object of canvas.getObjects())if(object instanceof FabricImage&&!object.selectable){const source=object.getElement();if(source instanceof HTMLCanvasElement)source.width=source.height=0;object.dispose();}
 }
 /** 保持真实像素尺寸，CSS 只缩放显示，不改变导出分辨率。 */
-export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanvas({ document: doc, onAnnotations, onError, fixedDisplayScale, onReady, onRenderStatus, onSelection, onDrawingToolChange }, ref) {
+export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanvas({ document: doc, onAnnotations, onError, fixedDisplayScale, onReady, onRenderStatus, onSelection, onDrawingToolChange, showViewControls=true }, ref) {
   const element = useRef<HTMLCanvasElement>(null);
   const wrapper = useRef<HTMLDivElement>(null);
   const fabric = useRef<Canvas | null>(null);
@@ -233,6 +235,6 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
   // Fabric 会包装原始 canvas；呈现切换必须保留祖先结构，避免 React 移除已被包装的节点。
   return <div className="canvas-workspace" ref={wrapper} data-drawing-tool={activeTool??undefined} onPointerDownCapture={beginDrawing} onPointerMoveCapture={moveDrawing} onPointerUpCapture={endDrawing} onPointerCancel={()=>cancelDrawing()} onLostPointerCapture={()=>{if(drawing.current)cancelDrawing();}}>
     <div className="canvas-viewport" ref={viewport} tabIndex={fixedDisplayScale?-1:0} aria-label={fixedDisplayScale?'选区画布':'可滚动画布'} style={fixedDisplayScale?{position:'relative',inset:'auto',overflow:'visible'}:undefined}><div className="canvas-surface" style={fixedDisplayScale?{width:size.width*displayScale.x,height:size.height*displayScale.y,padding:0,minWidth:0,minHeight:0,alignItems:'flex-start',justifyContent:'flex-start'}:{width:size.width * displayScale.x + 64,height:size.height * displayScale.y + 64}}>{sheet}</div></div>
-    <div className="canvas-zoom" style={fixedDisplayScale?{display:'none'}:undefined} role="group" aria-label="画布缩放"><button aria-label="缩小画布" disabled={actualZoom <= .1} onClick={() => stepZoom(-1)}><Minus size={14}/></button><select aria-label="画布缩放比例" value={manualZoom ?? 'fit'} onChange={event => changeZoom(event.target.value === 'fit' ? null : Number(event.target.value))}><option value="fit">适应窗口 · {Math.round(zoom * 100)}%</option>{steps.map(value => <option key={value} value={value}>{Math.round(value * 100)}%</option>)}</select><button aria-label="放大画布" disabled={actualZoom >= 2} onClick={() => stepZoom(1)}><Plus size={14}/></button><span className="zoom-label">{size.width} × {size.height} px</span></div>
+    <div className="canvas-zoom" hidden={!showViewControls||Boolean(fixedDisplayScale)} style={!showViewControls||fixedDisplayScale?{display:'none'}:undefined} role="group" aria-label="画布缩放"><button aria-label="缩小画布" disabled={actualZoom <= .1} onClick={() => stepZoom(-1)}><Minus size={14}/></button><Select aria-label="画布缩放比例" value={manualZoom ?? 'fit'} onChange={value=> changeZoom(value === 'fit' ? null : Number(value))}><option value="fit">适应窗口 · {Math.round(zoom * 100)}%</option>{steps.map(value => <option key={value} value={value}>{Math.round(value * 100)}%</option>)}</Select><button aria-label="放大画布" disabled={actualZoom >= 2} onClick={() => stepZoom(1)}><Plus size={14}/></button><span className="zoom-label">{size.width} × {size.height} px</span></div>
   </div>;
 });

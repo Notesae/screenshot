@@ -186,7 +186,7 @@ public partial class MainWindow : Window
             var image = await CaptureAsync(request);
             if (image is not null) Post(new { @event = "image.loaded", payload = image });
         }
-        catch (Exception exception) { ShowEditorNotice("截图失败：" + exception.Message); }
+        catch (Exception exception) { ShowEditorNotice("未能开始截图：" + exception.Message); }
         finally { lease?.Dispose(); }
     }
     private async Task CaptureCurrentFromTrayAsync()
@@ -281,8 +281,9 @@ public partial class MainWindow : Window
         Background = new SolidColorBrush(Color.FromRgb(32, 32, 34));
         StatusBar.Visibility = _ready ? Visibility.Collapsed : Visibility.Visible;
         var saved = _workbenchPlacement;
-        WindowState = WindowState.Normal; WindowStyle = saved?.Style ?? WindowStyle.None;
-        ResizeMode = saved?.ResizeMode ?? ResizeMode.CanResize;
+        // 工具采用自己的浮层外壳，工作台也不恢复系统标题栏或保留顶部尺寸调整边框。
+        WindowState = WindowState.Normal; WindowStyle = WindowStyle.None;
+        ResizeMode = ResizeMode.NoResize; BorderThickness = new Thickness(0);
         Topmost = saved?.Topmost ?? false; ShowInTaskbar = saved?.ShowInTaskbar ?? true;
         MinWidth = saved?.MinWidth ?? 640; MinHeight = saved?.MinHeight ?? 480;
         if (saved is not null) { Left = saved.Bounds.X; Top = saved.Bounds.Y; Width = saved.Bounds.Width; Height = saved.Bounds.Height; }
@@ -369,7 +370,8 @@ public partial class MainWindow : Window
                 // 超时后必须继续遮挡；等待期间被替换的捕获也不能进入撤挡流程。
                 if(_composedCaptureId==captureId&&_presentation.IsPrepared(captureId)&&!_captureHandoff.IsCancelled(captureId))
                 {
-                    await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ContextIdle,_lifetime.Token);
+                    // 当前帧已通过检查，只等已排队的渲染，不额外等待整个界面进入空闲状态。
+                    await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.Render,_lifetime.Token);
                     await Task.Run(()=>Marshal.ThrowExceptionForHR(DwmFlush()),_lifetime.Token);
                     expected=ReadOverlayViewport();
                     if(_composedCaptureId==captureId&&OverlayViewportMatches(viewport,expected)&&!_captureHandoff.IsCancelled(captureId)&&_presentation.TryAcceptPainted(captureId))
@@ -437,7 +439,7 @@ public partial class MainWindow : Window
             var method = RequiredString(request, "method");
             if (!_requests.TryEnter(method, out lease))
             {
-                Failure(id, "busy", method is "ai.ocr" or "ai.translate" ? "已有 AI 请求正在处理，请稍后重试。你仍可导入、保存或复制图片。" : "正在处理另一项本地操作，请稍后重试。");
+                Failure(id, "busy", method is "ai.ocr" or "ai.translate" or "ai.translateImage" ? "已有 AI 请求正在处理，请稍后重试。你仍可导入、保存或复制图片。" : "正在处理另一项本地操作，请稍后重试。");
                 return;
             }
             var payload = request.TryGetProperty("payload", out var item) ? item : default;
@@ -458,7 +460,7 @@ public partial class MainWindow : Window
         _terms.RequireAccepted();
         switch (method)
         {
-            case "app.info": return new { version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "unknown", platform = "windows", presentation = _presentation.Mode.ToString().ToLowerInvariant(), capture = new { backend = _captureBackend, colorMode = "sdr", supportsHdr = false, availableBackends = new[] { "wgc", "gdi" }, targets = new[] { "desktop", "monitor", "window" }, availability = "checked-on-capture" }, capabilities = new[] { "image.open", "image.paste", "capture.adjust", "capture.screen", "capture.region", "capture.current", "capture.monitors", "capture.settings", "capture.configure", "hotkey.read", "hotkey.configure", "image.save", "image.copy", "text.copy", "project.open", "project.save", "ai.ocr", "ai.translate", "ocr.local", "ocr.cancel", "ocr.status", "ai.cancel", "ai.usage", "ai.test", "recovery.list", "recovery.load", "recovery.delete", "recovery.usage", "recovery.deleteMany", "presentation.workbench", "presentation.editor", "presentation.dismiss", "presentation.ready", "presentation.complete", "document.preserve", "app.terms" } };
+            case "app.info": return new { version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "unknown", platform = "windows", presentation = _presentation.Mode.ToString().ToLowerInvariant(), capture = new { backend = _captureBackend, colorMode = "sdr", supportsHdr = false, availableBackends = new[] { "wgc", "gdi" }, targets = new[] { "desktop", "monitor", "window" }, availability = "checked-on-capture" }, capabilities = new[] { "image.open", "image.paste", "capture.adjust", "capture.screen", "capture.region", "capture.current", "capture.monitors", "capture.settings", "capture.configure", "hotkey.read", "hotkey.configure", "image.save", "image.copy", "text.copy", "project.open", "project.save", "ai.ocr", "ai.translate", "ai.translateImage", "ocr.local", "ocr.cancel", "ocr.status", "ai.cancel", "ai.usage", "ai.test", "recovery.list", "recovery.load", "recovery.delete", "recovery.usage", "recovery.deleteMany", "presentation.workbench", "presentation.editor", "presentation.dismiss", "presentation.ready", "presentation.complete", "document.preserve", "app.terms" } };
             case "document.preserve": await CheckEditorAsync("replace"); return new { checkedState = true, saved = false };
             case "image.open": await CheckEditorAsync("replace"); return NativeImages.Open(this);
             case "image.paste": await CheckEditorAsync("replace"); return NativeImages.Paste();
@@ -523,10 +525,14 @@ public partial class MainWindow : Window
             case "project.open": await CheckEditorAsync("replace"); return NativeImages.OpenProject(this);
             case "project.save": return NativeImages.SaveProject(this, payload.GetProperty("document"), OptionalString(payload, "suggestedName"));
             case "settings.read": return await _ai.ReadSettingsAsync(_lifetime.Token);
-            case "settings.configure": new ProviderSettingsWindow(_ai, SaveBeforeUpdateAsync) { Owner = this }.ShowDialog(); return await _ai.ReadSettingsAsync(_lifetime.Token);
+            case "settings.configure":
+                // 所有设置在同一原生浮卡内切换，文字工具只指定服务页，不再套一层网页设置。
+                OpenSettingsWindow(OptionalString(payload, "section") ?? "capture");
+                return await _ai.ReadSettingsAsync(_lifetime.Token);
             case "app.terms": new TermsWindow(_terms, reviewOnly: true) { Owner = this }.ShowDialog(); return new { viewed = true };
             case "app.updateReady": _editorMounted.TrySetResult(); MarkUpdateHealthy(); return new { ready = true };
             case "ai.ocr": return await RunInferenceAsync(payload, async token => await _ai.OcrAsync(RequiredString(payload, "providerId"), RequiredString(payload, "imageDataUrl"),OptionalString(payload,"providerRevision"), token));
+            case "ai.translateImage": return await RunInferenceAsync(payload, async token => await _ai.TranslateImageAsync(RequiredString(payload, "providerId"), RequiredString(payload, "imageDataUrl"), OptionalString(payload, "providerRevision"), token));
             case "ai.translate": return await RunInferenceAsync(payload, async token => await _ai.TranslateAsync(RequiredString(payload, "providerId"), RequiredString(payload, "text"), RequiredString(payload, "targetLanguage"),OptionalString(payload,"providerRevision"), token));
             default: throw new InvalidOperationException("不支持的原生命令：" + method);
         }

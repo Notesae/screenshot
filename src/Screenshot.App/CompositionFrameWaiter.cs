@@ -17,11 +17,11 @@ internal static class CompositionFrameWaiter
         var descriptor=DependencyPropertyDescriptor.FromProperty(Image.SourceProperty,typeof(Image));
         ImageSource? observed=null;
         var queued=false;var finished=false;var invalidated=false;
-        // 在 SDK 的 Unlock/Source setter 返回之后读样本，合并同一帧通知，避免重入图形缓冲区。
+        // 在 SDK 的 Unlock/Source setter 返回之后读样本；排在渲染后执行，避免低优先级队列被持续输入饿死。
         void Changed(object? sender,EventArgs args)
         {
             if(queued||finished)return;queued=true;
-            image.Dispatcher.BeginInvoke(DispatcherPriority.Background,new Action(()=>{
+            image.Dispatcher.BeginInvoke(DispatcherPriority.Loaded,new Action(()=>{
                 queued=false;if(finished||token.IsCancellationRequested||acceptFrame is not null&&!invalidated)return;
                 try{if(image.Source is {} source&&(acceptFrame is null||acceptFrame(source)))frame.TrySetResult();}
                 catch(Exception error){frame.TrySetException(error);}
@@ -36,7 +36,11 @@ internal static class CompositionFrameWaiter
             if(sender is not null)Changed(sender,args);
         }
         SourceChanged(null,EventArgs.Empty);descriptor.AddValueChanged(image,SourceChanged);
-        try{await invalidate();invalidated=true;if(acceptFrame is not null)Changed(null,EventArgs.Empty);await frame.Task.WaitAsync(TimeSpan.FromSeconds(2),token);}
-        finally{finished=true;descriptor.RemoveValueChanged(image,SourceChanged);if(observed is {IsFrozen:false})observed.Changed-=Changed;}
+        // 合成缓冲区可原地更新而不替换 Source；短间隔重查现有图像，不必等整轮两秒超时再发现新帧。
+        // 定时器只在有验帧谓词时启动，仍须通过相同样本检查，不能将时间流逝当作画面就绪。
+        var retry=new DispatcherTimer(DispatcherPriority.Loaded,image.Dispatcher){Interval=TimeSpan.FromMilliseconds(32)};
+        retry.Tick+=Changed;
+        try{await invalidate();invalidated=true;if(acceptFrame is not null){Changed(null,EventArgs.Empty);retry.Start();}await frame.Task.WaitAsync(TimeSpan.FromSeconds(2),token);}
+        finally{finished=true;retry.Stop();retry.Tick-=Changed;descriptor.RemoveValueChanged(image,SourceChanged);if(observed is {IsFrozen:false})observed.Changed-=Changed;}
     }
 }

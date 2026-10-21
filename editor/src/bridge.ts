@@ -59,7 +59,7 @@ export function subscribeNative(onImage: (image: unknown) => void, onPresentatio
   const receive = (event: MessageEvent) => {
     const data = event.data;
     if (data?.event === 'image.loaded') onImage(data.payload);
-    else if (data?.event === 'editor.action' && ['continue','open-image','open-project','paste','recovery','settings','notice'].includes(data.payload?.action)) onAction?.(data.payload.action, typeof data.payload.text === 'string' ? data.payload.text.slice(0,2000) : undefined);
+    else if (data?.event === 'editor.action' && ['continue','open-image','open-project','paste','recovery','settings','settings-updated','notice'].includes(data.payload?.action)) onAction?.(data.payload.action, typeof data.payload.text === 'string' ? data.payload.text.slice(0,2000) : undefined);
     else if (data?.event === 'presentation.changed' && (data.payload?.presentation === 'workbench' || data.payload?.presentation === 'hidden')) onPresentation?.(data.payload);
     else native.receive(data);
   };
