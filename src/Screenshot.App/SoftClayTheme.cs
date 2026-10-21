@@ -140,23 +140,20 @@ internal static class SoftClayDrawing
     }
 }
 
-// 托盘菜单保留 Windows 的键盘和无障碍行为，仅替换表面与状态绘制。
-internal sealed class SoftClayMenuRenderer : System.Windows.Forms.ToolStripProfessionalRenderer
+// 托盘菜单复用软泥浮卡与线性图标，命令行为仍交由宿主，保留菜单原生键盘导航。
+internal static class SoftClayTrayMenu
 {
-    protected override void OnRenderToolStripBackground(System.Windows.Forms.ToolStripRenderEventArgs e)
+    public static ContextMenu Create()
     {
-        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        SoftClayDrawing.Surface(e.Graphics, new System.Drawing.RectangleF(0,0,e.ToolStrip.Width-1,e.ToolStrip.Height-1), (float)SoftClayTheme.Number("radius","floating"));
+        var menu=new ContextMenu{Placement=System.Windows.Controls.Primitives.PlacementMode.MousePoint,StaysOpen=false,HasDropShadow=false,FontFamily=new FontFamily("Microsoft YaHei UI")};
+        SoftClayTheme.Install(menu.Resources);menu.Style=(Style)menu.Resources["ClayTrayMenu"];
+        return menu;
     }
-    protected override void OnRenderToolStripBorder(System.Windows.Forms.ToolStripRenderEventArgs e) { }
-    protected override void OnRenderImageMargin(System.Windows.Forms.ToolStripRenderEventArgs e) { }
-    protected override void OnRenderItemText(System.Windows.Forms.ToolStripItemTextRenderEventArgs e) { e.TextColor=SoftClayDrawing.Color(e.Item.Enabled?"ink":"muted");base.OnRenderItemText(e); }
-    protected override void OnRenderMenuItemBackground(System.Windows.Forms.ToolStripItemRenderEventArgs e)
+    public static MenuItem Command(string label,string geometry,Action action,string shortcut="")
     {
-        if(e.Item.Selected||e.Item.Pressed)SoftClayDrawing.Surface(e.Graphics,new System.Drawing.RectangleF(4,2,e.Item.Width-8,e.Item.Height-4),(float)SoftClayTheme.Number("radius","control"),true);
+        var icon=new System.Windows.Shapes.Path{Data=Geometry.Parse(geometry),Stroke=SoftClayTheme.Brush("ink"),StrokeThickness=1.8,StrokeStartLineCap=PenLineCap.Round,StrokeEndLineCap=PenLineCap.Round,StrokeLineJoin=PenLineJoin.Round};
+        var item=new MenuItem{Header=label,InputGestureText=shortcut,Icon=new Viewbox{Width=16,Height=16,Child=new Canvas{Width=24,Height=24,Children={icon}}}};
+        item.Click+=(_,_)=>action();return item;
     }
-    protected override void OnRenderSeparator(System.Windows.Forms.ToolStripSeparatorRenderEventArgs e)
-    {
-        using var pen=new System.Drawing.Pen(SoftClayDrawing.Color("muted"));e.Graphics.DrawLine(pen,12,e.Item.Height/2,e.Item.Width-12,e.Item.Height/2);
-    }
+    public static Separator Divider(ContextMenu menu)=>new(){Style=(Style)menu.Resources["ClayTraySeparator"]};
 }

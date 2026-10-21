@@ -17,7 +17,7 @@ public sealed record CaptureOverlay(string CaptureId, PixelRect DesktopBounds, P
 public sealed record CaptureEnvelope(LoadedImage Image, CaptureOverlay Overlay);
 
 // 首次框选的原生画面保留到编辑器接手；实现只能在宿主内部持有，不跨桥接。
-internal interface ICaptureHandoff : IDisposable { bool IsCancelled { get; } }
+internal interface ICaptureHandoff : IDisposable { bool IsCancelled { get; } void KeepAbove(nint owner); }
 
 // 原生捕获结果同时持有选区图片和只供 WPF 显示的冻结桌面。
 public sealed record CapturedFrame(LoadedImage Image, [property: JsonIgnore] BitmapSource FrozenDesktop,
@@ -35,6 +35,8 @@ internal sealed class CaptureHandoffState
     private string? _captureId;
     private ICaptureHandoff? _visual;
     public bool IsCancelled(string captureId) => _captureId==captureId&&_visual?.IsCancelled==true;
+    public bool HasVisual(string captureId)=>_captureId==captureId&&_visual is not null;
+    public void KeepAbove(string captureId,nint owner){if(_captureId==captureId&&_visual?.IsCancelled==false)_visual.KeepAbove(owner);}
     public void Take(CapturedFrame frame) { Release(); _captureId=frame.CaptureId; _visual=frame.Handoff; }
     public void Release(string? captureId=null)
     {
@@ -50,26 +52,28 @@ public enum PresentationMode { Workbench, Overlay, Hidden }
 internal sealed class CapturePresentationState
 {
     // 选择取消时恢复旧呈现，成功或显式退出时解除对旧冻结图的引用。
-    private sealed record SelectionSnapshot(PresentationMode Mode, BitmapSource? Backdrop, CaptureOverlay? Overlay, string? PendingId);
+    private sealed record SelectionSnapshot(PresentationMode Mode, BitmapSource? Backdrop, CaptureOverlay? Overlay, string? PendingId, string? PreparedId);
     private SelectionSnapshot? _beforeSelection;
     public PresentationMode Mode { get; private set; } = PresentationMode.Workbench;
     public BitmapSource? FrozenBackdrop { get; private set; }
     public CaptureOverlay? Overlay { get; private set; }
     public string? PendingCaptureId { get; private set; }
+    private string? _preparedCaptureId; // 已在原生遮挡后展示宿主，尚未取得浏览器绘制确认。
+    public bool IsPrepared(string captureId)=>Matches(captureId)&&PendingCaptureId==captureId&&_preparedCaptureId==captureId;
     public bool IsSelecting => _beforeSelection is not null;
 
     // 选择开始时保留旧呈现；后台捕获或用户取消不修改已有编辑内容。
     public void BeginCapture()
     {
         if (IsSelecting) throw new InvalidOperationException("正在选择截图区域。");
-        _beforeSelection = new(Mode, FrozenBackdrop, Overlay, PendingCaptureId);
+        _beforeSelection = new(Mode, FrozenBackdrop, Overlay, PendingCaptureId, _preparedCaptureId);
     }
 
     // 取消恢复选择前的显示状态和冻结图；显式退出已清除快照时不回滚退出操作。
     public void CancelCapture()
     {
         if (_beforeSelection is not { } previous) return;
-        Mode = previous.Mode; FrozenBackdrop = previous.Backdrop; Overlay = previous.Overlay; PendingCaptureId = previous.PendingId;
+        Mode = previous.Mode; FrozenBackdrop = previous.Backdrop; Overlay = previous.Overlay; PendingCaptureId = previous.PendingId; _preparedCaptureId=previous.PreparedId;
         _beforeSelection = null;
     }
 
@@ -85,15 +89,19 @@ internal sealed class CapturePresentationState
             throw new InvalidOperationException("截图像素与桌面坐标不一致。");
         if (!frame.FrozenDesktop.IsFrozen) frame.FrozenDesktop.Freeze();
         FrozenBackdrop = frame.FrozenDesktop; Overlay = frame.ToEnvelope().Overlay;
-        Mode = PresentationMode.Overlay; PendingCaptureId = frame.CaptureId; _beforeSelection = null;
+        Mode = PresentationMode.Overlay; PendingCaptureId = frame.CaptureId; _preparedCaptureId=null; _beforeSelection = null;
         return true;
     }
+
+    // 第一阶段只登记宿主已展示，超时保护仍保持，不能据此释放原生遮挡。
+    public bool TryPrepare(string captureId){if(!Matches(captureId)||PendingCaptureId!=captureId||_preparedCaptureId is not null)return false;_preparedCaptureId=captureId;return true;}
+    public bool TryAcceptPainted(string captureId)=>IsPrepared(captureId)&&TryAcceptReady(captureId);
 
     // 仅接受当前截图的一次布局确认，防止迟到确认显示其他截图或已关闭的覆盖层。
     public bool TryAcceptReady(string captureId)
     {
         if (IsSelecting || Mode != PresentationMode.Overlay || PendingCaptureId != captureId) return false;
-        PendingCaptureId = null; return true;
+        PendingCaptureId = null; _preparedCaptureId=null; return true;
     }
 
     // 只从本次原生冻结图裁剪；过期身份、未就绪状态及越界区域均不能读取像素。
@@ -142,7 +150,7 @@ internal sealed class CapturePresentationState
 
     public void ShowWorkbench() { Mode = PresentationMode.Workbench; ReleaseBackdrop(); }
     public void Dismiss() { Mode = PresentationMode.Hidden; ReleaseBackdrop(); }
-    private void ReleaseBackdrop() { FrozenBackdrop = null; Overlay = null; PendingCaptureId = null; _beforeSelection = null; }
+    private void ReleaseBackdrop() { FrozenBackdrop = null; Overlay = null; PendingCaptureId = null; _preparedCaptureId=null; _beforeSelection = null; }
 }
 
 // 根据实际 Win32 客户区补偿边框偏移；输入和输出始终为物理像素。

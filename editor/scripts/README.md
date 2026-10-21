@@ -11,3 +11,5 @@
 `headless-overlay.cjs`、`product-audit.cjs`、`refinement-audit.cjs`、`delivery-audit.cjs` 留作 0.4.x 三栏/旧紧凑界面的历史证据，不再由当前 CI 执行，也不能作为新界面验收。它们依赖已移除的“完整工作台”、旧 CSS 和旧路径。当前脚本重述可保留的能力断言，移除旧界面结构要求；并非所有历史逐项注入场景都已一对一迁移，不将新套件的通过写成旧套件完整通过。
 
 环境变量 `PLAYWRIGHT_MODULE` 指向已有 Playwright；本地可通过 `SCREENSHOT_CHROMIUM_EXECUTABLE` 指定隔离的无头可执行文件，否则使用独立 headless Edge。生命周期套件也接受 `SCREENSHOT_PLAYWRIGHT_MODULE`。测试不安装浏览器或 OCR 模型。输出位于 Git 忽略的 artifacts 目录。
+
+新增 scripts/test-annotation-drawing.cjs：11 组合成场景，覆盖 ready/painted 两阶段、五类标注落笔、反向绘制、箭头首尾独立调整与撤销、矩形角/边调整、属性卡关闭位置保持、误触/Esc 取消。文字先退出实际编辑才读取受保护快照。既有能力/生命周期/性能脚本改为在无头画布中实际绘制矩形，不移除原有能力断言。CI 运行新脚本并收集 artifacts/qa/annotation-drawing 的报告；不代表 Windows 实机交接或托盘 Popup 验收。

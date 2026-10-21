@@ -18,6 +18,13 @@ internal static class SoftClayThemeTests
                 Check(SoftClayTheme.Number("motion","toast")==280,"shared native toast timing");
                 var spring=SoftClayTheme.Spring();
                 Check(Math.Abs(spring.Ease(0))<.001&&Math.Abs(spring.Ease(1)-1)<.001,"native shared spring has stable endpoints");
+                // 菜单只装载模板与矢量图标，不显示 Popup 或触发系统托盘。
+                var menu=SoftClayTrayMenu.Create();Check(menu.ApplyTemplate()&&menu.MinWidth>=280,"tray uses custom rounded menu template");
+                var executed=0;var command=SoftClayTrayMenu.Command("合成命令","M3 3h18v18H3z",()=>executed++,"Ctrl + Shift + S");
+                command.Resources.MergedDictionaries.Add(menu.Resources);command.Style=(Style)menu.Resources["ClayTrayItem"];
+                Check(command.ApplyTemplate()&&command.Icon is Viewbox&&executed==0,"tray commands keep vector icon and wait for activation");
+                command.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));Check(executed==1&&command.InputGestureText=="Ctrl + Shift + S","tray menu command and shortcut remain available");
+                var separator=SoftClayTrayMenu.Divider(menu);Check(separator.ApplyTemplate(),"tray group separator uses custom template");
                 foreach(var type in new[]{typeof(TextBox),typeof(PasswordBox),typeof(RichTextBox),typeof(CheckBox),typeof(ComboBox),typeof(ComboBoxItem),typeof(ListBoxItem),typeof(TabControl),typeof(TabItem),typeof(Button),typeof(ProgressBar),typeof(System.Windows.Controls.Primitives.ScrollBar)})
                 {
                     var control=(Control)Activator.CreateInstance(type)!;

@@ -41,6 +41,8 @@ jobs:
           $env:PLAYWRIGHT_MODULE = (Resolve-Path artifacts/headless-tools/node_modules/playwright).Path
           node scripts/test-editor-lifecycle.cjs
           if ($LASTEXITCODE) { throw 'Headless overlay regressions failed.' }
+          node scripts/test-annotation-drawing.cjs
+          if ($LASTEXITCODE) { throw 'Annotation drawing and presentation regressions failed.' }
           node editor/scripts/update-safety-audit.cjs artifacts/qa/product/update-safety.json
           if ($LASTEXITCODE) { throw 'Update snapshot regressions failed.' }
       - name: Product state and layout regressions on synthetic content
@@ -72,7 +74,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Screenshot-headless-evidence
-          path: artifacts/qa/redesign/
+          path: |
+            artifacts/qa/redesign/
+            artifacts/qa/annotation-drawing/
           if-no-files-found: error
           retention-days: 14
       # 先收集独立合成回归；性能比较仍是直接失败并阻止打包的硬门禁。

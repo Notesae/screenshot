@@ -164,3 +164,11 @@ GitHub App device code、access/refresh token、账号授权请求与私有 Rele
 用户自行公开仓库后，原生更新源改为固定官方公开GET；设备码、token会话和Client ID配置已删除。没有认证桥接或新增编辑器权限。公开源核对固定仓库ID与公开状态，401/403/404不转入登录；检查/下载、校验、快照保护及React就绪协议仍由原生宿主管理，安装交接继续要求用户明确确认。
 
 后续交接修复不改变桥接字段：宿主内部 ICaptureHandoff 按捕获身份持有首次框选画面，只有当前 presentation.ready 接受且宿主已处理布局/绘制后释放；取消、超时、退出也释放。PNG 编码和 capture.adjust 裁剪在后台执行，提交前再次核对身份和取消。前端等当前图片真正绘制完成才发送 ready，收到接受结果后才播放工具入场；裁剪期间继续保留几何预览直到当前底图完成绘制。W/C 选择快捷操作已移除，自动吸附仍可通过设置控制。
+
+## 两阶段可见绘制交接
+
+presentation.ready {captureId} 先登记准备阶段，在原生选区遮挡后显示宿主，返回 awaitingPaint:true；此时 pending 身份和 15 秒就绪超时继续有效，不释放原生画面。前端进入 is-preparing 并等待两次 requestAnimationFrame 后调用 presentation.painted {captureId}。宿主核对已经准备且未取消的当前身份，等待两个不同的 WPF Rendering 帧后才接受、撤挡和激活；没有原生遮挡的屏幕捕获在此之前保持宿主透明。WPF 等待超过 2 秒则安全返回中性编辑器，当前图片仍保留；取消、替换、退出、超时使旧 painted 无效。
+
+菜单和标注状态不跨原生桥。文档仍使用 v2 的 left/top/width/height/scale/angle 表示箭头，端点由局部中心及矩阵映射；没有保存 Fabric 任意 JSON 或新增项目 schema。
+
+原生遮挡在宿主 Show 之前用 GWLP_HWNDPARENT 建立顶层 owned-window 关系，随后才显示和定位宿主，避免两个无所有权的 TopMost 窗口先后置顶时短暂交换层级；只对当前捕获有效。[Windows owned-window 层级规则](https://learn.microsoft.com/en-us/windows/win32/winmsg/window-features)。

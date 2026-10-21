@@ -15,7 +15,7 @@ let browser;
  await p.getByRole('button',{name:'打开图片',exact:true}).waitFor();
  await p.evaluate(()=>{const c=document.createElement('canvas');c.width=3840;c.height=2160;const g=c.getContext('2d');g.fillStyle='#fcfbf7';g.fillRect(0,0,c.width,c.height);g.fillStyle='#ac432e';g.fillRect(80,80,1200,120);const dataUrl=c.toDataURL();window.__performanceImage=dataUrl;window.__imageAssignments=0;const descriptor=Object.getOwnPropertyDescriptor(HTMLImageElement.prototype,'src');Object.defineProperty(HTMLImageElement.prototype,'src',{...descriptor,set(value){if(value===window.__performanceImage)window.__imageAssignments++;descriptor.set.call(this,value);}});window.__emit({event:'image.loaded',payload:{dataUrl,name:'synthetic-4k.png',width:3840,height:2160}});});
  await p.waitForFunction(()=>document.querySelector('.lower-canvas')?.width===3840);await p.waitForFunction(()=>!document.querySelector('button[aria-label="保存 PNG"]').disabled);
- await p.getByRole('button',{name:'矩形标注',exact:true}).click();
+ await p.getByRole('button',{name:'矩形标注',exact:true}).click();await drawRect(p);
  // 只修改原样模式中不可见的校对文本；观察解码次数与选择状态，而非只看总耗时。
  await p.getByRole('button',{name:'文字',exact:true}).click();await p.evaluate(()=>window.__imageAssignments=0);const edits=[];
  for(let i=0;i<12;i++){
@@ -37,3 +37,12 @@ let browser;
  const report={syntheticOnly:true,headless:true,nativeCalls:false,externalRequests:false,browser:browser.version(),distPath:dist,rawInvisibleTextEdits:{...summary(edits),imageAssignments,selectedObjectSurvivesTextEdit},motion:{...motion,reducedDuration},errors,limits:'12 sequential edits; timings include automation and three requestAnimationFrame waits. Software headless browser, no desktop/GPU/IME frame-rate claim. Assignment count measures repeated source-image decoding requests, not physical disk I/O.'};
  fs.mkdirSync(path.dirname(output),{recursive:true});fs.writeFileSync(output,JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report,null,2));
 })().catch(e=>{console.error(e);process.exitCode=1;}).finally(async()=>{if(browser)await browser.close();await new Promise(r=>server.close(r));});
+
+
+// 标注工具只待命；测试在独立无头 canvas 内拖出矩形，不模拟真实系统输入。
+async function drawRect(page){
+  await page.waitForFunction(()=>document.querySelector('[data-drawing-tool="rect"]'));
+  const canvas=page.locator('.upper-canvas');await canvas.click({position:{x:80,y:60},trial:true});const box=await canvas.boundingBox();
+  await page.mouse.move(box.x+box.width*.2,box.y+box.height*.2);await page.mouse.down();await page.mouse.move(box.x+box.width*.6,box.y+box.height*.6,{steps:4});await page.mouse.up();
+  await page.waitForFunction(()=>!document.querySelector('[data-drawing-tool]'));
+}

@@ -134,3 +134,6 @@
 .clay-editor .clay-selection-handle:disabled{opacity:1;cursor:progress}
 .clay-capture-selection:focus-visible{outline:var(--clay-size-selectionBorder) solid var(--clay-focus);outline-offset:0}
 @media(prefers-reduced-motion:reduce){.clay-editor.is-presented .clay-rail,.clay-editor.is-presented .clay-card,.clay-editor.is-presented .clay-status{animation:none}}
+
+/* 未获得宿主可见阶段前不绘制选区装饰，避免交接时叠出两组边框。 */
+.clay-editor.is-awaiting:not(.is-preparing) .clay-capture-layer{visibility:hidden}

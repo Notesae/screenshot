@@ -16,7 +16,7 @@ async function savedProject(p){const n=await p.evaluate(()=>window.__messages.fi
 async function main(){
   await new Promise(r=>server.listen(0,'127.0.0.1',r));origin='http://127.0.0.1:'+server.address().port;browser=await chromium.launch(launch);
   let p=await page();await image(p,'pixels');await click(p,'复制 PNG');await p.waitForFunction(()=>window.__messages.some(m=>m.method==='image.copy'));assert.equal(await p.evaluate(()=>window.__messages.find(m=>m.method==='image.copy').payload.dataUrl===window.__source),true);checks.push('raw copy preserves exact PNG bytes with negative desktop coordinates');
-  await click(p,'矩形标注');let doc=await documentOf(p);const rect=doc.editor.annotations[0];assert.equal(await p.getByLabel('标注颜色',{exact:true}).inputValue(),rect.color);assert.equal(await p.getByLabel('标注字号',{exact:true}).isDisabled(),true);
+  await click(p,'矩形标注');await drawRect(p);let doc=await documentOf(p);const rect=doc.editor.annotations[0];assert.equal(await p.getByLabel('标注颜色',{exact:true}).inputValue(),rect.color);assert.equal(await p.getByLabel('标注字号',{exact:true}).isDisabled(),true);
   await p.getByLabel('标注颜色',{exact:true}).fill('#2368c4');await click(p,'应用到选中标注');await click(p,'撤销');assert.equal((await documentOf(p)).editor.annotations[0].color,rect.color);assert.equal(await p.getByLabel('标注颜色',{exact:true}).inputValue(),rect.color);checks.push('selection properties and undo remain synchronized');
   await click(p,'美化');await click(p,'柔和留白');assert.equal((await documentOf(p)).editor.annotations[0].id,rect.id);await click(p,'更多操作');await p.getByText('裁剪、尺寸与导出',{exact:true}).click();await p.getByLabel('导出倍率',{exact:true}).selectOption('2');await click(p,'复制 PNG');await p.waitForFunction(()=>window.__messages.filter(m=>m.method==='image.copy').length===2);
   const outputSize=await p.evaluate(()=>new Promise(resolve=>{const i=new Image();i.onload=()=>resolve([i.width,i.height]);i.src=window.__messages.filter(m=>m.method==='image.copy').at(-1).payload.dataUrl;}));assert.deepEqual(outputSize,[1312,792]);checks.push('beauty preserves object identity and 2x output dimensions');
@@ -35,3 +35,12 @@ async function main(){
   assert.deepEqual(errors,[]);fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'audit.json'),JSON.stringify({syntheticOnly:true,desktopAccess:false,checks,errors,limits:'Memory bridge intentionally keeps output visible; dedicated lifecycle suite verifies native completion protocol. No actual model/provider/desktop/clipboard operations.'},null,2));console.log('PASS '+checks.length+' Soft Clay capability regression groups');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;}).finally(async()=>{await browser?.close();server.close();});
+
+
+// 标注工具只待命；测试在独立无头 canvas 内拖出矩形，不模拟真实系统输入。
+async function drawRect(page){
+  await page.waitForFunction(()=>document.querySelector('[data-drawing-tool="rect"]'));
+  const canvas=page.locator('.upper-canvas');await canvas.click({position:{x:80,y:60},trial:true});const box=await canvas.boundingBox();
+  await page.mouse.move(box.x+box.width*.2,box.y+box.height*.2);await page.mouse.down();await page.mouse.move(box.x+box.width*.6,box.y+box.height*.6,{steps:4});await page.mouse.up();
+  await page.waitForFunction(()=>!document.querySelector('[data-drawing-tool]'));
+}

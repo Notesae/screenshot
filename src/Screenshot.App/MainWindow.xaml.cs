@@ -18,6 +18,7 @@ namespace Screenshot.App;
 // 承载本地编辑器，将受信任的桥接请求分发到 Windows 原生能力。
 public partial class MainWindow : Window
 {
+    private System.Windows.Controls.ContextMenu? _trayMenu; // 独立托盘浮卡，不打开编辑宿主。
     private readonly AiService _ai = new();
     private readonly IReadOnlyDictionary<string, ICaptureBackend> _captureBackends = new Dictionary<string, ICaptureBackend>
     {
@@ -70,6 +71,7 @@ public partial class MainWindow : Window
             FrozenBackdrop.Source = null; _presentation.Dismiss();
             if (_trayIcon is { } tray)
             {
+                if(_trayMenu is {} menu){menu.IsOpen=false;_trayMenu=null;}
                 tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Icon?.Dispose(); tray.Dispose(); _trayIcon = null;
             }
             _hotkeys?.Dispose();
@@ -78,27 +80,28 @@ public partial class MainWindow : Window
     }
     // 托盘仅提供恢复、复用现有门控截图和退出，不创建第二个编辑器实例。
     private void ShowTerms(object sender, RoutedEventArgs e) => new TermsWindow(_terms, reviewOnly: true) { Owner = this }.ShowDialog();
+    // 右键打开独立 WPF 菜单；捕获、文件和会话命令分组，退出与编辑入口分开。
     private void InitializeTray()
     {
-        var menu = new System.Windows.Forms.ContextMenuStrip { Renderer = new SoftClayMenuRenderer(), ShowImageMargin = false,
-            BackColor = SoftClayDrawing.Color("surfaceBottom"), ForeColor = SoftClayDrawing.Color("ink"), Font = new System.Drawing.Font("Microsoft YaHei UI", 10), Padding = new System.Windows.Forms.Padding(6) };
-        menu.Items.Add("区域截图", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => { _ = CaptureFromHotkeyAsync(); })));
-        menu.Items.Add("当前屏幕截图", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => { _ = CaptureCurrentFromTrayAsync(); })));
-        menu.Items.Add("整个桌面截图", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => { _ = CaptureFromTrayAsync(CaptureRequest.Default(false) with { Backend = _captureBackend }); })));
-        menu.Items.Add("继续编辑", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => ShowEditorAction("continue"))));
-        menu.Items.Add("打开图片…", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => ShowEditorAction("open-image"))));
-        menu.Items.Add("打开项目…", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => ShowEditorAction("open-project"))));
-        menu.Items.Add("粘贴图片", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => ShowEditorAction("paste"))));
-        menu.Items.Add("历史与恢复", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => ShowEditorAction("recovery"))));
-        menu.Items.Add("设置", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => ShowEditorAction("settings"))));
-        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
-        menu.Items.Add("退出", null, (_, _) => Dispatcher.BeginInvoke(new Action(Close)));
-        foreach (System.Windows.Forms.ToolStripItem item in menu.Items) item.Padding = new System.Windows.Forms.Padding(12, 7, 12, 7);
-        _trayIcon = new System.Windows.Forms.NotifyIcon
-        {
-            Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!), Text = "Screenshot · 截图", ContextMenuStrip = menu, Visible = true
-        };
-        _trayIcon.DoubleClick += (_, _) => Dispatcher.BeginInvoke(new Action(() => { _ = CaptureFromHotkeyAsync(); }));
+        var menu=SoftClayTrayMenu.Create();_trayMenu=menu;
+        var region=SoftClayTrayMenu.Command("区域截图","M8 3H5a2 2 0 0 0-2 2v3 M16 3h3a2 2 0 0 1 2 2v3 M21 16v3a2 2 0 0 1-2 2h-3 M8 21H5a2 2 0 0 1-2-2v-3",()=>{_=CaptureFromHotkeyAsync();});
+        menu.Items.Add(region);
+        menu.Opened+=(_,_)=>region.InputGestureText=_hotkeys?.State is {Registered:true} state?state.Binding.Label:"";
+        menu.Items.Add(SoftClayTrayMenu.Command("当前屏幕截图","M3 4h18v13H3z M8 21h8 M12 17v4",()=>{_=CaptureCurrentFromTrayAsync();}));
+        menu.Items.Add(SoftClayTrayMenu.Command("整个桌面截图","M2 5h14v12H2z M16 8h6v12H9v-3 M6 21h6 M9 17v4",()=>{_=CaptureFromTrayAsync(CaptureRequest.Default(false) with{Backend=_captureBackend});}));
+        menu.Items.Add(SoftClayTrayMenu.Divider(menu));
+        menu.Items.Add(SoftClayTrayMenu.Command("继续编辑","M9 5l7 7-7 7",()=>ShowEditorAction("continue")));
+        menu.Items.Add(SoftClayTrayMenu.Command("打开图片…","M3 3h18v18H3z M3 16l6-6 4 4 3-3 5 5 M7 7h.01",()=>ShowEditorAction("open-image")));
+        menu.Items.Add(SoftClayTrayMenu.Command("打开项目…","M3 7h7l2 2h9v11H3z M3 7V4h7l2 3",()=>ShowEditorAction("open-project")));
+        menu.Items.Add(SoftClayTrayMenu.Command("粘贴图片","M9 4H5v17h14V4h-4 M9 2h6v4H9z M8 12h8 M8 16h5",()=>ShowEditorAction("paste")));
+        menu.Items.Add(SoftClayTrayMenu.Divider(menu));
+        menu.Items.Add(SoftClayTrayMenu.Command("历史与恢复","M3 3v6h6 M3 9a9 9 0 1 1 1 9 M12 7v5l3 2",()=>ShowEditorAction("recovery")));
+        menu.Items.Add(SoftClayTrayMenu.Command("设置","M4 7h16 M4 17h16 M8 4v6 M16 14v6",()=>ShowEditorAction("settings")));
+        menu.Items.Add(SoftClayTrayMenu.Divider(menu));
+        menu.Items.Add(SoftClayTrayMenu.Command("退出应用","M10 3H4v18h6 M14 8l5 4-5 4 M8 12h11",Close));
+        _trayIcon=new System.Windows.Forms.NotifyIcon{Icon=System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!),Text="Screenshot · 截图",Visible=true};
+        _trayIcon.MouseUp+=(_,args)=>{if(args.Button==System.Windows.Forms.MouseButtons.Right)Dispatcher.BeginInvoke(new Action(()=>{if(_trayMenu is {} current)current.IsOpen=true;}));};
+        _trayIcon.DoubleClick+=(_,_)=>Dispatcher.BeginInvoke(new Action(()=>{_=CaptureFromHotkeyAsync();}));
     }
     // 主动恢复工作台并作废旧覆盖层身份，迟到解码只能恢复文档，不能重建覆盖层。
     private void ShowWorkbenchFromTray()
@@ -263,7 +266,7 @@ public partial class MainWindow : Window
     // 主动进入无冻结背景的轻量编辑器，文档保持不变；加载失败时才显示原生兜底条。
     private void ShowWorkbench()
     {
-        _captureHandoff.Release();
+        _captureHandoff.Release();Opacity=1;ShowActivated=true;
         _presentation.ShowWorkbench();
         FrozenBackdrop.Source = null; FrozenBackdrop.Visibility = Visibility.Collapsed;
         Background = new SolidColorBrush(Color.FromRgb(32, 32, 34));
@@ -281,27 +284,54 @@ public partial class MainWindow : Window
     private void DismissPresentation()
     {
         if (_presentation.Mode == PresentationMode.Workbench) RememberWorkbenchPlacement();
-        Hide(); _captureHandoff.Release(); _presentation.Dismiss(); FrozenBackdrop.Source = null;
+        Hide(); Opacity=1;ShowActivated=true; _captureHandoff.Release(); _presentation.Dismiss(); FrozenBackdrop.Source = null;
         FrozenBackdrop.Visibility = Visibility.Collapsed; Topmost = false;
     }
-    // 只有当前 captureId 对应的紧凑界面已完成布局，才显示覆盖层，避免工作台闪现。
-    private async Task<object> ReadyPresentationAsync(string captureId)
+    // 第一阶段在原生遮挡后显示宿主；浏览器需要可见 HWND 才能完成合成，不在这里撤挡。
+    private object ReadyPresentation(string captureId)
     {
         if(_captureHandoff.IsCancelled(captureId))
         {
             if(_presentation.TryDismiss(captureId))DismissPresentation();
-            return new{presentation=_presentation.Mode.ToString().ToLowerInvariant(),accepted=false,captureId=_presentation.Overlay?.CaptureId};
+            return new{presentation=_presentation.Mode.ToString().ToLowerInvariant(),accepted=false,awaitingPaint=false};
         }
-        var accepted=_presentation.TryAcceptReady(captureId);
+        var accepted=_presentation.TryPrepare(captureId);
         if(accepted&&_presentation.Overlay is {} overlay)
         {
-            Show();ApplyOverlayBounds(overlay.DesktopBounds);UpdateLayout();
-            // 先处理 WPF 已排队的布局/绘制，再释放原生框选，避免交接时露出桌面或黑底。
-            await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.Loaded);
-            if(!_presentation.Matches(captureId))accepted=false;
-            else if(_captureHandoff.IsCancelled(captureId)){_presentation.TryDismiss(captureId);DismissPresentation();accepted=false;}
-            else{_captureHandoff.Release(captureId);Activate();}
+            ShowActivated=false;Opacity=_captureHandoff.HasVisual(captureId)?1:0;
+            var owner=new WindowInteropHelper(this).Handle;_captureHandoff.KeepAbove(captureId,owner);
+            Show();ApplyOverlayBounds(overlay.DesktopBounds);UpdateLayout();_captureHandoff.KeepAbove(captureId,owner);
         }
+        return new{presentation=_presentation.Mode.ToString().ToLowerInvariant(),accepted,awaitingPaint=accepted,captureId=_presentation.Overlay?.CaptureId};
+    }
+    // 浏览器已提交两帧后，再等 WPF 合成帧；只有当前捕获可以撤掉原生遮挡。
+    private async Task<object> PaintedPresentationAsync(string captureId)
+    {
+        var accepted=false;
+        if(_presentation.IsPrepared(captureId)&&!_captureHandoff.IsCancelled(captureId))
+        {
+            var painted=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            TimeSpan? previous=null;var frames=0;
+            EventHandler rendering=(_,args)=>{if(args is RenderingEventArgs frame&&frame.RenderingTime!=previous){previous=frame.RenderingTime;if(++frames>=2)painted.TrySetResult();else InvalidateVisual();}};
+            CompositionTarget.Rendering+=rendering;
+            try
+            {
+                InvalidateVisual();await painted.Task.WaitAsync(TimeSpan.FromSeconds(2),_lifetime.Token);
+                if(!_captureHandoff.IsCancelled(captureId)&&_presentation.TryAcceptPainted(captureId))
+                {
+                    Opacity=1;ShowActivated=true;_captureHandoff.Release(captureId);Activate();accepted=true;
+                }
+            }
+            catch(TimeoutException)
+            {
+                if(_presentation.TryExpireReady(captureId))
+                {
+                    ShowWorkbench();Post(new{@event="presentation.changed",payload=new{presentation="workbench",reason="overlay_timeout",timedOutCaptureId=captureId}});
+                }
+            }
+            finally{CompositionTarget.Rendering-=rendering;}
+        }
+        if(_captureHandoff.IsCancelled(captureId)&&_presentation.TryDismiss(captureId))DismissPresentation();
         return new{presentation=_presentation.Mode.ToString().ToLowerInvariant(),accepted,captureId=_presentation.Overlay?.CaptureId};
     }
     // 前端解码或布局失败时不永久隐藏应用；计时器只能回收自己等待的 captureId。
@@ -432,7 +462,8 @@ public partial class MainWindow : Window
                 var dismissed = dismissSequence == _completionSequence && _presentation.TryDismiss(dismissCaptureId);
                 if (dismissed) { if (wasWorkbench) RememberWorkbenchPlacement(); DismissPresentation(); }
                 return new { presentation = _presentation.Mode.ToString().ToLowerInvariant(), accepted = dismissed, captureId = _presentation.Overlay?.CaptureId };
-            case "presentation.ready": return await ReadyPresentationAsync(RequiredString(payload, "captureId"));
+            case "presentation.ready": return ReadyPresentation(RequiredString(payload, "captureId"));
+            case "presentation.painted": return await PaintedPresentationAsync(RequiredString(payload, "captureId"));
             case "presentation.complete": return await CompleteEditingAsync(payload);
             case "image.save": return NativeImages.Save(this, RequiredString(payload, "dataUrl"), OptionalString(payload, "suggestedName"));
             case "text.copy": return NativeImages.CopyText(RequiredString(payload, "text"));

@@ -84,6 +84,15 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
     private readonly TaskCompletionSource<PixelRect?> _selected=new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _handingOff;
     public bool IsCancelled { get; private set; }
+    [DllImport("user32.dll",EntryPoint="SetWindowLongPtrW",SetLastError=true)]private static extern nint SetOwner(nint window,int index,nint owner);
+    // 先建立原生顶层窗口的 owner 关系，宿主 Show/置顶时也不能越过冻结遮挡。
+    public void KeepAbove(nint owner)
+    {
+        if(IsDisposed||IsCancelled)return;
+        Marshal.SetLastPInvokeError(0);
+        if(SetOwner(Handle,-8,owner)==0&&Marshal.GetLastPInvokeError()!=0)throw new System.ComponentModel.Win32Exception(Marshal.GetLastPInvokeError());
+        BringToFront();
+    }
     public async Task<PixelRect?> SelectAsync(CancellationToken token)
     {
         Show();

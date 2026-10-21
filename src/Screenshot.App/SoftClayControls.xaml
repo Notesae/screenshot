@@ -63,4 +63,35 @@
     </Track>
     <ControlTemplate.Triggers><Trigger Property="Orientation" Value="Horizontal"><Setter Property="Width" Value="Auto"/><Setter Property="Height" Value="10"/><Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="False"/><Setter TargetName="Decrease" Property="Command" Value="ScrollBar.PageLeftCommand"/><Setter TargetName="Increase" Property="Command" Value="ScrollBar.PageRightCommand"/></Trigger></ControlTemplate.Triggers>
   </ControlTemplate></Setter.Value></Setter></Style>
+
+  <!-- 托盘入口采用同一软泥浮卡，菜单项保留 WPF 原生方向键、Enter、Esc 和屏幕阅读器行为。 -->
+  <Style x:Key="ClayTrayItem" TargetType="MenuItem">
+    <Setter Property="Foreground" Value="{DynamicResource ClayInk}"/><Setter Property="FontSize" Value="13"/><Setter Property="MinHeight" Value="36"/>
+    <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="MenuItem">
+      <Border x:Name="Face" CornerRadius="8" Padding="10,7" Margin="0,1" Background="Transparent" BorderThickness="1" BorderBrush="Transparent">
+        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <ContentPresenter ContentSource="Icon" VerticalAlignment="Center"/>
+          <ContentPresenter Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center"/>
+          <TextBlock Grid.Column="2" Text="{TemplateBinding InputGestureText}" Foreground="{DynamicResource ClayMuted}" FontSize="11" Margin="18,0,0,0" VerticalAlignment="Center"/>
+        </Grid>
+      </Border>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClaySurface}"/></Trigger>
+        <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Face" Property="BorderBrush" Value="{DynamicResource ClayFocus}"/></Trigger>
+        <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.4"/></Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style x:Key="ClayTraySeparator" TargetType="Separator"><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Separator"><Border Height="1" Margin="10,6" Background="{DynamicResource ClayMuted}" Opacity="0.22"/></ControlTemplate></Setter.Value></Setter></Style>
+  <Style x:Key="ClayTrayMenu" TargetType="ContextMenu">
+    <Setter Property="Foreground" Value="{DynamicResource ClayInk}"/><Setter Property="MinWidth" Value="286"/>
+    <Setter Property="ItemContainerStyle" Value="{StaticResource ClayTrayItem}"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ContextMenu">
+      <Border Margin="16" Padding="8" CornerRadius="12" Background="{DynamicResource ClaySurface}">
+        <Border.Effect><DropShadowEffect BlurRadius="24" ShadowDepth="6" Opacity="0.35"/></Border.Effect>
+        <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
+      </Border>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
 </ResourceDictionary>

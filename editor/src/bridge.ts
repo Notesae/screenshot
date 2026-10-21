@@ -3,7 +3,7 @@ export type LoadedImage = { dataUrl: string; name: string; width: number; height
 export type PublicProvider = { id: string; name: string; kind: string; model: string; baseUrl: string; hasApiKey: boolean; revision?:string };
 export type Settings = { providers: PublicProvider[]; defaultProviderId?: string };
 // 捕获 ID 用来拒绝旧界面排队的呈现切换，不属于可保存的项目内容。
-export type PresentationResult = { presentation: 'overlay' | 'workbench' | 'hidden'; accepted?: boolean; captureId?: string | null };
+export type PresentationResult = { presentation: 'overlay' | 'workbench' | 'hidden'; accepted?: boolean; captureId?: string | null; awaitingPaint?:boolean };
 export class NativeError extends Error { constructor(message:string,public code:string){super(message);} }
 type Send = (message: { id: string; method: string; payload: object }) => void;
 type Pending = { resolve: (value: unknown) => void; reject: (reason: Error) => void; timer: ReturnType<typeof setTimeout> };

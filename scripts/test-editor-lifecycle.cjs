@@ -125,7 +125,7 @@ async function main(){
   await page.evaluate(()=>{window.__mock.state.holdAdjust=false;window.__mock.state.releaseAdjust();});
   await page.waitForFunction(()=>!document.querySelector('button[aria-label="保存 PNG"]').disabled);
   assert.equal(Math.round((await page.locator('.clay-capture-selection').boundingBox()).x),300);
-  await click('矩形标注');await page.waitForFunction(()=>window.screenshotPrepareUpdate().document.editor.annotations.length===1);
+  await click('矩形标注');await drawRect(page);await page.waitForFunction(()=>window.screenshotPrepareUpdate().document.editor.annotations.length===1);
   const original=await page.evaluate(()=>window.screenshotPrepareUpdate().document.editor.annotations[0].id);
   const annotationBefore=await page.evaluate(()=>window.screenshotPrepareUpdate().document.editor.annotations[0]),captureCount=await page.evaluate(()=>window.__mock.state.requests.filter(m=>m==='capture.adjust').length);
   const contentBox=await page.locator('.clay-canvas-fixed').boundingBox(),objectX=contentBox.x+annotationBefore.left+annotationBefore.width/2,objectY=contentBox.y+annotationBefore.top+annotationBefore.height/2;
@@ -155,7 +155,7 @@ async function main(){
   await page.evaluate(()=>window.__mock.state.cancelSave=false);await click('复制 PNG');await page.waitForSelector('[data-mock-host-toast]');assert.equal(await page.evaluate(()=>window.__mock.state.backdrop),false);
   await page.screenshot({path:path.join(out,'06-mock-toast.png')});const id=await page.evaluate(()=>window.__mock.state.snapshot.documentId);
   await click('继续编辑');await page.waitForSelector('.is-neutral');assert.equal(await page.evaluate(()=>window.screenshotPrepareUpdate().documentId),id);assert.equal(await page.evaluate(()=>window.screenshotPrepareUpdate().document.editor.annotations[0].id),original);
-  await click('矩形标注');await click('文字');await page.locator('#compact-text').focus();
+  await click('矩形标注');await drawRect(page);await click('文字');await page.locator('#compact-text').focus();
   await page.keyboard.press('Escape');assert.equal(await page.locator('#compact-text').evaluate(node=>node===document.activeElement),false);assert.equal(await page.locator('.clay-card').count(),1);
   await page.keyboard.press('Escape');assert.equal(await page.locator('.clay-card').count(),1);assert.equal(await page.evaluate(()=>window.__mock.state.hidden),false);
   await page.keyboard.press('Escape');await page.waitForSelector('.clay-card',{state:'detached'});
@@ -185,3 +185,12 @@ async function main(){
   console.log('PASS synthetic editor lifecycle and responsive checks');await browser.close();server.close();
 }
 main().catch(async error=>{console.error(error);if(activePage){console.error(await activePage.evaluate(()=>{const s=window.__mock?.state;return {requests:s?.requests.slice(-16),completion:s?.completion,copied:s?.copied,hidden:s?.hidden,notice:document.querySelector('[role=alert]')?.textContent,handles:Array.from(document.querySelectorAll('.clay-selection-handle')).map(e=>({class:e.className,disabled:e.disabled,box:e.getBoundingClientRect().toJSON()})),snapshot:window.screenshotPrepareUpdate?.()};}).then(value=>{if(value.snapshot?.document)value.snapshot.document='synthetic document omitted';return value;}).catch(()=>({})));}await activeBrowser?.close();server.close();process.exitCode=1;});
+
+
+// 标注工具只待命；测试在独立无头 canvas 内拖出矩形，不模拟真实系统输入。
+async function drawRect(page){
+  await page.waitForFunction(()=>document.querySelector('[data-drawing-tool="rect"]'));
+  const canvas=page.locator('.upper-canvas');await canvas.click({position:{x:80,y:60},trial:true});const box=await canvas.boundingBox();
+  await page.mouse.move(box.x+box.width*.2,box.y+box.height*.2);await page.mouse.down();await page.mouse.move(box.x+box.width*.6,box.y+box.height*.6,{steps:4});await page.mouse.up();
+  await page.waitForFunction(()=>!document.querySelector('[data-drawing-tool]'));
+}
