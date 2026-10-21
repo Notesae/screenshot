@@ -55,10 +55,11 @@ declare global {
 const webview = typeof window === 'undefined' ? undefined : window.chrome?.webview;
 export const native = new NativeBridge(webview ? message => webview.postMessage(message) : undefined);
 // 主动捕获事件不属于某个请求，其图片仍由项目解析器校验。
-export function subscribeNative(onImage: (image: unknown) => void, onPresentation?: (presentation: { presentation: 'workbench' | 'hidden'; reason?: string; timedOutCaptureId?: string; invalidatedCaptureId?: string | null }) => void) {
+export function subscribeNative(onImage: (image: unknown) => void, onPresentation?: (presentation: { presentation: 'workbench' | 'hidden'; reason?: string; timedOutCaptureId?: string; invalidatedCaptureId?: string | null }) => void, onAction?: (action: string, text?: string) => void) {
   const receive = (event: MessageEvent) => {
     const data = event.data;
     if (data?.event === 'image.loaded') onImage(data.payload);
+    else if (data?.event === 'editor.action' && ['continue','open-image','open-project','paste','recovery','settings','notice'].includes(data.payload?.action)) onAction?.(data.payload.action, typeof data.payload.text === 'string' ? data.payload.text.slice(0,2000) : undefined);
     else if (data?.event === 'presentation.changed' && (data.payload?.presentation === 'workbench' || data.payload?.presentation === 'hidden')) onPresentation?.(data.payload);
     else native.receive(data);
   };

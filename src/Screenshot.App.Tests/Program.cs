@@ -67,8 +67,10 @@ Check(gate.TryEnter("ai.ocr", out var ocr), "first AI request accepted");
 Check(!gate.TryEnter("ai.translate", out _), "second AI request rejected");
 Check(gate.TryEnter("image.save", out var save), "save accepted while AI is running");
 Check(!gate.TryEnter("capture.region", out _), "capture rejected while native dialog is active");
-foreach (var method in new[] { "app.info", "settings.read", "presentation.ready", "presentation.workbench", "presentation.dismiss" })
+foreach (var method in new[] { "app.info", "settings.read", "presentation.ready", "presentation.workbench", "presentation.editor" })
     Check(gate.TryEnter(method, out var read) && read is null, "pure read accepted while both operation lanes are busy");
+foreach (var method in new[] { "presentation.dismiss", "presentation.complete", "document.preserve" })
+    Check(!gate.TryEnter(method, out _), "checkpoint transitions wait for the active local operation");
 save!.Dispose();
 Check(gate.TryEnter("image.copy", out var copy), "copy accepted while AI is still running");
 save.Dispose();
@@ -176,6 +178,7 @@ using(var newTask=inference.Begin("new",CancellationToken.None)) {
     Check(!inference.Cancel("old")&&!newTask.Token.IsCancellationRequested,"late cancellation cannot cancel newer task");
 }
 checks += TermsTests.Run();
+checks += EditorCheckpointTests.Run();
 checks += HotkeyTests.Run();
 checks += CaptureTargetsTests.Run();
 checks += RegionSelectionTests.Run();

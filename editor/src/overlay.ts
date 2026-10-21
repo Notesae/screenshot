@@ -3,7 +3,7 @@ import type { LoadedImage } from './bridge';
 
 /** 坐标全部来自虚拟桌面物理像素，屏幕元数据只用于放置工具条，不含冻结桌面图片。 */
 export type PixelRect = { x: number; y: number; width: number; height: number };
-export type OverlayMetadata = { captureId?: string; contentScale?:number; desktopBounds: PixelRect; selection: PixelRect; screens: { bounds: PixelRect; primary: boolean }[] };
+export type OverlayMetadata = { captureId?: string; contentScale?:number; desktopBounds: PixelRect; selection: PixelRect; screens: { bounds: PixelRect; primary: boolean; workArea?:PixelRect }[] };
 export type CaptureEnvelope = { image: LoadedImage; overlay: OverlayMetadata };
 type Size = { width: number; height: number };
 
@@ -27,7 +27,9 @@ export function parseCapture(value: unknown): { image: LoadedImage; overlay: Ove
   const screens = source.screens.map(screen => {
     const bounds = rect(screen.bounds);
     if (typeof screen.primary !== 'boolean' || !contains(desktopBounds, bounds)) throw new Error('截图屏幕边界无效。');
-    return { bounds, primary: screen.primary };
+    const workArea=screen.workArea?rect(screen.workArea):undefined;
+    if(workArea&&!contains(bounds,workArea))throw new Error('屏幕可用区域无效。');
+    return { bounds, primary: screen.primary, ...(workArea?{workArea}:{}) };
   });
   if (source.captureId !== undefined && (typeof source.captureId !== 'string' || !/^[a-z0-9-]{1,80}$/i.test(source.captureId))) throw new Error('截图标识无效。');
   return { image, overlay: { ...(source.captureId ? { captureId: source.captureId } : {}), desktopBounds, selection, screens } };
@@ -50,7 +52,9 @@ export function overlayLayout(overlay: OverlayMetadata, viewport: Size, output: 
   const scale={x:mapping.x*factor,y:mapping.y*factor};
   const map = (r: PixelRect): PixelRect => ({ x: (r.x - desktop.x) * mapping.x, y: (r.y - desktop.y) * mapping.y, width: r.width * mapping.x, height: r.height * mapping.y });
   const physicalSelection = crop ? { x: overlay.selection.x + crop.x*factor, y: overlay.selection.y + crop.y*factor, width: (output.width - padding * 2)*factor, height: (output.height - padding * 2)*factor } : overlay.selection;
-  const selection = map(physicalSelection), screen = map(selectedScreen({ ...overlay, selection: physicalSelection }));
+  const selection = map(physicalSelection), selectedBounds=selectedScreen({ ...overlay, selection: physicalSelection });
+  const selectedMonitor=overlay.screens.find(s=>s.bounds===selectedBounds);
+  const screen = map(selectedMonitor?.workArea??selectedBounds);
   const frame = { x: selection.x - padding * scale.x, y: selection.y - padding * scale.y, width: output.width * scale.x, height: output.height * scale.y };
   const margin = Math.min(12, screen.width / 4, screen.height / 4);
   if(![tools.width,tools.height].every(n=>Number.isFinite(n)&&n>0)||!Number.isFinite(tools.statusHeight??0)||(tools.statusHeight??0)<0)throw new Error('工具尺寸无效。');

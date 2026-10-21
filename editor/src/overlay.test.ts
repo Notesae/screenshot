@@ -7,6 +7,17 @@ const overlay: OverlayMetadata = {
   screens: [{ bounds: { x: -1920, y: 0, width: 1920, height: 1080 }, primary: false }, { bounds: { x: 0, y: 0, width: 2560, height: 1440 }, primary: true }],
 };
 describe('in-place capture geometry', () => {
+  it('uses a validated monitor work area for tools without changing image coordinates', () => {
+    const workArea={x:-1920,y:0,width:1920,height:1040};
+    const screen={...overlay.screens[0],workArea};
+    const restricted={...overlay,screens:[screen,overlay.screens[1]]};
+    const layout=overlayLayout(restricted,{width:2240,height:900},{width:800,height:600},0);
+    expect(layout.screen).toEqual({x:0,y:0,width:960,height:650});
+    expect(layout.frame).toEqual(overlayLayout(overlay,{width:2240,height:900},{width:800,height:600},0).frame);
+    const image={dataUrl:'data:image/png;base64,iVBORw0KGgo=',name:'合成.png',width:800,height:600};
+    expect(parseCapture({image,overlay:restricted}).overlay?.screens[0].workArea).toEqual(workArea);
+    expect(()=>parseCapture({image,overlay:{...restricted,screens:[{...screen,workArea:{...workArea,width:3000}}]}})).toThrow();
+  });
   it('maps a negative virtual origin using independent viewport axes, never primary DPI', () => {
     const layout = overlayLayout(overlay, { width: 2240, height: 900 }, { width: 800, height: 600 }, 0);
     expect(layout.scale).toEqual({ x: .5, y: .625 });

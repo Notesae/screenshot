@@ -42,14 +42,14 @@ internal static class NativeOcrQuality
         }catch(Exception e){Console.Error.WriteLine("FAIL native OCR quality: "+e.GetType().Name+" "+e.Message);return 1;}
     }
     // Only memory-backed GDI+ bitmaps; no screen reads, windows, dialogs or clipboard.
-    private static byte[] TextPng(bool large)
+    internal static byte[] TextPng(bool large)
     {
         using var bitmap=new Bitmap(large?1920:900,large?1080:260,PixelFormat.Format24bppRgb);using var graphics=Graphics.FromImage(bitmap);graphics.Clear(Color.White);graphics.TextRenderingHint=TextRenderingHint.AntiAliasGridFit;
         using var font=new Font("Microsoft YaHei UI",large?64:40,FontStyle.Regular,GraphicsUnit.Pixel);using var brush=new SolidBrush(Color.Black);
         for(var row=0;row<(large?8:2);row++)graphics.DrawString(row%2==0?"Hello OCR 123":"中文截图测试",font,brush,35,35+row*(large?120:100));
         using var output=new MemoryStream();bitmap.Save(output,ImageFormat.Png);return output.ToArray();
     }
-    private static byte[] NoisePng()
+    internal static byte[] NoisePng()
     {
         using var bitmap=new Bitmap(3200,1800,PixelFormat.Format24bppRgb);var data=bitmap.LockBits(new Rectangle(0,0,3200,1800),ImageLockMode.WriteOnly,PixelFormat.Format24bppRgb);
         try{var bytes=new byte[data.Stride*1800];new Random(17).NextBytes(bytes);Marshal.Copy(bytes,0,data.Scan0,bytes.Length);}finally{bitmap.UnlockBits(data);}

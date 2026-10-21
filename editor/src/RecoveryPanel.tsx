@@ -25,13 +25,14 @@ export function RecoveryStatus({state}: {state:RecoveryView}) {
   return <div className={`recovery-status state-${state.status}`} role={state.status === 'unsaved' ? 'alert' : 'status'}><Icon aria-hidden="true" size={14}/><span title={state.message}>{label}</span>{retry && <button onClick={state.retry}>{state.status === 'paused' ? '恢复自动保存' : '重试自动保存'}</button>}</div>;
 }
 /** 仅显式展开列表和选取恢复；不自动加载任何私人内容。 */
-export function RecoveryPanel({ state, onRestore, onError, onDeleteCurrent, currentId, compact = false }: { state: ReturnType<typeof useRecovery>; onRestore: (item: RecoveryItem) => Promise<void>; onError: (error: unknown) => void; onDeleteCurrent: () => Promise<void>; currentId: string; compact?: boolean }) {
+export function RecoveryPanel({ state, onRestore, onError, onDeleteCurrent, currentId, compact = false, autoOpen=false }: { state: ReturnType<typeof useRecovery>; onRestore: (item: RecoveryItem) => Promise<void>; onError: (error: unknown) => void; onDeleteCurrent: () => Promise<void>; currentId: string; compact?: boolean; autoOpen?:boolean }) {
   const [open, setOpen] = useState(false), [items, setItems] = useState<RecoveryItem[]>([]), [busy, setBusy] = useState(false);
   const [selected,setSelected]=useState<string[]>([]),[confirming,setConfirming]=useState(false),[usage,setUsage]=useState<{documents:number;referencedAssetBytes:number;maxDocuments:number;maxAssetBytes:number}|null>(null);
   async function refresh() {
     setBusy(true);
     try { setItems(parseRecoveryItems(await native.request('recovery.list'))); setUsage(await native.request('recovery.usage'));setSelected([]);setConfirming(false); setOpen(true); } catch (error) { onError(error); } finally { setBusy(false); }
   }
+  useEffect(()=>{if(autoOpen)void refresh();},[autoOpen]);
   async function remove(item: RecoveryItem) {
     setBusy(true);
     try {

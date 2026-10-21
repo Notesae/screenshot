@@ -24,7 +24,7 @@ async function installMock(page, options = {}) {
 
         if (request.method === window.__holdMethod) { window.__heldMethods.push(request); return; }
         if (request.method === 'presentation.ready' && window.__holdReady) { window.__heldReady.push(request); return; }
-        const results = { 'settings.read': { providers: [{ id: 'synthetic', name: '模拟服务', kind: 'ollama', model: 'test', baseUrl: 'http://127.0.0.1:0', hasApiKey: false, revision:window.__providerRevision }], defaultProviderId: 'synthetic' }, 'image.open': window.__openImage, 'image.copy': { copied: true }, 'text.copy': { copied:true }, 'image.save': { saved: true }, 'project.save': { saved: true }, 'ai.ocr': { text: '仅用于无头测试的合成文字' } };
+        const results = { 'app.updateReady':{ready:true}, 'document.preserve':{saved:true}, 'settings.read': { providers: [{ id: 'synthetic', name: '模拟服务', kind: 'ollama', model: 'test', baseUrl: 'http://127.0.0.1:0', hasApiKey: false, revision:window.__providerRevision }], defaultProviderId: 'synthetic' }, 'image.open': window.__openImage, 'image.copy': { copied: true }, 'text.copy': { copied:true }, 'image.save': { saved: true }, 'project.save': { saved: true }, 'ai.ocr': { text: '仅用于无头测试的合成文字' } };
         let result = request.method==='settings.read'&&options.settings?options.settings:request.method==='project.open'?window.__projectDocument:results[request.method];
         if (request.method === 'ocr.status') result = options.localStatus || { available: true, modelVersion: 'synthetic', message: 'synthetic only', missingFiles: [] };
         if (request.method === 'ai.cancel') result={cancelled:true};
@@ -57,9 +57,11 @@ async function installMock(page, options = {}) {
         if (request.method === 'recovery.delete') { delete window.__recoveries[request.payload.documentId]; result = { deleted:true }; }
 
         if (request.method.startsWith('presentation.')) {
+          // 旧能力审计刻意保持输出后的编辑层；新的生命周期套件单独验证原生收起。
+          if(request.method==='presentation.complete'){setTimeout(()=>window.__emit({id:request.id,ok:true,result:{accepted:false}}),0);return;}
           const active = window.__currentCaptureId;
           const accepted = active ? request.payload.captureId === active : request.payload.captureId === undefined;
-          const target = request.method === 'presentation.ready' ? 'overlay' : request.method === 'presentation.workbench' ? 'workbench' : 'hidden';
+          const target = request.method === 'presentation.ready' ? 'overlay' : ['presentation.workbench','presentation.editor'].includes(request.method) ? 'workbench' : 'hidden';
           if (accepted && target !== 'overlay') window.__currentCaptureId = null; window.__hotkey={enabled:true,ctrl:true,alt:false,shift:true,key:'S'};window.__snapSettings={snapWindows:true,windowArea:'window'};window.__providerRevision='a'.repeat(64);
           result = { accepted, presentation: accepted ? target : active ? 'overlay' : 'workbench', captureId: window.__currentCaptureId };
         }

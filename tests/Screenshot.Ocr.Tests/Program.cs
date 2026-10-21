@@ -19,6 +19,7 @@ if(args.Length==1&&args[0]=="--native-status"){
 }
 
 if(args.Length>0&&args[0]=="--native-quality")return await NativeOcrQuality.Run(args);
+if(args.Length>0&&args[0]=="--native-quality-worker")return await NativeOcrPairedWorker.RunAsync(args);
 
 if(args.Length==2&&args[0]=="--build-info"){try{using var decoded=PngInput.DecodeToBgr(SyntheticPng("Hello","OCR 123"));await File.WriteAllTextAsync(Path.GetFullPath(args[1]),Cv2.GetBuildInformation());return 0;}catch(Exception error){Console.Error.WriteLine("FAIL native build metadata: "+error);return 1;}}
 

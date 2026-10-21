@@ -1,5 +1,22 @@
 # Native bridge v1
 
+## 2026-10-20 轻量编辑器与保存保护
+
+项目 schema 保持 v2。`presentation.editor` 是 `presentation.workbench` 的兼容别名；返回的内部呈现值仍使用 `workbench / overlay / hidden`。用户界面共用轻量编辑器，无第二份文档。`screens` 可带宿主提供的物理 `workArea:PixelRect`；编辑器验证其位于显示器 bounds 内，只用于限制工具位置，不改变选区、图像坐标或导出尺寸。
+
+| Method / event | Payload | 行为 |
+|---|---|---|
+| document.preserve | {} | 覆盖前保护当前文档，成功返回 `{saved:true}`，失败拒绝覆盖 |
+| presentation.complete | {captureId?:string,documentId:string,revision:number,text:string} | text 仅接受“图片已复制到剪贴板”或“PNG 已保存”；文档身份、历史 revision、截图 ID 与呈现代数均匹配且快照成功，才收起并显示独立原生提示。返回 `{accepted,presentation?}` |
+| app.terms | {} | 只读查看原生条款，不能接受条款或绕过启动门禁 |
+| editor.action | {action,text?} | 宿主事件；固定动作 `continue / open-image / open-project / paste / recovery / settings / notice`。消费后复用已有处理器，不包含路径或秘密 |
+
+宿主覆盖、收起、关闭和重载前读取本地 `window.screenshotPrepareLeave(reason)`，reason 固定为 `replace / close / complete`，返回 `{documentId,revision,document,empty,projectSaved}` 或 `{error}`；准备期间前端锁定编辑，宿主最终调用 `window.screenshotFinishLeave()` 解锁。documentId 与 revision 是当前内存身份；恢复库使用独立稳定 GUID 和递增写序列，避免与自动保存的同序号冲突。完整项目已在当前身份/revision 下保存时可跳过重复快照；PNG 和文字复制不会标记项目已保存。捕获替换允许取消旧 AI 任务；关闭/完成不接受正在编辑、加载或进行中的 AI。快照失败、过期或忙状态保留当前文档和呈现。
+
+`presentation.dismiss / presentation.complete / document.preserve` 参与本地操作门控，避免与捕获/原生对话框交叠。托盘继续编辑递增呈现代数，迟到的无 captureId 文件完成请求也不能隐藏刚恢复的窗口。`presentation.changed` 的托盘原因使用 `user_editor`；历史 `user_workbench` 仍由前端兼容。
+
+输出提示窗口不持有冻结截图；继续编辑只恢复现有 WebView 内存文档与历史。关闭应用失败时原生确认提供默认“否”的明确放弃路径。更新退出只有在独立更新快照成功且更新器 HandOff 成功后标记允许关闭，不在失败的准备阶段豁免保护。
+
 The trusted editor is served only from `https://app.screenshot.local/`. No remote page may invoke native actions. All commands use `window.chrome.webview.postMessage`.
 
 Request: `{ id: string, method: string, payload?: object }`.
@@ -9,7 +26,7 @@ Unsolicited capture: `{ event: "image.loaded", payload: CaptureEnvelope }`.
 
 `LoadedImage = { dataUrl: string, name: string, width: number, height: number }`.
 `PixelRect = { x:number, y:number, width:number, height:number }` uses absolute physical desktop pixels; x/y may be negative.
-`CaptureEnvelope = { image:LoadedImage, overlay:{ captureId:string, desktopBounds:PixelRect, selection:PixelRect, screens:{bounds:PixelRect,primary:boolean}[] } }`.
+`CaptureEnvelope = { image:LoadedImage, overlay:{ captureId:string, desktopBounds:PixelRect, selection:PixelRect, screens:{bounds:PixelRect,primary:boolean,workArea?:PixelRect}[] } }`.
 The frozen full desktop remains native-only. Only the cropped image enters the editor document, project, export or AI payload. Ordinary image.open/paste results remain LoadedImage.
 User cancellation returns null (or saved:false); it is not an exception.
 

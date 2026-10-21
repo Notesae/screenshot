@@ -15,6 +15,7 @@ export function parsePresets(value:unknown):StylePreset[] {
 }
 export const BUILTIN_STYLES:StylePreset[] = [
   {id:'simple',name:'简洁截图',style:editorStyle({...defaultEditor(),mode:'beauty',padding:32,radius:12})},
+  {id:'soft',name:'柔和留白',style:editorStyle({...defaultEditor(),mode:'beauty',padding:48,radius:20,background:'#e6e7ec',shadow:true})},
   {id:'paper',name:'文档摘录',style:editorStyle({...defaultEditor(),mode:'reflow',lineSpacing:1.8,paragraphSpacing:16})},
   {id:'outline',name:'清晰边框',style:editorStyle({...defaultEditor(),mode:'beauty',padding:24,radius:8,shadow:false,borderWidth:2})},
 ];

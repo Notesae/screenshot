@@ -1,0 +1,106 @@
+/* Soft Clay Capsule v2：材质取自 Figma 1:2；系统中文字体，无远端资源。 */
+.clay-editor{
+ --accent:#3b82f6;--surface:#302d29;--surface-subtle:#242220;--muted:#b7b5b3;--border:#57524d;
+ --clay-ink:#f5f5f7;--clay-well:#181719;
+ --clay-raised:linear-gradient(180deg,#5a5550,#3e3a36 50%,#2c2926);
+ --clay-face:linear-gradient(180deg,#4a4642,#322f2c 35%,#252320 70%,#1a1816);
+ --clay-card:linear-gradient(180deg,#4a4642,#2a2724);
+ --clay-press:inset 0 2px 5px #0007,inset 0 -1px 2px #ffffff10;
+ --clay-button:0 5px 10px #0005,inset 0 2px 3px #ffffff30,inset 0 -2px 4px #0004;
+ --clay-float:0 8px 16px #0006,0 24px 48px #0008,inset 0 3px 5px #ffffff2e,inset 0 -4px 10px #0005;
+ --clay-spring:cubic-bezier(.18,.9,.26,1.18);
+ position:fixed;inset:0;overflow:hidden;color:var(--clay-ink);font-size:13px;line-height:1.6;
+ font-family:"Segoe UI Variable","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+ color-scheme:dark;scrollbar-color:#68615b #262320;
+}
+.clay-editor.is-neutral{background:#202022}
+.clay-editor.is-overlay{pointer-events:none}
+.clay-editor *{box-sizing:border-box}
+.clay-editor ::selection{background:#3b82f666;color:white}
+.clay-editor button,.clay-editor input,.clay-editor select,.clay-editor textarea{font:inherit;color:var(--clay-ink);accent-color:var(--accent)}
+.clay-editor button{border:0;display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:36px;padding:8px 12px;border-radius:13px;background:var(--clay-raised);box-shadow:var(--clay-button);cursor:pointer;transition:transform 280ms var(--clay-spring),filter 140ms ease,box-shadow 140ms ease}
+.clay-editor button:hover:enabled{background:var(--clay-raised);filter:brightness(1.1)}
+.clay-editor button:active:enabled{transform:scale(.94);box-shadow:var(--clay-press)}
+.clay-editor button:disabled,.clay-editor fieldset:disabled button{opacity:.38;cursor:default;filter:none;box-shadow:inset 0 1px 2px #ffffff0d}
+.clay-editor :focus-visible{outline:2px solid #9cc4ff;outline-offset:3px}
+.clay-editor button.clay-primary,.clay-editor button[aria-pressed=true],.clay-editor button.clay-primary:hover:enabled,.clay-editor button[aria-pressed=true]:hover:enabled{background:linear-gradient(180deg,#5b9bff,#2563eb 35%,#1d4ed8);color:white;box-shadow:0 7px 16px #3b82f64d,inset 0 2px 3px #ffffff47,inset 0 -2px 4px #1a408c59}
+.clay-editor svg{width:18px;height:18px;flex-shrink:0;stroke-width:1.8}
+.clay-canvas-fixed{position:absolute;pointer-events:auto;outline:1px solid #f5f5f788}
+.clay-canvas-fixed .canvas-workspace{align-items:start;justify-content:start;overflow:visible}
+.clay-canvas-fixed .canvas-sheet{box-shadow:none}
+.clay-canvas-stage{position:absolute;inset:56px 0 112px}
+.clay-canvas-stage .canvas-zoom{background:var(--clay-face);border:0;border-radius:16px;color:var(--clay-ink);box-shadow:var(--clay-button)}
+.clay-canvas-stage .canvas-zoom select{color:var(--clay-ink);background:transparent}
+.clay-chrome{border:0;padding:0;margin:0;min-width:0}
+.clay-rail,.clay-card{position:absolute;pointer-events:auto;z-index:5}
+.clay-rail{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px;padding:10px 12px;background:var(--clay-face);border-radius:28px;box-shadow:var(--clay-float);overflow:auto;overscroll-behavior:contain}
+.clay-rail button{min-width:34px;min-height:36px;padding:7px 9px;border-radius:13px;white-space:nowrap}
+.clay-paths{display:flex;gap:4px;padding:3px;border-radius:17px;background:#171513;box-shadow:inset 0 2px 5px #0008,inset 0 -1px 1px #ffffff12}
+.clay-paths button{min-width:48px}
+.clay-grip{display:flex;align-items:center;justify-content:center;min-width:20px;min-height:36px;color:var(--muted);cursor:grab;touch-action:none;border-radius:8px}
+.clay-grip:active,.clay-card-heading:active{cursor:grabbing}
+.clay-card{border-radius:28px;display:flex;flex-direction:column;overflow:hidden;background:var(--clay-card);box-shadow:0 4px 10px #0005,0 18px 36px #0008,inset 0 3px 4px #ffffff29,inset 0 -3px 8px #0005;transform-origin:50% 100%;animation:clay-card-in 320ms var(--clay-spring)}
+.clay-card-heading{padding:18px 20px 12px;display:flex;align-items:center;justify-content:space-between;gap:16px;cursor:grab;touch-action:none;flex-shrink:0}
+.clay-card-heading h2{font-size:15px;line-height:1.5;margin:0;font-weight:650}
+.clay-card-heading button{width:32px;min-height:32px;padding:6px;flex-shrink:0;background:transparent;box-shadow:none;color:var(--muted)}
+.clay-card-content{padding:8px 20px 20px;overflow:auto;min-height:0;display:grid;gap:16px;scroll-padding-block:12px 20px;overscroll-behavior:contain}
+.clay-card-content>button,.clay-action-list>button{width:100%;justify-content:flex-start}
+.clay-card-content label{display:grid;gap:7px;color:var(--muted);font-size:12px}
+.clay-card-content input:not([type=checkbox]):not([type=range]):not([type=color]),.clay-card-content textarea,.clay-card-content select{width:100%;min-width:0;border:0;border-radius:12px;background:var(--clay-well);color:var(--clay-ink);box-shadow:inset 0 3px 8px #0007,inset 0 -1px 1px #ffffff12;padding:9px 12px;font-size:13px;line-height:1.65;caret-color:#9cc4ff}
+.clay-card-content select{min-height:38px}
+.clay-card-content textarea{min-height:100px;resize:vertical}
+.clay-card-content textarea::placeholder,.clay-card-content input::placeholder{color:#a6a2a0}
+.clay-card-content details{border:0;background:transparent;padding:0}
+.clay-card-content summary{cursor:pointer;color:var(--muted);font-size:12px;padding:7px 0}
+.clay-card-content details[open]>summary{margin-bottom:12px;color:var(--clay-ink)}
+.clay-card-content .checkbox-row{display:flex;align-items:center;margin:12px 0 0}
+.clay-card-content .ai-note,.clay-hint,.clay-card-content .compact-privacy,.clay-card-content .ocr-original,.clay-card-content .control-label,.clay-card-content .selection-summary{font-size:12px;line-height:1.65;color:var(--muted);margin:0}
+.clay-card-content .ai-note.warning,.clay-card-content .field-error{color:#ffc3b6}
+.clay-card-content .text-tools{gap:12px;min-width:0}
+.clay-card-content .text-tools>*{min-width:0}
+.clay-card-content .text-tools .control-label{margin:0}
+.clay-card-content .text-tools .text-label{display:flex;justify-content:space-between}
+.clay-card-content .text-label>span{color:var(--muted)}
+.clay-card-content .text-copy-actions{display:flex;gap:10px}
+.clay-card-content .text-copy-actions>button{flex:1}
+.clay-card-content .text-copy-actions>button:first-child{background:#2563eb;box-shadow:0 6px 14px #3b82f640,inset 0 2px 2px #ffffff38}
+.clay-card-content .translate-row{margin:0;gap:8px}
+.clay-card-content .translate-row>button{border:0}
+.clay-card-content .ocr-correction{padding:12px;background:var(--clay-well);border:0;border-radius:18px;box-shadow:inset 0 4px 10px #0008}
+.clay-card-content .ocr-source{background:#252320}
+.clay-card-content .ocr-source polygon{stroke:#9cc4ff;fill:#3b82f622}
+.clay-card-content .ocr-source polygon.selected{fill:#3b82f655}
+.clay-card-content .provider-tests{border:0;padding:0;margin:0}
+.clay-card-content .compact-secondary{border:0;margin-top:8px}
+.clay-card-content .capture-controls{margin:0;border:0}
+.clay-card-content .capture-controls fieldset{border:0;padding:8px 0}
+.clay-action-list{display:grid;gap:10px}
+.clay-action-list button{min-height:44px;border-radius:16px}
+.clay-preset-list{display:flex;gap:8px;flex-wrap:wrap}
+.clay-preset-list button{border-radius:999px;font-size:12px;padding:9px 16px}
+.clay-style-tools{display:grid;gap:12px}
+.clay-style-tools details[open]{display:grid;gap:10px}
+.clay-range{display:grid;gap:10px;margin:14px 0}
+.clay-range>span{display:flex;justify-content:space-between}
+.clay-range output{color:var(--clay-ink);font-variant-numeric:tabular-nums}
+.clay-range input[type=range]{width:100%;height:26px;appearance:none;background:transparent;cursor:pointer}
+.clay-range input::-webkit-slider-runnable-track{height:9px;border-radius:8px;background:#171513;box-shadow:inset 0 2px 4px #0009,inset 0 -1px 1px #ffffff18}
+.clay-range input::-webkit-slider-thumb{appearance:none;width:22px;height:22px;margin-top:-7px;border-radius:50%;background:linear-gradient(#fff,#dde2e9);box-shadow:0 4px 8px #0007,inset 0 1px 1px white;transition:transform 180ms var(--clay-spring)}
+.clay-range input:active::-webkit-slider-thumb{transform:scale(1.12)}
+.clay-status{position:absolute;z-index:7;pointer-events:auto;color:var(--clay-ink);background:#292624f0;padding:8px 12px;border-radius:12px;box-shadow:0 3px 8px #0004}
+.clay-status .recovery-status{color:var(--muted)}
+.clay-status .state-unsaved,.clay-status .state-paused{color:#ffc3b6}
+.clay-task{display:flex;align-items:center;gap:8px;font-size:12px}
+.clay-task .spinner{border-color:#a1a1a6;border-top-color:var(--accent)}
+.clay-task button{min-height:28px;padding:3px 8px;font-size:12px}
+.clay-notice{position:absolute;left:50%;top:18px;transform:translateX(-50%);z-index:9;display:flex;align-items:center;gap:16px;padding:14px 18px;background:var(--clay-card);color:var(--clay-ink);border-radius:20px;box-shadow:var(--clay-float);max-width:min(640px,90vw);pointer-events:auto;animation:clay-notice-in 280ms var(--clay-spring)}
+.clay-notice.is-error{color:#ffd5cb;background:linear-gradient(#542f29,#35211d)}
+.clay-notice button{background:transparent;box-shadow:none;width:32px;height:32px;padding:6px;flex-shrink:0}
+.clay-launcher{display:flex;align-items:center;justify-content:center;height:100%;flex-wrap:wrap;align-content:center;gap:12px;padding:24px;color:var(--clay-ink)}
+.clay-launcher h1,.clay-launcher p{width:100%;text-align:center;margin:0}
+.clay-launcher h1{font-size:24px;font-weight:600}
+.clay-launcher p{color:var(--muted);margin-bottom:12px}
+@keyframes clay-card-in{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes clay-notice-in{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
+@media(max-width:680px){.clay-rail{padding:8px;gap:4px;border-radius:22px}.clay-rail button{font-size:12px;padding:6px}.clay-card-content{padding:4px 16px 16px}.clay-status{font-size:11px;max-width:calc(100vw - 32px)}.clay-notice{top:70px}.clay-launcher p{font-size:12px}.clay-canvas-stage{bottom:150px}}
+@media(prefers-reduced-motion:reduce){.clay-editor *,.clay-editor *::before,.clay-editor *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}

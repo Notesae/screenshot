@@ -6,7 +6,7 @@ using System.Windows.Media.Imaging;
 namespace Screenshot.App;
 
 // 单个显示器的物理像素范围；不将某一显示器的 DPI 套用于整个桌面。
-public sealed record CaptureScreen(PixelRect Bounds, bool Primary);
+public sealed record CaptureScreen(PixelRect Bounds, bool Primary, PixelRect? WorkArea = null);
 // 仅含几何元数据，冻结桌面像素不会进入编辑器、项目或 AI 请求。
 public sealed record CaptureOverlay(string CaptureId, PixelRect DesktopBounds, PixelRect Selection, IReadOnlyList<CaptureScreen> Screens,
     string Backend = "gdi", string ColorMode = "sdr", bool SupportsHdr = false);
@@ -92,9 +92,12 @@ internal sealed class CapturePresentationState
     // 旧 Esc 或退出消息不能隐藏已被新截图替换的覆盖层。
     public bool TryDismiss(string? captureId)
     {
-        if (IsSelecting || (Mode == PresentationMode.Overlay ? string.IsNullOrEmpty(captureId) || Overlay?.CaptureId != captureId : captureId is not null)) return false;
+        if (!Matches(captureId)) return false;
         Dismiss(); return true;
     }
+
+    public bool Matches(string? captureId) => !IsSelecting && (Mode == PresentationMode.Overlay
+        ? !string.IsNullOrEmpty(captureId) && Overlay?.CaptureId == captureId : captureId is null);
 
     public void ShowWorkbench() { Mode = PresentationMode.Workbench; ReleaseBackdrop(); }
     public void Dismiss() { Mode = PresentationMode.Hidden; ReleaseBackdrop(); }

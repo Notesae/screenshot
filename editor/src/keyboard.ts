@@ -13,8 +13,8 @@ export function overlayKeyAction(context: KeyContext): OverlayKeyAction {
   if (context.key === 'Escape') {
     if (context.fabricEditing) return 'exit-object';
     if (context.textInput) return 'ignore';
-    if (context.panelOpen) return 'close-panel';
-    return context.selectedObject ? 'exit-object' : 'dismiss';
+    if (context.selectedObject) return 'exit-object';
+    return context.panelOpen ? 'close-panel' : 'dismiss';
   }
   if (context.key.toLowerCase() === 'c' && (context.ctrl || context.meta) && !context.alt && !context.shift && !context.textInput && !context.fabricEditing && !context.textSelection) return 'copy-image';
   return 'ignore';

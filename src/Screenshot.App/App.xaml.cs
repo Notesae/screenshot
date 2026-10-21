@@ -55,8 +55,9 @@ public partial class App : Application
             startupStep = "显示使用条款";
             if (!startup.IsAuthorized && new TermsWindow(startup).ShowDialog() != true) { Shutdown(); return; }
             // 创建宿主的唯一入口位于同意门禁之后；启动拒绝不会注册热键或初始化服务。
-            startupStep = "创建工作台";
-            if (!startup.Start(() => { MainWindow = Screenshot.App.MainWindow.Create(startup); MainWindow.Show(); ShutdownMode = ShutdownMode.OnMainWindowClose; })) Shutdown();
+            startupStep = "创建截图入口";
+            if (!startup.Start(() => { MainWindow = Screenshot.App.MainWindow.Create(startup); ShutdownMode = ShutdownMode.OnMainWindowClose; })) { Shutdown(); return; }
+            await ((Screenshot.App.MainWindow)MainWindow).StartInTrayAsync();
         }
         catch (Exception error)
         {

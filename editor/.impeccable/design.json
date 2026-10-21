@@ -1,0 +1,218 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-20T13:51:03.016Z",
+  "title": "Design System: Screenshot — Soft Clay Capsule v2",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "动作蓝",
+        "tonalRamp": [
+          "oklch(15% 0.16 260)",
+          "oklch(25% 0.16 260)",
+          "oklch(35% 0.16 260)",
+          "oklch(45% 0.16 260)",
+          "oklch(55% 0.16 260)",
+          "oklch(65% 0.16 260)",
+          "oklch(80% 0.16 260)",
+          "oklch(95% 0.16 260)"
+        ]
+      },
+      "focus": {
+        "role": "primary",
+        "displayName": "焦点浅蓝",
+        "tonalRamp": [
+          "oklch(15% 0.08 260)",
+          "oklch(25% 0.08 260)",
+          "oklch(35% 0.08 260)",
+          "oklch(45% 0.08 260)",
+          "oklch(55% 0.08 260)",
+          "oklch(65% 0.08 260)",
+          "oklch(80% 0.08 260)",
+          "oklch(95% 0.08 260)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "正文浅白",
+        "tonalRamp": [
+          "oklch(15% 0.003 285)",
+          "oklch(25% 0.003 285)",
+          "oklch(35% 0.003 285)",
+          "oklch(45% 0.003 285)",
+          "oklch(55% 0.003 285)",
+          "oklch(65% 0.003 285)",
+          "oklch(80% 0.003 285)",
+          "oklch(95% 0.003 285)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "辅助暖灰",
+        "tonalRamp": [
+          "oklch(15% 0.006 70)",
+          "oklch(25% 0.006 70)",
+          "oklch(35% 0.006 70)",
+          "oklch(45% 0.006 70)",
+          "oklch(55% 0.006 70)",
+          "oklch(65% 0.006 70)",
+          "oklch(80% 0.006 70)",
+          "oklch(95% 0.006 70)"
+        ]
+      },
+      "well": {
+        "role": "neutral",
+        "displayName": "输入深井",
+        "tonalRamp": [
+          "oklch(15% 0.004 310)",
+          "oklch(25% 0.004 310)",
+          "oklch(35% 0.004 310)",
+          "oklch(45% 0.004 310)",
+          "oklch(55% 0.004 310)",
+          "oklch(65% 0.004 310)",
+          "oklch(80% 0.004 310)",
+          "oklch(95% 0.004 310)"
+        ]
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "画布暗灰",
+        "tonalRamp": [
+          "oklch(15% 0.004 285)",
+          "oklch(25% 0.004 285)",
+          "oklch(35% 0.004 285)",
+          "oklch(45% 0.004 285)",
+          "oklch(55% 0.004 285)",
+          "oklch(65% 0.004 285)",
+          "oklch(80% 0.004 285)",
+          "oklch(95% 0.004 285)"
+        ]
+      }
+    },
+    "shadows": [
+      {
+        "name": "button",
+        "value": "0 5px 10px #0005,inset 0 2px 3px #ffffff30,inset 0 -2px 4px #0004",
+        "purpose": "凸面按钮"
+      },
+      {
+        "name": "float",
+        "value": "0 8px 16px #0006,0 24px 48px #0008,inset 0 3px 5px #ffffff2e,inset 0 -4px 10px #0005",
+        "purpose": "动作轨"
+      },
+      {
+        "name": "card",
+        "value": "0 4px 10px #0005,0 18px 36px #0008,inset 0 3px 4px #ffffff29,inset 0 -3px 8px #0005",
+        "purpose": "浮卡"
+      },
+      {
+        "name": "field",
+        "value": "inset 0 3px 8px #0007,inset 0 -1px 1px #ffffff12",
+        "purpose": "输入凹面"
+      }
+    ],
+    "motion": [
+      {
+        "name": "spring",
+        "value": "cubic-bezier(.18,.9,.26,1.18)",
+        "purpose": "用户指定小幅弹性"
+      },
+      {
+        "name": "card",
+        "value": "320ms opacity/transform",
+        "purpose": "浮卡入场"
+      },
+      {
+        "name": "press",
+        "value": "280ms transform",
+        "purpose": "按钮反馈"
+      },
+      {
+        "name": "reduced-motion",
+        "value": "animation:none;transition:none;scroll-behavior:auto",
+        "purpose": "减少动态效果"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact-window",
+        "value": "680px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "蓝色主动作",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "html": "<button class=\"ds-primary\">复制 PNG</button>",
+      "css": ".ds-primary{border:0;display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:8px 12px;border-radius:13px;color:#f5f5f7;font:13px/1.6 \"Segoe UI Variable\",\"Segoe UI\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",sans-serif;box-shadow:0 5px 10px #0005,inset 0 2px 3px #ffffff30,inset 0 -2px 4px #0004;transition:transform 280ms cubic-bezier(.18,.9,.26,1.18),filter 140ms ease;cursor:pointer;background:linear-gradient(180deg,#5b9bff,#2563eb 35%,#1d4ed8)}.ds-primary:hover{filter:brightness(1.1)}.ds-primary:active{transform:scale(.94)}.ds-primary:focus-visible{outline:2px solid #9cc4ff;outline-offset:3px}.ds-primary:disabled{opacity:.38;cursor:default}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none}}"
+    },
+    {
+      "name": "普通动作",
+      "kind": "button",
+      "refersTo": "button-neutral",
+      "html": "<button class=\"ds-neutral\">打开图片</button>",
+      "css": ".ds-neutral{border:0;display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:8px 12px;border-radius:13px;color:#f5f5f7;font:13px/1.6 \"Segoe UI Variable\",\"Segoe UI\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",sans-serif;box-shadow:0 5px 10px #0005,inset 0 2px 3px #ffffff30,inset 0 -2px 4px #0004;transition:transform 280ms cubic-bezier(.18,.9,.26,1.18),filter 140ms ease;cursor:pointer;background:linear-gradient(180deg,#5a5550,#3e3a36 50%,#2c2926)}.ds-neutral:hover{filter:brightness(1.1)}.ds-neutral:active{transform:scale(.94)}.ds-neutral:focus-visible{outline:2px solid #9cc4ff;outline-offset:3px}.ds-neutral:disabled{opacity:.38;cursor:default}@media(prefers-reduced-motion:reduce){.ds-neutral{transition:none}}"
+    },
+    {
+      "name": "路径槽",
+      "kind": "nav",
+      "html": "<nav class=\"ds-paths\" aria-label=\"编辑路径\"><button aria-pressed=\"true\">原样</button><button>美化</button><button>文字</button></nav>",
+      "css": ".ds-paths{display:flex;gap:4px;padding:3px;border-radius:17px;background:#171513;box-shadow:inset 0 2px 5px #0008}.ds-paths button{border:0;display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:8px 12px;border-radius:13px;color:#f5f5f7;font:13px/1.6 \"Segoe UI Variable\",\"Segoe UI\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",sans-serif;box-shadow:0 5px 10px #0005,inset 0 2px 3px #ffffff30,inset 0 -2px 4px #0004;transition:transform 280ms cubic-bezier(.18,.9,.26,1.18),filter 140ms ease;cursor:pointer;background:linear-gradient(180deg,#5a5550,#3e3a36 50%,#2c2926)}.ds-paths button[aria-pressed=true]{background:linear-gradient(180deg,#5b9bff,#2563eb 35%,#1d4ed8)}.ds-paths button:hover{filter:brightness(1.1)}.ds-paths button:focus-visible{outline:2px solid #9cc4ff;outline-offset:3px}"
+    },
+    {
+      "name": "美化预设",
+      "kind": "chip",
+      "html": "<button class=\"ds-chip\">柔和留白</button>",
+      "css": ".ds-chip{border:0;display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:8px 12px;border-radius:13px;color:#f5f5f7;font:13px/1.6 \"Segoe UI Variable\",\"Segoe UI\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",sans-serif;box-shadow:0 5px 10px #0005,inset 0 2px 3px #ffffff30,inset 0 -2px 4px #0004;transition:transform 280ms cubic-bezier(.18,.9,.26,1.18),filter 140ms ease;cursor:pointer;font-size:12px;border-radius:999px;padding:9px 16px;background:linear-gradient(180deg,#5a5550,#3e3a36 50%,#2c2926)}.ds-chip:hover{filter:brightness(1.1)}.ds-chip:active{transform:scale(.94)}.ds-chip:focus-visible{outline:2px solid #9cc4ff;outline-offset:3px}.ds-chip:disabled{opacity:.38;cursor:default}@media(prefers-reduced-motion:reduce){.ds-chip{transition:none}}"
+    },
+    {
+      "name": "浮卡",
+      "kind": "card",
+      "refersTo": "card",
+      "html": "<section class=\"ds-card\"><h2>识别与校对</h2><p>本地 OCR 离线运行；项目保留原图。</p></section>",
+      "css": ".ds-card{max-width:320px;padding:18px 20px 20px;border-radius:28px;background:linear-gradient(180deg,#4a4642,#2a2724);color:#f5f5f7;box-shadow:0 4px 10px #0005,0 18px 36px #0008,inset 0 3px 4px #ffffff29;font:13px/1.6 \"Segoe UI Variable\",\"Segoe UI\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",sans-serif}.ds-card h2{font-size:15px;font-weight:650;line-height:1.5}.ds-card p{font-size:12px;color:#b7b5b3}"
+    },
+    {
+      "name": "校对字段",
+      "kind": "input",
+      "refersTo": "field",
+      "html": "<label class=\"ds-field\">可校对的文字<textarea placeholder=\"输入文字或从图片中识别\"></textarea></label>",
+      "css": ".ds-field{display:grid;gap:7px;font:12px/1.65 \"Segoe UI Variable\",\"Segoe UI\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",sans-serif;color:#b7b5b3}.ds-field textarea{width:100%;min-height:100px;border:0;border-radius:12px;padding:9px 12px;background:#181719;color:#f5f5f7;box-shadow:inset 0 3px 8px #0007;resize:vertical;font:13px/1.65 \"Segoe UI Variable\",\"Segoe UI\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",sans-serif}.ds-field textarea:focus-visible{outline:2px solid #9cc4ff;outline-offset:3px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Soft Clay Capsule v2",
+    "overview": "深暖灰凸面动作轨与浮卡承接操作，深色凹面输入区承接校对。顶部高光、底部内阴影和投影塑造触感；截图内容保持视觉中心。",
+    "keyCharacteristics": [
+      "深暖灰凸面操作、凹面输入。",
+      "同一蓝色色系表达动作和选择。",
+      "Windows 中文系统字体。",
+      "小幅弹性反馈与减少动态效果支持。"
+    ],
+    "rules": [
+      {
+        "name": "The One Blue Rule",
+        "body": "主动作和选中态共享蓝色色系，警示色只表达相应状态。",
+        "section": "colors"
+      },
+      {
+        "name": "The Tactile Hierarchy Rule",
+        "body": "操作表面凸起，输入和容纳区域下沉。",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do 延续暖灰渐变、内高光和投影的触感层级。",
+      "Do 保留中文标签、可见焦点、独立滚动和减少动态效果支持。",
+      "Do 将低频选项收进更多或相关折叠区。"
+    ],
+    "donts": [
+      "Don't 为三条路径另起文档或视觉外壳。",
+      "Don't 用新的强调色装饰普通动作。",
+      "Don't 将工具位置或显示缩放写入导出像素。",
+      "Don't 将合成预览固化为真实 Windows、DPI 或 IME 验收。"
+    ]
+  }
+}

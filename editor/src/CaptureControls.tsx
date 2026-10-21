@@ -11,7 +11,7 @@ export function CaptureControls(props:Props) {
   async function act(work:()=>Promise<void>){props.onStart();setBusy(true);try{await work();}catch(error){props.onError(error);}finally{setBusy(false);}}
   const disabled=props.disabled||busy;
   return <details className="capture-controls"><summary>捕获范围与区域热键</summary>
-    <p className="ai-note">当前屏幕按工作台或当前选区所在屏幕选择。点击刷新才读取显示器；不读取窗口标题。</p>
+    <p className="ai-note">当前屏幕按编辑窗口或当前选区所在屏幕选择。点击刷新才读取显示器；不读取窗口标题。</p>
     <button disabled={disabled||props.backend!=='wgc'} onClick={()=>props.onCapture('capture.current')}>捕获当前屏幕</button>
     <button disabled={disabled||props.backend!=='wgc'} onClick={()=>{void act(async()=>{const list=parseCaptureMonitors(await native.request('capture.monitors'));setMonitors(list);setSelected((list.find(m=>m.current)||list.find(m=>m.primary)||list[0]).handle);});}}>刷新显示器列表</button>
     <label className="control-label">截图显示器<select aria-label="截图显示器" value={selected} disabled={disabled||!monitors.length} onChange={e=>setSelected(e.target.value)}><option value="">请先刷新</option>{monitors.map(m=><option key={m.handle} value={m.handle}>{m.label}{m.primary?' · 主屏':''}{m.current?' · 当前':''}</option>)}</select></label>
