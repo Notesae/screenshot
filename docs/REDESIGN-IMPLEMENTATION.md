@@ -2,6 +2,10 @@
 
 ## 2026-10-21 修正
 
+r5 针对松手阶段全屏闪动和快捷键等待：r4b 的“任何 Source.Changed 即成功”存在透明空帧也被接受的确定缺陷，离屏测试已复现。现显示回调完成后才验帧，按本次冻结图和遮罩 alpha 检查有限采样，单行 RenderTargetBitmap 读回，不新增屏幕捕获或保存像素；在 SDK Unlock/setter 返回后的 Dispatcher.Background 执行，取消/失败清理排队检查。撤销 EditorSurface 的隐藏/恢复，保留正常 WebView 合成；单次 2 秒超时维持原生遮挡重试。RenderTargetBitmap 的 D3DImage 软件回退读回行为参照 [WPF/Direct3D 互操作](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/advanced/wpf-and-direct3d9-interoperation)。这仍是采样检查，真实驱动读回成本与 GPU 合成不能由 DrawingImage 测试证明。
+
+快捷键没有额外按键消抖延迟，入口的无条件 180ms 等待已移除；宿主已隐藏时直接进入捕获，可见时先 Hide 再等本进程 DwmFlush。保存保护仍在，未绕过快照。运行时异步写入本机 `%LOCALAPPDATA%/Screenshot/diagnostics/capture-latest.json`，仅固定阶段、相对耗时、拒绝计数、随机 captureId 和构建标记；不含路径、窗口标题、截图像素、文档或凭据。最多 64 阶段，仅保留最近捕获，写失败不影响截图。可区分保护保存、取帧、窗口选择显示、用户选区时间、编码、验帧和撤挡；当前并无真实快捷键性能测量，不宣称零延时。
+
 最新连续截图反馈覆盖上一轮结论：B 图解码前，旧 A 的 CompactOverlay 仍为 is-presented；旧版无头探针连续 12 帧可见旧边框、遮罩洞和工具，且取消后的 B 解码/回复仍会替换活动文档。现捕获请求发起/新图到达即同步暂停整组旧呈现，新图解码后原子提交，旧任务只清理自己序号的暂停状态；取消保留受保护的旧文档。
 
 WPF 的 WebView2CompositionControl 通过另一个合成图像显示浏览器内容，因此 RAF/尺寸匹配仍不能证明模板图像已更新。宿主在新捕获开始时隐藏 EditorSurface，painted 处理时先监听 PART_image 源变化，再调用当前捕获专属的网页显示回调；收到新图像后恢复 Surface，处理 WPF 队列并等待本进程 DirectX 提交，再撤挡。参考微软 [CompositionControl 规范](https://github.com/MicrosoftEdge/WebView2Feedback/blob/main/specs/WPF_WebView2CompositionControl.md)、[D3DImage 源码](https://github.com/dotnet/wpf/blob/main/src/Microsoft.DotNet.Wpf/src/PresentationCore/System/Windows/InterOp/D3DImage.cs) 与 [DwmFlush](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/nf-dwmapi-dwmflush)。本轮只读本地锁定 SDK 的 IL 核对 Source 设置与 AddDirtyRect/Unlock 路径，没有依赖或运行时变更；后台 DrawingImage 测试仅证明订阅生命周期，真实 SDK/GPU 合成交接仍未验收。

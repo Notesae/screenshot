@@ -167,9 +167,9 @@ GitHub App device code、access/refresh token、账号授权请求与私有 Rele
 
 ## 两阶段可见绘制交接
 
-连续截图修正：宿主在隐藏/调整 HWND 前调用 window.screenshotSuspendCapture()，前端同步隐藏整组旧呈现而不删除文档；捕获取消或失败调用 screenshotResumeCapture()。网页发起 capture.* 请求或收到新 CaptureEnvelope 时也立即暂停旧呈现，按接收序号清理等待状态；取消后的迟到解码/回复不再替换文档，既有超时保留图片的行为不变。
+连续截图修正：网页发起 capture.* 请求或收到新 CaptureEnvelope 时暂停旧呈现，按接收序号清理等待状态；取消后的迟到解码/回复不再替换文档，既有超时保留图片的行为不变。r5 已删除 screenshotSuspendCapture / screenshotResumeCapture 和整层 EditorSurface 透明度切换；宿主直接隐藏完整 HWND，托盘状态不再等待固定 180ms，可见状态仅等待本进程合成更新撤离。
 
-ready 新增 hostFrameGate:true。此分支前端完成几何核对后仍不自行揭示选区；宿主处理 painted 时先订阅公开模板 PART_image 的 Source/Source.Changed，再调用 screenshotPresentCapture(captureId)。该回调只接受当前捕获并同步显示静态选区，工具仍隐藏。宿主等真实图像更新，恢复外层 EditorSurface 的透明度，处理 WPF 渲染队列并 DwmFlush 本进程已排队的 DirectX 更新，复核身份/DPI 后才撤挡；源帧等待超时 2 秒则回退保留图片的中性编辑器。DPI 重试不重复等待同一显示回调。旧宿主/模拟桥不返回此标志时保留原来的网页准备流程。上述三个局部回调不读取屏幕或导出图片，不赋予页面新的原生能力。
+ready 新增 hostFrameGate:true。此分支前端完成几何核对后仍不自行揭示选区；宿主处理 painted 时先订阅公开模板 PART_image 的 Source/Source.Changed，再调用 screenshotPresentCapture(captureId)。该回调只接受当前捕获并同步显示静态选区，工具仍隐藏。r5 不再接受任意一次源变化：显示回调完成后，在 Dispatcher.Background 校验现有图像的少量 alpha 样本，选区内部匹配本次冻结图，外部匹配共享遮罩 alpha；透明空帧、无遮罩及采样可识别的旧选区帧均拒绝。已有正确帧允许直接通过，无需等待新的 Changed。校验只读取已有图像，少量样本合成一行统一读回，不捕获屏幕、不保存/传输像素。WPF 渲染队列与 DwmFlush 完成后复核身份/DPI才撤挡；单次 2 秒超时保留遮挡，携 awaitingPaint:true 继续重试，不突变成无遮罩工作台。前端 12 秒及原生 15 秒的总就绪保护保留。DPI 重试不重复验同一已接受捕获。旧模拟桥不返回此标志时保留网页准备流程。
 
 presentation.ready {captureId} 先登记准备阶段，在原生选区遮挡后显示宿主，返回 awaitingPaint:true 和 viewport:{width,height,scale}；此时 pending 身份和 15 秒就绪超时继续有效，不释放原生画面。viewport 来自 Win32 客户区及窗口 DPI，width/height 为 CSS 尺寸，scale 包含 WebView ZoomFactor。前端进入 is-preparing，直到实际视口、共享 React 布局快照与宿主目标匹配，且工具几何连续两帧一致，才调用 presentation.painted {captureId,viewport}。
 

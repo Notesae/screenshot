@@ -21,6 +21,7 @@ public sealed class WgcCaptureBackend : ICaptureBackend
     public async Task<CapturedFrame?> CaptureAsync(CaptureRequest request, CancellationToken token)
     {
         var acquired=await _acquisition.AcquireAsync(request,token);
+        CaptureDiagnostics.Current.Value?.Mark("pixels_acquired");
         var backdrop=ToBitmapSource(acquired.Backdrop);
         var selected=acquired.Selection;
         RegionOverlay? overlay=null;Bitmap? frozen=null;var transferred=false;
@@ -29,6 +30,7 @@ public sealed class WgcCaptureBackend : ICaptureBackend
             if(request.Region)
             {
                 frozen=ToDrawingBitmap(acquired.Backdrop);
+                CaptureDiagnostics.Current.Value?.Mark("selection_pixels_prepared");
                 overlay=new RegionOverlay(frozen,new Rectangle(acquired.DesktopBounds.X,acquired.DesktopBounds.Y,acquired.DesktopBounds.Width,acquired.DesktopBounds.Height),selected,request.SnapWindows?WindowsWindowTargets.Snapshot():null,request.SnapClientArea);
                 var area=await overlay.SelectAsync(token);if(area is null)return null;selected=area.Value;
             }
@@ -39,6 +41,7 @@ public sealed class WgcCaptureBackend : ICaptureBackend
                 return NativeImages.FromBitmap(ToBitmapSource(pixels),request.Target.Kind==CaptureTargetKind.Window?"窗口截图.png":request.Region?"区域截图.png":"屏幕截图.png");
             },token);
             token.ThrowIfCancellationRequested();if(overlay?.IsCancelled==true)return null;
+            CaptureDiagnostics.Current.Value?.Mark("image_encoded");
             var frame=new CapturedFrame(image,backdrop,acquired.DesktopBounds,selected,acquired.Screens){Backend=Id,Handoff=overlay};
             transferred=overlay is not null;return frame;
         }

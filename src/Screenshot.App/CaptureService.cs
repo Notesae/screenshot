@@ -35,6 +35,7 @@ public sealed class GdiCaptureBackend : ICaptureBackend
         {
             using(var graphics=Graphics.FromImage(frozen))graphics.CopyFromScreen(bounds.Location,Point.Empty,bounds.Size,CopyPixelOperation.SourceCopy);
             var desktop=new PixelRect(bounds.X,bounds.Y,bounds.Width,bounds.Height);
+            CaptureDiagnostics.Current.Value?.Mark("pixels_acquired");
             var backdrop=ReadFrozenBitmap(frozen);var selected=desktop;
             if(request.Region)
             {
@@ -43,6 +44,7 @@ public sealed class GdiCaptureBackend : ICaptureBackend
             }
             var image=await Task.Run(()=>NativeImages.FromBitmap(new CroppedBitmap(backdrop,new System.Windows.Int32Rect(selected.X-bounds.X,selected.Y-bounds.Y,selected.Width,selected.Height)),request.Region?"区域截图.png":"桌面截图.png"),token);
             if(overlay?.IsCancelled==true)return null;
+            CaptureDiagnostics.Current.Value?.Mark("image_encoded");
             var screens=new System.Collections.Generic.List<CaptureScreen>();
             foreach(var screen in Screen.AllScreens)screens.Add(new(new(screen.Bounds.X,screen.Bounds.Y,screen.Bounds.Width,screen.Bounds.Height),screen.Primary));
             token.ThrowIfCancellationRequested();
@@ -70,6 +72,7 @@ public sealed class GdiCaptureBackend : ICaptureBackend
 internal sealed class RegionOverlay : Form, ICaptureHandoff
 {
     private readonly Bitmap _frozen;
+    private readonly CaptureDiagnostics? _trace=CaptureDiagnostics.Current.Value; // UI 事件保留对应捕获的计时上下文。
     private readonly Rectangle _desktop;
     private readonly RegionSelection _model;
     private Point _pointer;
@@ -106,7 +109,7 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
         AutoScaleMode=AutoScaleMode.None;FormBorderStyle=FormBorderStyle.None;StartPosition=FormStartPosition.Manual;Bounds=desktop;
         TopMost=true;ShowInTaskbar=false;DoubleBuffered=true;KeyPreview=true;Cursor=Cursors.Cross;Text="Screenshot 区域选择";
     }
-    protected override void OnShown(EventArgs e) { base.OnShown(e);Bounds=_desktop;Activate(); }
+    protected override void OnShown(EventArgs e) { base.OnShown(e);Bounds=_desktop;Activate();_trace?.Mark("selection_visible");_trace?.Flush(); }
     protected override void OnMouseDown(MouseEventArgs e)
     {
         base.OnMouseDown(e);
@@ -141,7 +144,7 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
         if(e.KeyCode==Keys.Escape){CancelSelection();return;}
         if(e.KeyCode==Keys.M&&!_handingOff){_magnifier=!_magnifier;Invalidate();e.Handled=true;return;}
     }
-    private void FinishSelection() { if(!_model.HasArea||_model.Selection is not {} r)return;_handingOff=true;_magnifier=false;Cursor=Cursors.Default;_selected.TrySetResult(r);Invalidate(); }
+    private void FinishSelection() { if(!_model.HasArea||_model.Selection is not {} r)return;_trace?.Mark("selection_released");_handingOff=true;_magnifier=false;Cursor=Cursors.Default;_selected.TrySetResult(r);Invalidate(); }
     private void CancelSelection() { IsCancelled=true;_selected.TrySetResult(null);Close(); }
     protected override void OnPaint(PaintEventArgs e)
     {

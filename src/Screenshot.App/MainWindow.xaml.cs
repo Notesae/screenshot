@@ -30,6 +30,7 @@ public partial class MainWindow : Window
     private readonly CapturePresentationState _presentation = new();
     private readonly CaptureHandoffState _captureHandoff = new(); // 布局完成前保持原生框选画面。
     private string? _composedCaptureId; // 已收到真实合成帧的捕获，DPI 重试不重复触发同一显示回调。
+    private CaptureDiagnostics? _captureDiagnostics; // 当前捕获的本机阶段耗时，便于区分快捷键入口和交接等待。
     private WorkbenchPlacement? _workbenchPlacement;
     private bool _boundsUpdateQueued; // 合并 DPI 更新后的边界校正，避免递归窗口消息。
     private bool _ready;
@@ -197,7 +198,8 @@ public partial class MainWindow : Window
     // 成功时保留冻结背景并准备隐藏的覆盖层；取消时恢复原呈现，不修改编辑文档。
     private async Task<CaptureEnvelope?> CaptureAsync(CaptureRequest request)
     {
-        await PreserveEditorAsync("replace");
+        var trace=new CaptureDiagnostics();_captureDiagnostics=trace;
+        try{await PreserveEditorAsync("replace");trace.Mark("checkpoint_saved");}catch{trace.Mark("checkpoint_failed");trace.Flush();throw;}
         InvalidateCompletion();
         var wasVisible = IsVisible;
         var previousWindowState = WindowState;
@@ -206,11 +208,10 @@ public partial class MainWindow : Window
         var completed = false;
         try
         {
-            // 在调整或隐藏 HWND 前清掉旧网页呈现，合成控件也暂不显示其缓存纹理。
-            await UpdateCaptureVisualAsync(false);
-            EditorSurface.Opacity=0;Hide();
-            // 等待桌面合成器移除宿主画面，避免应用自身进入截图。
-            await Task.Delay(180, _lifetime.Token);
+            // 先隐藏完整 HWND；已在托盘时直接取帧，可见窗口只等待本进程撤离合成，不固定睡眠。
+            Hide();trace.Mark("host_hidden");
+            if(wasVisible)await Task.Run(()=>Marshal.ThrowExceptionForHR(DwmFlush()),_lifetime.Token);
+            trace.Mark("capture_started");
             if (!_captureBackends.TryGetValue(request.Backend, out var backend)) throw new CaptureException("invalid_capture_backend", "不支持的截图后端。");
             var frame = await backend.CaptureAsync(request, _lifetime.Token);
             if (frame is null) return null;
@@ -221,6 +222,7 @@ public partial class MainWindow : Window
                 PrepareOverlay(frame);
                 if(!_presentation.CompleteCapture(frame))return null;
                 _captureHandoff.Take(frame);transferred=true;completed=true;
+                trace.CaptureId=frame.CaptureId;trace.Mark("image_delivered");trace.Flush();
                 _=WaitForOverlayReadyAsync(frame.CaptureId);
                 return frame.ToEnvelope();
             }
@@ -231,8 +233,8 @@ public partial class MainWindow : Window
             if (!completed)
             {
                 _presentation.CancelCapture();
-                try{await Editor.CoreWebView2.ExecuteScriptAsync("window.screenshotResumeCapture?.()");}
-                finally{EditorSurface.Opacity=1;if(!_lifetime.IsCancellationRequested)RestorePresentationAfterCancel(wasVisible,previousWindowState);}
+                trace.Mark("cancelled_or_failed");trace.Flush();
+                if(!_lifetime.IsCancellationRequested)RestorePresentationAfterCancel(wasVisible,previousWindowState);
             }
         }
     }
@@ -274,7 +276,7 @@ public partial class MainWindow : Window
     // 主动进入无冻结背景的轻量编辑器，文档保持不变；加载失败时才显示原生兜底条。
     private void ShowWorkbench()
     {
-        _captureHandoff.Release();_composedCaptureId=null;Opacity=1;EditorSurface.Opacity=1;ShowActivated=true;
+        _captureHandoff.Release();_composedCaptureId=null;Opacity=1;ShowActivated=true;
         _presentation.ShowWorkbench();
         FrozenBackdrop.Source = null; FrozenBackdrop.Visibility = Visibility.Collapsed;
         Background = new SolidColorBrush(Color.FromRgb(32, 32, 34));
@@ -307,6 +309,7 @@ public partial class MainWindow : Window
         if(accepted&&_presentation.Overlay is {} overlay)
         {
             _composedCaptureId=null;
+            if(_captureDiagnostics?.CaptureId==captureId)_captureDiagnostics.Mark("host_ready");
             ShowActivated=false;Opacity=_captureHandoff.HasVisual(captureId)?1:0;
             var owner=new WindowInteropHelper(this).Handle;_captureHandoff.KeepAbove(captureId,owner);
             Show();ApplyOverlayBounds(overlay.DesktopBounds);UpdateLayout();_captureHandoff.KeepAbove(captureId,owner);
@@ -314,17 +317,20 @@ public partial class MainWindow : Window
         return new{presentation=_presentation.Mode.ToString().ToLowerInvariant(),accepted,awaitingPaint=accepted,hostFrameGate=true,captureId=_presentation.Overlay?.CaptureId,viewport=accepted?ReadOverlayViewport():null};
     }
     // 模板 PART_image 是 WebView2 的公开契约；只订阅其缓冲区变化，不读取桌面像素或私有字段。
-    private async Task UpdateCaptureVisualAsync(bool present,string? captureId=null)
+    private async Task UpdateCaptureVisualAsync(string captureId)
     {
-        var script=present?"window.screenshotPresentCapture?.("+JsonSerializer.Serialize(captureId)+")":"window.screenshotSuspendCapture?.()";
+        if(_captureDiagnostics?.CaptureId==captureId)_captureDiagnostics.Mark("frame_probe_started");
         Editor.ApplyTemplate();
         if(Editor.Template.FindName("PART_image",Editor) is not System.Windows.Controls.Image image)throw new InvalidOperationException("编辑器合成画面尚未就绪。");
+        var overlay=_presentation.Overlay??throw new InvalidOperationException("截图已失效。");
+        var probe=new CaptureFrameProbe(_presentation.FrozenBackdrop!,overlay.DesktopBounds,overlay.Selection,ReadOverlayViewport().Scale,SoftClayTheme.Color("mask").A);
         async Task Invalidate()
         {
-            var result=await Editor.CoreWebView2.ExecuteScriptAsync(script);
-            if(present&&result!="true")throw new InvalidOperationException("截图呈现已失效。");
+            var result=await Editor.CoreWebView2.ExecuteScriptAsync("window.screenshotPresentCapture?.("+JsonSerializer.Serialize(captureId)+")");
+            if(result!="true")throw new InvalidOperationException("截图呈现已失效。");
         }
-        if(present)await CompositionFrameWaiter.WaitAsync(image,Invalidate,_lifetime.Token);else await Invalidate();
+        try{await CompositionFrameWaiter.WaitAsync(image,Invalidate,_lifetime.Token,probe.Accept);if(_captureDiagnostics?.CaptureId==captureId)_captureDiagnostics.Mark("frame_validated");}
+        finally{if(_captureDiagnostics?.CaptureId==captureId){_captureDiagnostics.Mark("frame_probe_"+probe.LastResult,probe.RejectedFrames);_captureDiagnostics.Flush();}}
     }
     // 获取 Win32 的当前 DPI，而非仍在异步追赶的 Chromium/WPF 缩放快照。
     private PresentationViewport ReadOverlayViewport()
@@ -354,22 +360,23 @@ public partial class MainWindow : Window
                 // 此时新选区仍隐藏在网页中；订阅真实源帧后再让当前选区绘制，防止恢复 HWND 时露出旧纹理。
                 if(_composedCaptureId!=captureId)
                 {
-                    try{await UpdateCaptureVisualAsync(true,captureId);if(_presentation.IsPrepared(captureId))_composedCaptureId=captureId;}
+                    try{await UpdateCaptureVisualAsync(captureId);if(_presentation.IsPrepared(captureId))_composedCaptureId=captureId;}
                     catch(TimeoutException)
                     {
-                        if(_presentation.TryExpireReady(captureId)){ShowWorkbench();Post(new{@event="presentation.changed",payload=new{presentation="workbench",reason="overlay_timeout",timedOutCaptureId=captureId}});}
+                        if(_captureDiagnostics?.CaptureId==captureId){_captureDiagnostics.Mark("frame_timeout");_captureDiagnostics.Flush();}
+                        // 单次验帧超时保留当前原生遮罩，允许重试；不能在这里突变成整屏无遮罩工作台。
                     }
                 }
-                // 等待源帧期间可能已开始另一次截图；旧任务不能恢复新任务暂时隐藏的显示面。
-                if(_presentation.IsPrepared(captureId)&&!_captureHandoff.IsCancelled(captureId))
+                // 超时后必须继续遮挡；等待期间被替换的捕获也不能进入撤挡流程。
+                if(_composedCaptureId==captureId&&_presentation.IsPrepared(captureId)&&!_captureHandoff.IsCancelled(captureId))
                 {
-                    EditorSurface.Opacity=1;
                     await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ContextIdle,_lifetime.Token);
                     await Task.Run(()=>Marshal.ThrowExceptionForHR(DwmFlush()),_lifetime.Token);
                     expected=ReadOverlayViewport();
-                    if(OverlayViewportMatches(viewport,expected)&&!_captureHandoff.IsCancelled(captureId)&&_presentation.TryAcceptPainted(captureId))
+                    if(_composedCaptureId==captureId&&OverlayViewportMatches(viewport,expected)&&!_captureHandoff.IsCancelled(captureId)&&_presentation.TryAcceptPainted(captureId))
                     {
                         Opacity=1;ShowActivated=true;_captureHandoff.Release(captureId);Activate();accepted=true;
+                        if(_captureDiagnostics?.CaptureId==captureId){_captureDiagnostics.Mark("handoff_released");_captureDiagnostics.Flush();}
                     }
                 }
             }
