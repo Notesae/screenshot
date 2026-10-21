@@ -1,6 +1,6 @@
-# 安装、启动与发行目录（0.4.8 候选）
+# 安装、启动与发行目录
 
-本次范围是下载解压后的程序目录，不重排源码工程。源码从 `Notesae/screenshot` 的 main `9ab7f35` 拉取；0.4.7 的公开发布包 SHA-256 为 `bcf83d7cae05e2caee04cc8a7937bdae3acf99c4647140bf8515df6a271fd794`，已下载静态核对。候选尚未发布，不改写旧版本附件。
+当前发行版本为 0.4.10 预发布版，提供同一精确提交的 MSI 安装版和便携 ZIP。沿用 0.4.8 引入的根目录入口与 app 子目录布局，不改写旧版本附件；本版功能和验证范围见 [发行说明](RELEASE-NOTES-0.4.10.md)。
 
 ## 启动故障
 
@@ -29,7 +29,7 @@ MSI 根据微软公开的每用户/每机器注册位置检查 WebView2 Runtime�
 ./scripts/prepare-installer-tools.ps1
 ./scripts/build-installer.ps1
 ./scripts/test-launcher.ps1 -PackagePath artifacts/Screenshot-win-x64
-./scripts/verify-installer.ps1 -Installer artifacts/Screenshot-0.4.8-setup-x64.msi -PackagePath artifacts/Screenshot-win-x64 -ReportPath artifacts/installer-verification.json
+./scripts/verify-installer.ps1 -Installer artifacts/Screenshot-0.4.10-setup-x64.msi -PackagePath artifacts/Screenshot-win-x64 -ReportPath artifacts/installer-verification.json
 ```
 
 安装器编译使用固定的 WiX 4.0.6 和同版本中文 UI 扩展，仅准备在 `artifacts/installer-tools` 及工程 `.wix` 缓存；不安装系统工具，不接受新版本维护费条款，不增加应用运行依赖。已有 .NET 10 通过进程级 runtime roll-forward 运行编译器，环境变量随后恢复。原生入口使用已有 MSVC x64/Windows SDK。
