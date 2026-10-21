@@ -144,3 +144,6 @@
 @keyframes clay-capture-in{from{opacity:0}to{opacity:1}}
 .clay-editor.is-overlay .clay-rail,.clay-editor.is-overlay .clay-card[aria-label="原样截图"]:not(.is-closing){animation-name:clay-capture-in;animation-duration:120ms;animation-timing-function:ease-out}
 .clay-editor.is-awaiting .clay-rail,.clay-editor.is-awaiting .clay-card{animation:none}
+
+/* 捕获替换前同步隐去整组旧呈现，文档和历史仍保留以支持取消。 */
+.clay-editor.is-suspended{visibility:hidden!important;pointer-events:none}

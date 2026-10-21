@@ -24,6 +24,7 @@ import clayClose from './assets/soft-clay/close.svg';
 
 type Panel = 'raw'|'beauty'|'text'|'more'|'properties'|'recovery'|'settings';
 type Props = {
+  suspended?:boolean;
   selection:CanvasSelection|null;onSelection:(selection:CanvasSelection|null)=>void;
   recoveryState:RecoveryView;recoveryPanel:ReactNode;textTools:TextToolsProps;
   renderStatus:CanvasRenderStatus;onRenderStatus:(status:CanvasRenderStatus)=>void;
@@ -86,6 +87,11 @@ export function CompactOverlay(props:Props) {
     const observer=new ResizeObserver(()=>flushSync(measure));if(railRef.current)observer.observe(railRef.current);
     return()=>{window.removeEventListener('resize',resize);observer.disconnect();};
   },[]);
+  // 只有当前捕获能让静态选区进入宿主合成；迟到的旧回调不能解开新截图的遮挡。
+  useLayoutEffect(()=>{
+    window.screenshotPresentCapture=id=>{if(id!==metadata?.captureId)return false;flushSync(()=>setPreparing(true));return true;};
+    return()=>{delete window.screenshotPresentCapture;};
+  },[metadata?.captureId]);
   useEffect(()=>{
     if(props.skipReady||!canvasReady||!canvasSettled||readySent.current||!metadata?.captureId)return;
     let cancelled=false;const id=metadata.captureId;
@@ -94,7 +100,7 @@ export function CompactOverlay(props:Props) {
       let result=await native.request<PresentationResult>('presentation.ready',{captureId:id});
       if(cancelled)return;
       if(result.accepted!==false&&result.awaitingPaint){
-        flushSync(()=>setPreparing(true));
+        if(!result.hostFrameGate)flushSync(()=>setPreparing(true));
         const deadline=performance.now()+12000;let previous='';
         // 等待宿主目标视口与实际 DOM 一致，而不是把任意两帧误当作 DPI 已稳定。
         while(result.awaitingPaint){
@@ -134,7 +140,7 @@ export function CompactOverlay(props:Props) {
     const direction=directions[event.key];if(!direction)return;event.preventDefault();const current=tools[kind];setPositions(value=>({...value,[kind]:boundTool({x:current.x+direction.x,y:current.y+direction.y},current,tools.area)}));
   }
   const title=visiblePanel==='raw'?'原样截图':visiblePanel==='beauty'?'美化截图':visiblePanel==='text'?'识别与校对':visiblePanel==='properties'?'标注属性':visiblePanel==='recovery'?'历史与恢复':visiblePanel==='settings'?'设置':'更多操作';
-  return <div data-editor-root className={'clay-editor '+(metadata?'is-overlay':'is-neutral')+(chromeVisible?' is-presented':' is-awaiting')+(preparing?' is-preparing':'')} inert={props.locked} onKeyDownCapture={event=>{const target=event.target;if(event.key==='Escape'&&!event.nativeEvent.isComposing&&!composing.current&&target instanceof HTMLElement&&target.matches('input,textarea,select')){event.preventDefault();event.stopPropagation();target.blur();}}} onDragOver={event=>{if(Array.from(event.dataTransfer.types).includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();void props.onFiles(event.dataTransfer.files);}}>
+  return <div data-editor-root className={'clay-editor '+(metadata?'is-overlay':'is-neutral')+(chromeVisible?' is-presented':' is-awaiting')+(preparing?' is-preparing':'')+(props.suspended?' is-suspended':'')} inert={props.locked} onKeyDownCapture={event=>{const target=event.target;if(event.key==='Escape'&&!event.nativeEvent.isComposing&&!composing.current&&target instanceof HTMLElement&&target.matches('input,textarea,select')){event.preventDefault();event.stopPropagation();target.blur();}}} onDragOver={event=>{if(Array.from(event.dataTransfer.types).includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();void props.onFiles(event.dataTransfer.files);}}>
     <CaptureSelection viewport={viewport} metadata={metadata} disabled={!!busy||!!aiBusy||props.locked||!canvasSettled} settled={canvasSettled&&!busy} onAdjust={props.onAdjustCapture} onPreview={setSelectionPreview} onDragging={active=>{selectionDragging.current=active;}} hitAnnotation={event=>canvasRef.current?.hasAnnotationAt(event)??false} onBegin={()=>canvasRef.current?.exitSelection()}>
     <div className={metadata?'clay-canvas-fixed':'clay-canvas-stage'} inert={!!busy} style={mapped?{visibility:selectionPreview?'hidden':undefined,left:mapped.frame.x,top:mapped.frame.y,width:mapped.frame.width,height:mapped.frame.height}:undefined}>
       {hasContent?<EditorCanvas ref={canvasRef} document={doc} onDrawingToolChange={setDrawingTool} onSelection={props.onSelection} onRenderStatus={props.onRenderStatus} fixedDisplayScale={mapped?.scale} onReady={()=>{setCanvasReady(true);setPaintedImage(doc.image);}} onAnnotations={(annotations,group)=>update({annotations},group)} onError={props.onError}/>:<div className="clay-launcher"><Frame size={32} aria-hidden="true"/><h1>截图，接着编辑。</h1><p>从托盘或快捷键开始，也可以打开本机文件。</p><button className="clay-primary" disabled={!!busy} onClick={()=>props.onCapture('capture.region')}>区域截图</button><button disabled={!!busy} onClick={props.onOpenImage}>打开图片</button><button disabled={!!busy} onClick={props.onOpenProject}>打开项目</button></div>}

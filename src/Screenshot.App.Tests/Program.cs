@@ -198,6 +198,7 @@ checks += HotkeyTests.Run();
 checks += CaptureTargetsTests.Run();
 checks += RegionSelectionTests.Run();
 checks += CaptureHandoffTests.Run();
+checks += CompositionFrameTests.Run();
 checks += SoftClayThemeTests.Run();
 checks += await CapturePipelineTests.RunAsync();
 checks += await UpdateTests.RunAsync();

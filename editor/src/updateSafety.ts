@@ -28,4 +28,7 @@ export function prepareLeaveSnapshot(state: LeaveState, reason: LeaveReason) {
 declare global { interface Window {
   screenshotPrepareLeave?: (reason: LeaveReason) => ReturnType<typeof prepareLeaveSnapshot>;
   screenshotFinishLeave?: () => void;
+  screenshotSuspendCapture?: () => void;
+  screenshotResumeCapture?: () => void;
+  screenshotPresentCapture?: (captureId:string) => boolean;
 } }

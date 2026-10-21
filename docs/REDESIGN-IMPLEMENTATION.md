@@ -2,6 +2,10 @@
 
 ## 2026-10-21 修正
 
+最新连续截图反馈覆盖上一轮结论：B 图解码前，旧 A 的 CompactOverlay 仍为 is-presented；旧版无头探针连续 12 帧可见旧边框、遮罩洞和工具，且取消后的 B 解码/回复仍会替换活动文档。现捕获请求发起/新图到达即同步暂停整组旧呈现，新图解码后原子提交，旧任务只清理自己序号的暂停状态；取消保留受保护的旧文档。
+
+WPF 的 WebView2CompositionControl 通过另一个合成图像显示浏览器内容，因此 RAF/尺寸匹配仍不能证明模板图像已更新。宿主在新捕获开始时隐藏 EditorSurface，painted 处理时先监听 PART_image 源变化，再调用当前捕获专属的网页显示回调；收到新图像后恢复 Surface，处理 WPF 队列并等待本进程 DirectX 提交，再撤挡。参考微软 [CompositionControl 规范](https://github.com/MicrosoftEdge/WebView2Feedback/blob/main/specs/WPF_WebView2CompositionControl.md)、[D3DImage 源码](https://github.com/dotnet/wpf/blob/main/src/Microsoft.DotNet.Wpf/src/PresentationCore/System/Windows/InterOp/D3DImage.cs) 与 [DwmFlush](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/nf-dwmapi-dwmflush)。本轮只读本地锁定 SDK 的 IL 核对 Source 设置与 AddDirtyRect/Unlock 路径，没有依赖或运行时变更；后台 DrawingImage 测试仅证明订阅生命周期，真实 SDK/GPU 合成交接仍未验收。
+
 针对用户再次反馈的交接卡顿/装饰抽动：无头合成场景中，第二次 resize 延迟 120ms 到达时，旧实现已显示工具，产生两次布局变化。现改为 ready 返回原生客户区/DPI 目标，painted 携带浏览器实际视口，宿主二次核对 Win32/WPF 布局，不匹配则携最新目标要求重试；不再把固定四帧作为稳定依据。React 在 resize/ResizeObserver 浏览器回调中同步提交共享视口与动作轨测量，避免选区读全局尺寸、工具读旧 state。原生窗口 DPI 来源参照 [GetDpiForWindow](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getdpiforwindow)，仅在与浏览器布局交互处使用 [flushSync](https://react.dev/reference/react-dom/flushSync)，不用于逐帧画布更新。
 
 遮罩由 100vmax 扩散阴影改为视口大小、挖出选区的 SVG evenodd 路径；边框保留局部柔光。首次动作轨和原样卡片只用 120ms 透明度淡入，原生尺寸胶囊在松手前后内容一致。loadImage 仅缓存最近一次解码，供校验和首次渲染共用，不按撤销历史积累源图。新增独立无头五场景逐帧探针，并接入既有 CI；模拟结果不能证明真实 WPF/GPU 合成交接已验收。

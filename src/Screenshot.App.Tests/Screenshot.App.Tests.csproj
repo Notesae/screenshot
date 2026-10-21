@@ -6,6 +6,7 @@
   <ItemGroup><Compile Include="../Screenshot.App/Updates/UpdateSourceIdentity.cs" Link="Updates/UpdateSourceIdentity.cs"/></ItemGroup>
   <ItemGroup><Compile Include="../Screenshot.App/EditorCheckpoint.cs" Link="EditorCheckpoint.cs"/></ItemGroup>
   <!-- 仅装载资源及模板，不创建原生窗口、焦点或系统输入。 -->
+  <ItemGroup><Compile Include="../Screenshot.App/CompositionFrameWaiter.cs" Link="CompositionFrameWaiter.cs"/></ItemGroup>
   <PropertyGroup><UseWindowsForms>true</UseWindowsForms></PropertyGroup>
   <ItemGroup>
     <Using Remove="System.Drawing"/><Using Remove="System.Windows.Forms"/>

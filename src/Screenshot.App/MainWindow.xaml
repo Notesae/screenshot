@@ -3,7 +3,7 @@
     <Image x:Name="FrozenBackdrop" Stretch="Fill" IsHitTestVisible="False" Visibility="Collapsed" RenderOptions.BitmapScalingMode="NearestNeighbor" />
     <DockPanel>
       <Border x:Name="StatusBar" DockPanel.Dock="Bottom" Background="#2C2C2E" Padding="14,5"><DockPanel><Button DockPanel.Dock="Right" Content="使用条款" Padding="10,0" Margin="12,0,0,0" Click="ShowTerms"/><Button DockPanel.Dock="Right" Content="重试加载" Margin="8,0" Click="RetryEditor"/><Button DockPanel.Dock="Right" Content="区域截图" Margin="8,0" Click="StartCapture"/><TextBlock x:Name="Status" Text="正在启动本地编辑器…" Foreground="#F5F5F7" FontSize="12" TextTrimming="CharacterEllipsis" /></DockPanel></Border>
-      <wv:WebView2CompositionControl x:Name="Editor" />
+      <Grid x:Name="EditorSurface"><wv:WebView2CompositionControl x:Name="Editor" /></Grid>
     </DockPanel>
   </Grid>
 </Window>
