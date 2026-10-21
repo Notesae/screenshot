@@ -179,6 +179,37 @@ tests.Add(("Provider revision rejects stale persisted tasks before HTTP send",as
     await Error(()=>service.TranslateAsync("id","changed input","Chinese",revision),"provider_configuration_changed");Check(sent==1,"Stale task sent HTTP after configuration changed");
 }));
 // 逐项运行并汇总退出码，确保失败时仍清理测试配置。
+// 图片短语直译只发文字，且不能命中普通正文翻译的缓存或把说明带进短标签。
+tests.Add(("Image text uses compact prompt and independent cache", async () => {
+    var calls = new List<string>();
+    var service = new AiService(Store(), new HttpClient(new Handler(request => {
+        using var json = JsonDocument.Parse(request.Content!.ReadAsStringAsync().Result);
+        var messages = json.RootElement.GetProperty("messages");
+        Check(messages[1].GetProperty("content").GetString() == "Pay As You Go", "Original phrase changed");
+        var prompt = messages[0].GetProperty("content").GetString()!;calls.Add(prompt);
+        Check(!request.Content.ReadAsStringAsync().Result.Contains("image_url"), "Image text unexpectedly contains pixels");
+        return Json("{\"choices\":[{\"message\":{\"content\":\"按量付费\"}}]}");
+    })));
+    await service.UpdateProviderAsync(new("id", "Synthetic", "openai-compatible", "https://example.com/v1", "text", "synthetic-key"));
+    await service.TranslateAsync("id", "Pay As You Go", "简体中文");
+    await service.TranslateImageTextAsync("id", "Pay As You Go", "简体中文", null);
+    await service.TranslateImageTextAsync("id", "Pay As You Go", "简体中文", null);
+    Check(calls.Count == 2, "Image and ordinary caches are not isolated or image cache missed");
+    Check(!calls[0].Contains("不定义概念") && calls[1].Contains("不定义概念") && calls[1].Contains("单位"), "Image-specific compact constraints missing");
+}));
+tests.Add(("Dedicated translation model keeps single user message for image labels", async () => {
+    var service = new AiService(Store(), new HttpClient(new Handler(request => {
+        using var json = JsonDocument.Parse(request.Content!.ReadAsStringAsync().Result);
+        var messages = json.RootElement.GetProperty("messages");
+        Check(messages.GetArrayLength() == 1 && messages[0].GetProperty("role").GetString() == "user", "Dedicated translation template changed");
+        var prompt = messages[0].GetProperty("content").GetString()!;
+        Check(prompt.Contains("不要") || prompt.Contains("不解释"), "Direct translation constraints missing");
+        Check(prompt.Contains("保留数字") && prompt.EndsWith("Get started!", StringComparison.Ordinal), "Units or source phrase lost");
+        return Json("{\"message\":{\"content\":\"立即开始！\"}}");
+    })));
+    await service.UpdateProviderAsync(new("id", "Synthetic", "ollama", "http://localhost:11434", "tencent/Hunyuan-MT-7B"));
+    Check((await service.TranslateImageTextAsync("id", "Get started!", "简体中文", null)).Text == "立即开始！", "Wrong label result");
+}));
 int failed = 0;
 try {
     foreach (var (name, test) in tests) {

@@ -7,7 +7,7 @@ internal enum SelectionHandle { Create, Move, Left, Right, Top, Bottom, TopLeft,
 internal sealed class RegionSelection(PixelRect bounds)
 {
     public PixelRect? Selection { get; private set; }
-    public bool CanConfirm => Selection is { Width: >= 2, Height: >= 2 };
+    public bool HasArea => Selection is { Width: >= 2, Height: >= 2 };
     public bool Dragging { get; private set; }
     private int _startX, _startY;
     private PixelRect _before;
@@ -55,10 +55,10 @@ internal sealed class RegionSelection(PixelRect bounds)
         if (_handle is SelectionHandle.Bottom or SelectionHandle.BottomLeft or SelectionHandle.BottomRight) bottom=Math.Clamp(bottom+dy,top+2,bounds.Y+bounds.Height);
         Selection=new(left,top,right-left,bottom-top);
     }
-    public void End() { Dragging=false; if (!CanConfirm) Selection=null; }
+    public void End() { Dragging=false; if (!HasArea) Selection=null; }
     public void Nudge(int dx, int dy, bool resize)
     {
-        if (Dragging || !CanConfirm || Selection is not { } r) return;
+        if (Dragging || !HasArea || Selection is not { } r) return;
         Selection=resize ? r with { Width=Math.Clamp(r.Width+dx,2,bounds.X+bounds.Width-r.X),Height=Math.Clamp(r.Height+dy,2,bounds.Y+bounds.Height-r.Y) } : Move(r,dx,dy);
     }
     private PixelRect Move(PixelRect r,int dx,int dy) => r with {

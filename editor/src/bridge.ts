@@ -3,7 +3,7 @@ export type LoadedImage = { dataUrl: string; name: string; width: number; height
 export type PublicProvider = { id: string; name: string; kind: string; model: string; baseUrl: string; hasApiKey: boolean; revision?:string };
 export type Settings = { providers: PublicProvider[]; defaultProviderId?: string };
 // 捕获 ID 用来拒绝旧界面排队的呈现切换，不属于可保存的项目内容。
-export type PresentationResult = { presentation: 'overlay' | 'workbench' | 'hidden'; accepted?: boolean; captureId?: string | null };
+export type PresentationResult = { presentation: 'overlay' | 'workbench' | 'hidden'; accepted?: boolean; captureId?: string | null; awaitingPaint?:boolean; hostFrameGate?:boolean; viewport?:{width:number;height:number;scale:number} };
 export class NativeError extends Error { constructor(message:string,public code:string){super(message);} }
 type Send = (message: { id: string; method: string; payload: object }) => void;
 type Pending = { resolve: (value: unknown) => void; reject: (reason: Error) => void; timer: ReturnType<typeof setTimeout> };
@@ -59,7 +59,7 @@ export function subscribeNative(onImage: (image: unknown) => void, onPresentatio
   const receive = (event: MessageEvent) => {
     const data = event.data;
     if (data?.event === 'image.loaded') onImage(data.payload);
-    else if (data?.event === 'editor.action' && ['continue','open-image','open-project','paste','recovery','settings','notice'].includes(data.payload?.action)) onAction?.(data.payload.action, typeof data.payload.text === 'string' ? data.payload.text.slice(0,2000) : undefined);
+    else if (data?.event === 'editor.action' && ['continue','open-image','open-project','paste','recovery','settings','settings-updated','notice'].includes(data.payload?.action)) onAction?.(data.payload.action, typeof data.payload.text === 'string' ? data.payload.text.slice(0,2000) : undefined);
     else if (data?.event === 'presentation.changed' && (data.payload?.presentation === 'workbench' || data.payload?.presentation === 'hidden')) onPresentation?.(data.payload);
     else native.receive(data);
   };

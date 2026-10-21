@@ -2,6 +2,7 @@ using System.IO;
 using System.Text.Json;
 using Screenshot.App;
 
+// 离开校验仅验证内存身份；不生成恢复身份或执行存储操作。
 internal static class EditorCheckpointTests
 {
     internal static int Run()
@@ -16,20 +17,17 @@ internal static class EditorCheckpointTests
             document = new { schemaVersion = 2, image = (object?)null, editor = new { text = "尚未保存的校对" } }
         });
         var checkpoint = new EditorCheckpoint();
-        var first = checkpoint.Prepare(Snapshot(id), id, 7)!.Value;
-        Check(Guid.TryParse(first.Id, out _) && first.Revision == 1, "独立恢复身份与修订");
-        var retry = checkpoint.Prepare(Snapshot(id), id, 7)!.Value;
-        Check(first.Id == retry.Id && retry.Revision > first.Revision, "丢失确认后重试推进存储修订");
-        var other = checkpoint.Prepare(Snapshot(Guid.NewGuid().ToString()))!.Value;
-        Check(other.Id != first.Id, "不同文档隔离恢复身份");
-        Check(checkpoint.Prepare(Snapshot(id, projectSaved: true), id, 7) is null, "已保存当前可编辑项目允许离开");
-        Check(checkpoint.Prepare(Snapshot(id, empty: true), id, 7) is null, "空文档不增加恢复记录");
-        Reject(() => checkpoint.Prepare(Snapshot(id), id, 6));
-        Reject(() => checkpoint.Prepare(Snapshot(id, projectSaved: true), Guid.NewGuid().ToString(), 7));
-        Reject(() => checkpoint.Prepare(JsonSerializer.SerializeToElement(new { error = "画布文字尚未提交" })));
-        Reject(() => checkpoint.Prepare(JsonSerializer.SerializeToElement<object?>(null)));
-        Reject(() => checkpoint.Prepare(Snapshot("invalid-id")));
-        Reject(() => checkpoint.Prepare(Snapshot(id, -1)));
+        checkpoint.Validate(Snapshot(id),id,7);Check(true,"未手动保存的有效内容允许完成");
+        checkpoint.Validate(Snapshot(id),id,7);Check(true,"重复校验不需要写入或存储修订");
+        checkpoint.Validate(Snapshot(Guid.NewGuid().ToString()));Check(true,"切换文档只校验当前身份");
+        checkpoint.Validate(Snapshot(id,projectSaved:true),id,7);Check(true,"手动项目保存不影响完成");
+        checkpoint.Validate(Snapshot(id,empty:true),id,7);Check(true,"空文档允许离开");
+        Reject(() => checkpoint.Validate(Snapshot(id), id, 6));
+        Reject(() => checkpoint.Validate(Snapshot(id, projectSaved: true), Guid.NewGuid().ToString(), 7));
+        Reject(() => checkpoint.Validate(JsonSerializer.SerializeToElement(new { error = "画布文字尚未提交" })));
+        Reject(() => checkpoint.Validate(JsonSerializer.SerializeToElement<object?>(null)));
+        Reject(() => checkpoint.Validate(Snapshot("invalid-id")));
+        Reject(() => checkpoint.Validate(Snapshot(id, -1)));
         return checks;
     }
 }

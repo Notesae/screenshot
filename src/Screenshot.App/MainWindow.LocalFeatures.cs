@@ -55,16 +55,6 @@ public partial class MainWindow
         return await work(lease.Token);
     }
 
-    // 保存文档快照使用独立事务队列，不占用文件对话框或 AI 操作的门控。
-    private Task<SnapshotSaveResult> SaveRecoveryAsync(JsonElement payload)
-    {
-        var documentId = RequiredString(payload, "documentId");
-        if (!payload.TryGetProperty("revision", out var value) || !value.TryGetInt64(out var revision) || revision < 0)
-            throw new InvalidOperationException("恢复修订号无效。");
-        var document = payload.GetProperty("document").Clone();
-        return RunRecoveryAsync(store => store.SaveAsync(documentId, revision, document, _lifetime.Token));
-    }
-
     // 初始化和 SQLite I/O 离开 UI 线程；只在首次明确恢复操作时创建本地存储。
     private Task<T> RunRecoveryAsync<T>(Func<SnapshotStore, Task<T>> operation) =>
         Task.Run(() => operation(_recovery.Value), _lifetime.Token);

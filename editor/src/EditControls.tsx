@@ -1,17 +1,27 @@
 import { useEffect, useState, type RefObject } from 'react';
+import { ColorField } from './ColorField';
 import { ArrowUpRight, Highlighter, Redo2, Square, Undo2 } from 'lucide-react';
 import { contentGeometry, type ContentResize, type ProjectDocument, type SourceCrop } from './document';
 import type { CanvasHandle, CanvasSelection } from './EditorCanvas';
 
 export function HistoryButtons({ canUndo, canRedo, undo, redo }: { canUndo: boolean; canRedo: boolean; undo: () => void; redo: () => void }) {
-  return <><button title="撤销 Ctrl+Z" aria-label="撤销" disabled={!canUndo} onClick={undo}><Undo2/></button><button title="重做 Ctrl+Y" aria-label="重做" disabled={!canRedo} onClick={redo}><Redo2/></button></>;
+  return <><button data-tooltip="撤销 Ctrl+Z" aria-label="撤销" disabled={!canUndo} onClick={undo}><Undo2/></button><button data-tooltip="重做 Ctrl+Y" aria-label="重做" disabled={!canRedo} onClick={redo}><Redo2/></button></>;
 }
-/** 工具只调用同一个画布内核；样式应用是可撤销的完整对象变更。 */
+/** 属性只针对当前标注，修改即时应用且沿用画布撤销；不重复堆放绘制工具。 */
 export function AnnotationPalette({ canvasRef, onError, selection, disabled=false }: { canvasRef: RefObject<CanvasHandle | null>; onError: (error: unknown) => void; selection:CanvasSelection|null; disabled?:boolean }) {
-  const [color, setColor] = useState('#30332e'), [fontSize, setFontSize] = useState(26);
-  useEffect(()=>{if(selection){setColor(selection.color);setFontSize(selection.fontSize);}},[selection?.id,selection?.type,selection?.color,selection?.fontSize]);
-  const invalidFont=selection?.type==='text'&&(!Number.isFinite(fontSize)||fontSize<8||fontSize>240);
-  return <div className="annotation-palette"><div className="palette-shapes"><button onClick={() => canvasRef.current?.add('arrow')}><ArrowUpRight/>箭头</button><button onClick={() => canvasRef.current?.add('highlight')}><Highlighter/>高亮</button><button title="实色遮盖用于 PNG 和 OCR 输入；项目仍含原图" onClick={() => canvasRef.current?.add('cover')}><Square/>遮盖</button></div><p className="selection-summary" aria-live="polite">{selection ? `已选中：${({text:'文字',rect:'矩形',arrow:'箭头',highlight:'高亮',cover:'实色遮盖'})[selection.type]}` : '选择标注后可调整属性'}</p><div className="annotation-properties"><label>颜色<input aria-label="标注颜色" disabled={disabled||!selection} type="color" value={color} onChange={event => setColor(event.target.value)}/></label><label>字号<input aria-label="标注字号" aria-invalid={invalidFont||undefined} aria-describedby={invalidFont?'annotation-font-error':undefined} disabled={disabled||selection?.type!=='text'} type="number" min={8} max={240} value={fontSize} onChange={event => setFontSize(Number(event.target.value))}/></label><button disabled={disabled||!selection||!Number.isFinite(fontSize)||fontSize<8||fontSize>240} onClick={() => { if (!canvasRef.current?.patchSelection({ color, fontSize })) onError(new Error('请先选中标注，字号范围为8至240。')); }}>应用到选中标注</button></div><>{invalidFont&&<p className="field-error" id="annotation-font-error">字号请输入8至240之间的数值。</p>}</><p className="compact-privacy">遮盖为不透明实色。分享脱敏结果请导出 PNG；可编辑项目仍包含原图。</p></div>;
+  const [color,setColor]=useState('#30332e'),[fontSize,setFontSize]=useState(26);
+  useEffect(()=>{if(selection){setColor(selection.color);setFontSize(selection.fontSize);}},[selection?.id,selection?.color,selection?.fontSize]);
+  if(!selection)return <p className="selection-summary">选择一个标注以调整属性。</p>;
+  const invalidFont=!Number.isFinite(fontSize)||fontSize<8||fontSize>240;
+  return <div className="annotation-palette">
+    <p className="selection-summary">{({text:'文字',rect:'矩形',arrow:'箭头',highlight:'高亮',cover:'实色遮盖'})[selection.type]}</p>
+    <div className="annotation-properties">
+      <label>颜色<ColorField label="标注颜色" disabled={disabled} value={color} onChange={next=>{setColor(next);if(!canvasRef.current?.patchSelection({color:next,fontSize:selection.fontSize}))onError(new Error('当前标注暂时无法修改，请稍后重试。'));}}/></label>
+      {selection.type==='text'&&<label>字号<div className="clay-unit-field"><input aria-label="标注字号" aria-invalid={invalidFont||undefined} disabled={disabled} type="number" min={8} max={240} value={Number.isNaN(fontSize)?'':fontSize} onChange={event=>{const next=event.target.valueAsNumber;setFontSize(next);if(next>=8&&next<=240&&!canvasRef.current?.patchSelection({color,fontSize:next}))onError(new Error('当前标注暂时无法修改，请稍后重试。'));}} onBlur={()=>{if(invalidFont)setFontSize(selection.fontSize);}}/><span>px</span></div></label>}
+    </div>
+    {selection.type==='text'&&invalidFont&&<p className="field-error">字号范围为 8–240 px。</p>}
+    {selection.type==='cover'&&<p className="compact-privacy">遮盖只应用于复制的图片，项目文件仍保留原图。</p>}
+  </div>;
 }
 
 /** 数值裁剪与等比缩放是一次显式事务，未应用的输入草稿不会改变文档。 */

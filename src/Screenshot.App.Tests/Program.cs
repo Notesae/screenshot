@@ -67,7 +67,7 @@ Check(gate.TryEnter("ai.ocr", out var ocr), "first AI request accepted");
 Check(!gate.TryEnter("ai.translate", out _), "second AI request rejected");
 Check(gate.TryEnter("image.save", out var save), "save accepted while AI is running");
 Check(!gate.TryEnter("capture.region", out _), "capture rejected while native dialog is active");
-foreach (var method in new[] { "app.info", "settings.read", "presentation.ready", "presentation.workbench", "presentation.editor" })
+foreach (var method in new[] { "app.info", "settings.read", "presentation.ready", "presentation.painted", "presentation.workbench", "presentation.editor" })
     Check(gate.TryEnter(method, out var read) && read is null, "pure read accepted while both operation lanes are busy");
 foreach (var method in new[] { "presentation.dismiss", "presentation.complete", "document.preserve" })
     Check(!gate.TryEnter(method, out _), "checkpoint transitions wait for the active local operation");
@@ -107,6 +107,21 @@ Check(presentation.Mode == PresentationMode.Overlay && ReferenceEquals(presentat
 Check(!presentation.TryAcceptReady("stale-id"), "stale layout acknowledgement cannot show current capture");
 Check(presentation.TryAcceptReady(frame.CaptureId), "current layout acknowledgement accepted once");
 Check(!presentation.TryAcceptReady(frame.CaptureId), "duplicate acknowledgement ignored");
+// 调整仅裁剪合成冻结图，既不枚举显示器也不再次捕获；失败保持原选区。
+Reject(() => presentation.AdjustAsync("stale-id", desktopBounds).GetAwaiter().GetResult(), "stale capture cannot crop frozen pixels");
+Reject(() => presentation.AdjustAsync(frame.CaptureId, new(-3, -1, 2, 2)).GetAwaiter().GetResult(), "out of desktop crop rejected");
+// 取消后台裁剪不能把未完成的落点写回宿主。
+using(var cancelledCrop=new CancellationTokenSource())
+{
+    cancelledCrop.Cancel();var cancelled=false;
+    try{await presentation.AdjustAsync(frame.CaptureId,desktopBounds,cancelledCrop.Token);}catch(OperationCanceledException){cancelled=true;}
+    Check(cancelled,"cancelled recrop stops before commit");
+    Check(presentation.Overlay?.Selection==selection,"cancelled recrop keeps prior selection");
+}
+var recropped = await presentation.AdjustAsync(frame.CaptureId, desktopBounds);
+Check(recropped.Image.Width == 4 && recropped.Image.Height == 2 && recropped.Overlay.Selection == desktopBounds, "resize returns matching crop and physical geometry");
+Check(recropped.Overlay.CaptureId == frame.CaptureId && ReferenceEquals(presentation.FrozenBackdrop, backdrop), "resize keeps capture identity and frozen native pixels");
+await presentation.AdjustAsync(frame.CaptureId, selection);
 presentation.BeginCapture(); presentation.CancelCapture();
 Check(presentation.Mode == PresentationMode.Overlay && ReferenceEquals(presentation.FrozenBackdrop, backdrop), "cancelled selection preserves previous overlay and backdrop");
 var envelope = frame.ToEnvelope();
@@ -182,6 +197,10 @@ checks += EditorCheckpointTests.Run();
 checks += HotkeyTests.Run();
 checks += CaptureTargetsTests.Run();
 checks += RegionSelectionTests.Run();
+checks += CaptureHandoffTests.Run();
+checks += CompositionFrameTests.Run();
+checks += CaptureFrameProbeTests.Run();
+checks += SoftClayThemeTests.Run();
 checks += await CapturePipelineTests.RunAsync();
 checks += await UpdateTests.RunAsync();
 checks += await PublicUpdateTests.RunAsync();

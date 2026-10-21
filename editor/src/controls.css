@@ -1,0 +1,140 @@
+/* 控件唯一入口：移除浏览器外观，焦点、悬停、按下、错误和禁用由同一组 token 绘制。 */
+.clay-editor :focus, .clay-editor :focus-visible { outline: none; }
+.clay-editor :where(button, input, textarea, select) {
+  appearance: none; -webkit-appearance: none; font: inherit; color: inherit; outline: none; margin: 0;
+}
+.clay-editor :where(button, input, textarea, select, summary) { border: 0; border-radius: var(--clay-radius-control); }
+/* 焦点通过底色和亮度表达，不绘制外圈，也不改变控件占位。 */
+.clay-editor :where([role=button], summary, a):focus-visible { background-color: var(--clay-focusFill); }
+.clay-editor button {
+  border: 0;
+  min-height: var(--clay-size-control); min-width: 0; padding: 9px 12px; gap: 8px;
+  background: var(--clay-raised); box-shadow: var(--clay-button);
+  font-size: var(--clay-type-body); font-weight: 500; line-height: 1.5; cursor: pointer;
+  transition: transform var(--clay-time-release) var(--clay-spring), filter 140ms ease, box-shadow 140ms ease;
+}
+.clay-editor button:hover:enabled { background: var(--clay-raised); filter: brightness(1.04); }
+.clay-editor button:focus-visible:enabled { filter: brightness(1.14); }
+.clay-editor button:active:enabled { transition-duration: var(--clay-time-press); transform: scale(var(--clay-pressed-scale)); box-shadow: var(--clay-press); }
+.clay-editor :where(button, input, textarea, select):disabled { opacity: var(--clay-disabled-opacity); cursor: default; }
+.clay-editor button:disabled { filter: none; box-shadow: inset 0 1px 2px #ffffff0d; }
+/* 主操作和绘制待命态保留原导轨的蓝色凸面；字段焦点不借用该强调色。 */
+.clay-editor button.clay-primary, .clay-editor button[aria-pressed=true] { background: var(--clay-primary); color: var(--clay-onAccent); border-color: transparent; box-shadow: var(--clay-primary-shadow); }
+.clay-editor button.clay-primary:hover:enabled, .clay-editor button[aria-pressed=true]:hover:enabled { background: var(--clay-primary); }
+.clay-editor button.clay-primary:active:enabled, .clay-editor button[aria-pressed=true]:active:enabled { box-shadow: var(--clay-press); }
+.clay-editor button.clay-danger { color: var(--clay-error); }
+.clay-editor button.clay-danger:hover:enabled { background: var(--clay-errorSurface); }
+.clay-editor svg { width: var(--clay-size-icon); height: var(--clay-size-icon); flex-shrink: 0; stroke-width: 1.8; }
+.clay-editor :where(h1, h2, h3, p) { margin: 0; }
+.clay-editor h1 { font-size: var(--clay-type-heading); font-weight: 600; }
+.clay-editor h2 { font-size: var(--clay-type-title); font-weight: 600; line-height: 1.5; }
+.clay-editor h3 { font-size: var(--clay-type-label); font-weight: 600; line-height: 1.5; }
+.clay-editor label, .clay-editor .control-label { display: grid; gap: 8px; font-size: var(--clay-type-label); color: var(--clay-muted); min-width: 0; }
+.clay-editor :where(input:not([type=checkbox]):not([type=range]):not([type=file]), textarea, select) {
+  width: 100%; min-width: 0; min-height: var(--clay-size-control); padding: 9px 12px;
+  border: 0; border-radius: var(--clay-radius-control);
+  color: var(--clay-ink); background: var(--clay-well); box-shadow: var(--clay-inset);
+  caret-color: var(--clay-focus); font-size: var(--clay-type-body); line-height: 1.6;
+  transition: background-color var(--clay-time-press) ease;
+}
+.clay-editor :where(input:not([type=checkbox]):not([type=range]), textarea, select):hover:enabled,
+.clay-editor :where(input:not([type=checkbox]):not([type=range]), textarea, select):focus { background: var(--clay-wellActive); }
+.clay-editor :where(input, textarea)[aria-invalid=true] { background: var(--clay-errorSurface); }
+.clay-editor :where(input, textarea)::placeholder { color: var(--clay-muted); opacity: 1; }
+.clay-editor :where(input, textarea):read-only { color: var(--clay-muted); }
+.clay-editor textarea { min-height: 126px; resize: vertical; }
+.clay-editor input[type=number] { -moz-appearance: textfield; appearance: textfield; font-variant-numeric: tabular-nums; }
+.clay-editor input::-webkit-inner-spin-button, .clay-editor input::-webkit-outer-spin-button,
+.clay-editor input::-webkit-search-decoration, .clay-editor input::-webkit-search-cancel-button { appearance: none; -webkit-appearance: none; margin: 0; }
+.clay-editor input::-ms-reveal, .clay-editor input::-ms-clear { display: none; }
+.clay-editor input:-webkit-autofill { -webkit-text-fill-color: var(--clay-ink); box-shadow: inset 0 0 0 1000px var(--clay-well); caret-color: var(--clay-focus); }
+.clay-editor input[type=checkbox] {
+  display: inline-grid; place-content: center; width: 18px; height: 18px; flex-shrink: 0;
+  padding: 0; border: 0; border-radius: 5px; background: var(--clay-well); box-shadow: var(--clay-inset); cursor: pointer;
+}
+.clay-editor input[type=checkbox]:focus-visible { background: var(--clay-wellActive); filter: brightness(1.3); }
+.clay-editor input[type=checkbox]:checked, .clay-editor input[type=checkbox]:indeterminate { background: var(--clay-accentBottom); }
+.clay-editor input[type=checkbox]:checked::after { content: ''; width: 9px; height: 5px; border: solid var(--clay-onAccent); border-width: 0 0 2px 2px; transform: translateY(-1px) rotate(-45deg); }
+.clay-editor input[type=checkbox]:indeterminate::after { content: ''; width: 8px; height: 2px; background: var(--clay-onAccent); }
+.clay-editor .checkbox-row { display: flex; align-items: center; gap: 8px; }
+.clay-editor details { min-width: 0; border: 0; padding-top: 8px; }
+.clay-editor summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: var(--clay-size-control); padding: 10px 12px; border-color: transparent; color: var(--clay-ink); list-style: none; cursor: pointer; user-select: none; font-size: var(--clay-type-label); }
+.clay-editor summary::-webkit-details-marker { display: none; }
+.clay-editor summary:hover { background: var(--clay-hover); }
+.clay-editor details[open] > summary { background: var(--clay-hover); }
+.clay-editor summary:focus-visible { background: var(--clay-focusFill); }
+.clay-editor summary::after { content: ''; width: 7px; height: 7px; flex-shrink: 0; border-right: 1.5px solid var(--clay-muted); border-bottom: 1.5px solid var(--clay-muted); transform: rotate(45deg); }
+.clay-editor details[open] > summary::after { transform: rotate(225deg); }
+.clay-editor details[open] > :not(summary) { margin-top: 12px; }
+.clay-editor details[open] > label + label { margin-top: 16px; }
+.clay-unit-field { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: var(--clay-size-control); padding: 0 12px; border: 0; border-radius: var(--clay-radius-control); background: var(--clay-well); box-shadow: var(--clay-inset); }
+.clay-unit-field:hover, .clay-unit-field:focus-within { background: var(--clay-wellActive); }
+.clay-editor .clay-unit-field input,
+.clay-editor .clay-unit-field input:is(:hover, :focus) { min-height: 38px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; outline: none; }
+.clay-unit-field > span { color: var(--clay-muted); font-size: var(--clay-type-label); }
+.clay-range { margin: 0; }
+.clay-range > span { display: flex; justify-content: space-between; }
+.clay-range output { color: var(--clay-ink); font-variant-numeric: tabular-nums; }
+.clay-editor input[type=range] { width: 100%; min-width: 0; height: 28px; min-height: 28px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.clay-editor input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: var(--clay-radius-pill); background: linear-gradient(to right, var(--clay-accent) var(--range-progress, 0%), var(--clay-well) var(--range-progress, 0%)); box-shadow: var(--clay-inset); }
+.clay-editor input[type=range]::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 18px; height: 18px; margin-top: -6px; border: 0; border-radius: 50%; background: var(--clay-ink); box-shadow: 0 2px 4px #0005; }
+.clay-editor input[type=range]:hover:enabled::-webkit-slider-thumb { background: var(--clay-focus); }
+.clay-editor input[type=range]:focus-visible::-webkit-slider-thumb { background: var(--clay-focus); }
+.clay-editor input[type=range]::-moz-range-track { height: 6px; border-radius: 999px; background: var(--clay-well); }
+.clay-editor input[type=range]::-moz-range-progress { height: 6px; border-radius: 999px; background: var(--clay-accent); }
+.clay-editor input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border: 0; border-radius: 50%; background: var(--clay-ink); }
+.clay-editor input[type=range]:focus-visible::-moz-range-thumb { background: var(--clay-focus); }
+.clay-select { display: inline-flex; width: 100%; min-width: 0; }
+.clay-editor .clay-select-trigger { width: 100%; min-width: 0; justify-content: space-between; padding: 9px 12px; border: 0; background: var(--clay-well); box-shadow: var(--clay-inset); font-weight: 400; text-align: left; }
+.clay-select-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clay-select-trigger > svg { width: 16px; height: 16px; color: var(--clay-muted); }
+.clay-select-menu, .clay-color-popover { position: fixed; z-index: 40; overflow-y: auto; overflow-x: hidden; pointer-events: auto; padding: 4px; border: 0; outline: none; border-radius: var(--clay-radius-floating); background: var(--clay-card-face); box-shadow: var(--clay-elevation); overscroll-behavior: contain; }
+.clay-editor .clay-select-menu > button { display: flex; width: 100%; min-height: var(--clay-size-compact); justify-content: space-between; padding: 8px 12px; border-color: transparent; background: transparent; box-shadow: none; text-align: left; font-weight: 400; }
+.clay-select-menu > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clay-editor .clay-select-menu > button.is-active { background: var(--clay-selected); }
+.clay-editor .clay-select-menu > button[aria-selected=true] { color: var(--clay-focus); background: var(--clay-selected); }
+.clay-editor .clay-color-trigger { width: 100%; justify-content: flex-start; background: var(--clay-well); box-shadow: var(--clay-inset); font-variant-numeric: tabular-nums; font-weight: 400; }
+.clay-color-swatch { width: 22px; height: 22px; flex-shrink: 0; border: 0; border-radius: 6px; }
+.clay-color-popover { width: 240px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); padding: 12px; }
+.clay-color-popover label { margin-bottom: 12px; }
+.clay-color-options { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.clay-editor .clay-color-options button { min-height: 32px; padding: 4px; background: transparent; }
+.clay-color-popover .field-error { margin-top: 8px; }
+.clay-color-popover .clay-primary { width: 100%; margin-top: 12px; }
+.clay-tooltip { position: fixed; z-index: 60; max-width: min(280px, calc(100vw - 16px)); padding: 7px 10px; border-radius: 8px; background: var(--clay-well); color: var(--clay-ink); box-shadow: var(--clay-shadow); font-size: var(--clay-type-label); line-height: 1.5; pointer-events: none; overflow-wrap: anywhere; }
+.clay-editor, .clay-editor * { scrollbar-width: auto; scrollbar-color: auto; }
+.clay-editor::-webkit-scrollbar, .clay-editor ::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+.clay-editor::-webkit-scrollbar-thumb, .clay-editor ::-webkit-scrollbar-thumb { min-height: 24px; border: 2px solid transparent; border-radius: 999px; background: var(--clay-scrollbar); background-clip: padding-box; }
+.clay-editor::-webkit-scrollbar-thumb:hover, .clay-editor ::-webkit-scrollbar-thumb:hover { background-color: var(--clay-muted); }
+.clay-editor::-webkit-scrollbar-track, .clay-editor ::-webkit-scrollbar-track, .clay-editor ::-webkit-scrollbar-corner { background: transparent; }
+.clay-editor::-webkit-scrollbar-button, .clay-editor ::-webkit-scrollbar-button { display: none; appearance: none; -webkit-appearance: none; width: 0; height: 0; }
+/* 原滚动容器保留滚轮、触摸和键盘语义；覆盖滑块不占 clientWidth/clientHeight。 */
+.clay-editor[data-overlay-scrollbars], .clay-editor[data-overlay-scrollbars] * { scrollbar-width: none; scrollbar-gutter: auto; }
+.clay-editor[data-overlay-scrollbars]::-webkit-scrollbar, .clay-editor[data-overlay-scrollbars] ::-webkit-scrollbar { width: 0; height: 0; display: none; }
+.clay-scrollbar-layer { position: fixed; inset: 0; z-index: 45; pointer-events: none; }
+.clay-scrollbar { position: fixed; border: 0; border-radius: 999px; background: transparent; pointer-events: none; touch-action: none; opacity: 0; transition: opacity var(--clay-scroll-fade) ease; }
+.clay-scrollbar.is-visible { opacity: 1; pointer-events: auto; }
+.clay-scrollbar-thumb { position: absolute; border: 0; border-radius: 999px; background: var(--clay-scrollbar); }
+.clay-scrollbar.is-vertical .clay-scrollbar-thumb { top: 0; left: calc((var(--clay-scroll-thickness) - var(--clay-scroll-thumb)) / 2); width: var(--clay-scroll-thumb); }
+.clay-scrollbar.is-horizontal .clay-scrollbar-thumb { left: 0; top: calc((var(--clay-scroll-thickness) - var(--clay-scroll-thumb)) / 2); height: var(--clay-scroll-thumb); }
+.clay-scrollbar:hover .clay-scrollbar-thumb, .clay-scrollbar.is-dragging .clay-scrollbar-thumb { background: var(--clay-muted); }
+.clay-editor:is(.is-suspended, .is-awaiting) .clay-scrollbar-layer { display: none; }
+.clay-editor[inert] .clay-scrollbar-layer { display: none; }
+
+
+.clay-color-channels { display: grid; gap: 8px; }
+
+.clay-editor .clay-select-trigger,
+.clay-editor .clay-color-trigger { transform: none; filter: none; }
+.clay-editor .clay-select-trigger:hover:enabled,
+.clay-editor .clay-color-trigger:hover:enabled,
+.clay-editor .clay-select-trigger:focus-visible:enabled,
+.clay-editor .clay-color-trigger:focus-visible:enabled,
+.clay-editor .clay-select-trigger[aria-expanded=true] { background: var(--clay-wellActive); filter: none; box-shadow: var(--clay-inset); }
+.clay-editor .clay-select-trigger:active:enabled,
+.clay-editor .clay-color-trigger:active:enabled { transform: none; }
+.clay-editor .clay-select-menu > button,
+.clay-editor .clay-color-options > button { transform: none; filter: none; }
+.clay-editor .clay-select-menu > button:hover:enabled { background: var(--clay-hover); filter: none; }
+.clay-editor .clay-select-menu > button:active:enabled,
+.clay-editor .clay-color-options > button:active:enabled { transform: none; box-shadow: none; }

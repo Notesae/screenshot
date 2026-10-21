@@ -32,3 +32,6 @@ models/**/.downloads/
 __pycache__/
 *.pyc
 .wix/
+
+# 固定本地入口的运行锁不属于源代码。
+/output.instance.lock

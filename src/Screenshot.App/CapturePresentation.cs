@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
+using System.Windows;
 using System.Windows.Media.Imaging;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Screenshot.App;
 
@@ -13,13 +16,33 @@ public sealed record CaptureOverlay(string CaptureId, PixelRect DesktopBounds, P
 // 发往编辑器的捕获数据，只含选区像素和定位紧凑画布所需的几何信息。
 public sealed record CaptureEnvelope(LoadedImage Image, CaptureOverlay Overlay);
 
+// 首次框选的原生画面保留到编辑器接手；实现只能在宿主内部持有，不跨桥接。
+internal interface ICaptureHandoff : IDisposable { bool IsCancelled { get; } void KeepAbove(nint owner); }
+
 // 原生捕获结果同时持有选区图片和只供 WPF 显示的冻结桌面。
 public sealed record CapturedFrame(LoadedImage Image, [property: JsonIgnore] BitmapSource FrozenDesktop,
     PixelRect DesktopBounds, PixelRect Selection, IReadOnlyList<CaptureScreen> Screens)
 {
     public string CaptureId { get; } = Guid.NewGuid().ToString("N");
     public string Backend { get; init; } = "gdi";
+    [JsonIgnore] internal ICaptureHandoff? Handoff { get; init; }
     public CaptureEnvelope ToEnvelope() => new(Image, new(CaptureId, DesktopBounds, Selection, Screens, Backend));
+}
+
+// 按捕获身份释放临时原生画面，迟到的布局应答不能关闭后一次框选。
+internal sealed class CaptureHandoffState
+{
+    private string? _captureId;
+    private ICaptureHandoff? _visual;
+    public bool IsCancelled(string captureId) => _captureId==captureId&&_visual?.IsCancelled==true;
+    public bool HasVisual(string captureId)=>_captureId==captureId&&_visual is not null;
+    public void KeepAbove(string captureId,nint owner){if(_captureId==captureId&&_visual?.IsCancelled==false)_visual.KeepAbove(owner);}
+    public void Take(CapturedFrame frame) { Release(); _captureId=frame.CaptureId; _visual=frame.Handoff; }
+    public void Release(string? captureId=null)
+    {
+        if(captureId is not null&&captureId!=_captureId)return;
+        var visual=_visual;_visual=null;_captureId=null;visual?.Dispose();
+    }
 }
 
 // 工作台、就地覆盖层与隐藏状态；隐藏仍保留 WebView 中的编辑文档。
@@ -29,26 +52,28 @@ public enum PresentationMode { Workbench, Overlay, Hidden }
 internal sealed class CapturePresentationState
 {
     // 选择取消时恢复旧呈现，成功或显式退出时解除对旧冻结图的引用。
-    private sealed record SelectionSnapshot(PresentationMode Mode, BitmapSource? Backdrop, CaptureOverlay? Overlay, string? PendingId);
+    private sealed record SelectionSnapshot(PresentationMode Mode, BitmapSource? Backdrop, CaptureOverlay? Overlay, string? PendingId, string? PreparedId);
     private SelectionSnapshot? _beforeSelection;
     public PresentationMode Mode { get; private set; } = PresentationMode.Workbench;
     public BitmapSource? FrozenBackdrop { get; private set; }
     public CaptureOverlay? Overlay { get; private set; }
     public string? PendingCaptureId { get; private set; }
+    private string? _preparedCaptureId; // 已在原生遮挡后展示宿主，尚未取得浏览器绘制确认。
+    public bool IsPrepared(string captureId)=>Matches(captureId)&&PendingCaptureId==captureId&&_preparedCaptureId==captureId;
     public bool IsSelecting => _beforeSelection is not null;
 
     // 选择开始时保留旧呈现；后台捕获或用户取消不修改已有编辑内容。
     public void BeginCapture()
     {
         if (IsSelecting) throw new InvalidOperationException("正在选择截图区域。");
-        _beforeSelection = new(Mode, FrozenBackdrop, Overlay, PendingCaptureId);
+        _beforeSelection = new(Mode, FrozenBackdrop, Overlay, PendingCaptureId, _preparedCaptureId);
     }
 
     // 取消恢复选择前的显示状态和冻结图；显式退出已清除快照时不回滚退出操作。
     public void CancelCapture()
     {
         if (_beforeSelection is not { } previous) return;
-        Mode = previous.Mode; FrozenBackdrop = previous.Backdrop; Overlay = previous.Overlay; PendingCaptureId = previous.PendingId;
+        Mode = previous.Mode; FrozenBackdrop = previous.Backdrop; Overlay = previous.Overlay; PendingCaptureId = previous.PendingId; _preparedCaptureId=previous.PreparedId;
         _beforeSelection = null;
     }
 
@@ -64,15 +89,39 @@ internal sealed class CapturePresentationState
             throw new InvalidOperationException("截图像素与桌面坐标不一致。");
         if (!frame.FrozenDesktop.IsFrozen) frame.FrozenDesktop.Freeze();
         FrozenBackdrop = frame.FrozenDesktop; Overlay = frame.ToEnvelope().Overlay;
-        Mode = PresentationMode.Overlay; PendingCaptureId = frame.CaptureId; _beforeSelection = null;
+        Mode = PresentationMode.Overlay; PendingCaptureId = frame.CaptureId; _preparedCaptureId=null; _beforeSelection = null;
         return true;
     }
+
+    // 第一阶段只登记宿主已展示，超时保护仍保持，不能据此释放原生遮挡。
+    public bool TryPrepare(string captureId){if(!Matches(captureId)||PendingCaptureId!=captureId||_preparedCaptureId is not null)return false;_preparedCaptureId=captureId;return true;}
+    public bool TryAcceptPainted(string captureId)=>IsPrepared(captureId)&&TryAcceptReady(captureId);
 
     // 仅接受当前截图的一次布局确认，防止迟到确认显示其他截图或已关闭的覆盖层。
     public bool TryAcceptReady(string captureId)
     {
         if (IsSelecting || Mode != PresentationMode.Overlay || PendingCaptureId != captureId) return false;
-        PendingCaptureId = null; return true;
+        PendingCaptureId = null; _preparedCaptureId=null; return true;
+    }
+
+    // 只从本次原生冻结图裁剪；过期身份、未就绪状态及越界区域均不能读取像素。
+    public async Task<CaptureEnvelope> AdjustAsync(string captureId, PixelRect selection, CancellationToken token=default)
+    {
+        if (!Matches(captureId) || PendingCaptureId is not null || FrozenBackdrop is not { } frozen || Overlay is not { } overlay)
+            throw new InvalidOperationException("截图已失效，请重新截图。");
+        var bounds = overlay.DesktopBounds;
+        if (selection.Width < 2 || selection.Height < 2 || selection.Width > 16000 || selection.Height > 16000
+            || (long)selection.Width * selection.Height > 40_000_000 || selection.X < bounds.X || selection.Y < bounds.Y
+            || (long)selection.X + selection.Width > (long)bounds.X + bounds.Width || (long)selection.Y + selection.Height > (long)bounds.Y + bounds.Height)
+            throw new InvalidOperationException("选区超出冻结桌面或图片尺寸限制。");
+        // 冻结图可安全跨线程读取；编码和 Base64 转换不阻塞原生覆盖层重绘。
+        var image = await Task.Run(()=>NativeImages.FromBitmap(new CroppedBitmap(frozen,new Int32Rect(selection.X-bounds.X,selection.Y-bounds.Y,selection.Width,selection.Height)),"区域截图.png"),token);
+        token.ThrowIfCancellationRequested();
+        if(!Matches(captureId)||!ReferenceEquals(FrozenBackdrop,frozen)||PendingCaptureId is not null)throw new InvalidOperationException("截图已失效，请重新截图。");
+        // 前端接受的图片最多 24 MiB，超限时保持宿主选区不变。
+        if (image.DataUrl.Length > 24 * 1024 * 1024 * 4L / 3 + 64) throw new InvalidOperationException("选区图片过大，请缩小选区。");
+        Overlay = overlay with { Selection = selection };
+        return new(image, Overlay);
     }
 
     // 只终止仍等待当前截图布局的覆盖层；旧计时器不能关闭更新的截图。
@@ -101,7 +150,7 @@ internal sealed class CapturePresentationState
 
     public void ShowWorkbench() { Mode = PresentationMode.Workbench; ReleaseBackdrop(); }
     public void Dismiss() { Mode = PresentationMode.Hidden; ReleaseBackdrop(); }
-    private void ReleaseBackdrop() { FrozenBackdrop = null; Overlay = null; PendingCaptureId = null; _beforeSelection = null; }
+    private void ReleaseBackdrop() { FrozenBackdrop = null; Overlay = null; PendingCaptureId = null; _preparedCaptureId=null; _beforeSelection = null; }
 }
 
 // 根据实际 Win32 客户区补偿边框偏移；输入和输出始终为物理像素。
@@ -110,4 +159,11 @@ internal static class OverlayWindowGeometry
     public static PixelRect FitClient(PixelRect target, PixelRect outer, PixelRect client) => new(
         outer.X + target.X - client.X, outer.Y + target.Y - client.Y,
         outer.Width + target.Width - client.Width, outer.Height + target.Height - client.Height);
+}
+
+// 浏览器 CSS 尺寸与设备比例必须对应同一原生客户区，旧 DPI 的绘制应答不能撤掉遮挡。
+internal sealed record PresentationViewport(double Width,double Height,double Scale)
+{
+    public bool Matches(PresentationViewport expected)=>double.IsFinite(Width)&&double.IsFinite(Height)&&double.IsFinite(Scale)&&Width>0&&Height>0&&Scale>0
+        &&Math.Abs(Scale-expected.Scale)<.001&&Math.Abs(Width*Scale-expected.Width*expected.Scale)<=2&&Math.Abs(Height*Scale-expected.Height*expected.Scale)<=2;
 }

@@ -10,6 +10,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Resource Include="Assets/Screenshot.ico" />
+    <EmbeddedResource Include="../../design/soft-clay.tokens.json" LogicalName="Screenshot.SoftClayTokens" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3179.45" />
     <ProjectReference Include="../Screenshot.AI/Screenshot.AI.csproj" />
     <ProjectReference Include="../Screenshot.Ocr/Screenshot.Ocr.csproj" />

@@ -46,6 +46,8 @@ public partial class TermsWindow : Window
     }
     private void OnConsentChanged(object sender, RoutedEventArgs e)
     { if (ContinueButton is not null) ContinueButton.IsEnabled = Consent.IsChecked == true && !_documentError; }
+    private void Header_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    { if (e.LeftButton == System.Windows.Input.MouseButtonState.Pressed) DragMove(); }
     private void OnAccept(object sender, RoutedEventArgs e)
     {
         if (_documentError) { ErrorText.Text = "请先恢复可读取的完整条款文件。"; return; }

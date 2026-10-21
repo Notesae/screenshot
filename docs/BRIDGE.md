@@ -1,5 +1,35 @@
 # Native bridge v1
 
+## 2026-10-21 阅读窗口布局与手势
+
+阅读窗口新增标题栏移动、角部调整尺寸、方向键操作、默认位置恢复和全局原文对照开关；宽窗口双栏对照，窄窗口按原文/译文上下排列。手动矩形保存在当前 React 截图会话，关闭/重开保持，新截图清空，不进入项目 schema、桥接 payload、PNG 或历史修订。手动放置不自动钳制或回跳；初始自动摆放仍避让截图与导轨，用户手动操作后退出临时独占阅读，恢复同一画布。桥方法、AI 提示/请求、上传授权、密钥隔离和 imageTranslation 字段不变。
+
+## 2026-10-21 图片译文位置与独立图层
+
+`ai.translate` 新增可选 `purpose:"image"`，仅选择原生端的界面短语直译提示及独立 `translate-image-text-v2` 缓存；不增加网络动作、付费重试、上传内容或密钥暴露。省略时保留普通文字翻译；其它用途值拒绝。视觉图片翻译仍使用 `ai.translateImage`，提示禁止定义、解释与扩写并保留数字/单位/专名，其进程缓存身份改为 `translate-image-v2`，避免复用旧说明式结果。
+
+项目 schemaVersion 仍为 2，`editor.imageTranslation` 可选 `{blocks:[{source,text,x,y,width,height,fontSize,color,backgroundColor,align,needsReading,overflow}]}`，缺省为空。位置均为整张原图的 0..1000 坐标，最多 250 块、单块原文/译文各 2000、各总量 20000；字号 8–1024 源图像素、颜色只接受 #RRGGBB，align 只接受 left/center，两个状态字段只接受布尔。前端仅保存字段白名单，不能恢复任意绘图对象或外部资源。字号跟随原框而非屏幕比例放大，逐框裁切；不足处节选且保留完整文本供阅读。
+
+原图保持不变，译文图层和全文同次提交到撤销历史，预览及 PNG 导出在目标倍率绘制；读取旧项目仍支持上一轮的文字标注 backgroundColor，但本轮图片翻译不再生成浮动标注。裁剪/缩放映射此原图坐标，原生 capture.adjust 替换底图时清空图层；再次 OCR/翻译只处理原图与显式 cover，不处理译文或阅读界面。阅读视图状态不写项目、不参与导出，也不触发服务请求。取消、身份/服务修订过期与上传授权边界保持。
+
+## 2026-10-21 图片翻译可读排版
+
+桥方法、来源限制与图像上传条件保持原样；本地 OCR 可用时，相邻同列且字号接近的正文行在网页内合并后调用既有 ai.translate，仍只发送文字。回填增加约 14px 的字号下限、空白扩展与可编辑长段落标注，底图和新增标注由同一次历史提交生效，取消或身份过期不提交。
+
+项目 schemaVersion 仍为 2。文字标注可选 backgroundColor，只接受 #RRGGBB；读取和 Fabric 序列化均经字段白名单，不能恢复任意颜色表达式、图片、HTML 或 Fabric 对象。其它标注不接受该字段；旧项目未提供时保持无底色。文字标注的底色属于呈现，不作为隐私遮盖；显式 cover 仍由原 processingMasks 处理。
+
+## 2026-10-21 关闭自动保存、统一完成
+
+当前用户要求关闭自动保存。document.preserve 为兼容保留，但仅检查忙状态和内存身份，返回 {checkedState:true,saved:false}，不写恢复库。recovery.save 已停止发布能力，旧请求明确拒绝；历史记录的读取和显式删除保留。presentation.complete 仅接受图片已复制到剪贴板，核对当前 documentId/revision/captureId 与呈现代数后收起，不写快照、不创建继续编辑提示；前端收到当前完成确认后清空本次文档。复制失败、返回 copied:false、过期回复或未接受完成均保留当前编辑。更新安装前也只检查忙状态，不自动保存；手动 project.save 保留。以下旧版保存保护描述为历史协议，由本节覆盖。
+
+## 2026-10-21 松手进入编辑与选区调整
+
+区域框选有效松手立即返回同一 `CaptureEnvelope`，无用户确认阶段；编辑器同时展示动作轨与原样路径浮卡。`presentation.ready` 继续防止未完成布局的窗口闪现，不对应任何确认 UI。
+
+新增 `capture.adjust {captureId:string,selection:PixelRect}`，返回 `CaptureEnvelope`。仅匹配当前已就绪捕获、仍持有原生冻结图且不处于重新框选时才接受；尺寸至少 2px、单边最多 16000px、总面积最多 4000 万像素，并严格限制在原冻结桌面内。与捕获/本地操作共用互斥门控，失败保持原选区；不重新枚举或捕获桌面，不发送整张冻结图。返回图片沿用前端 24 MiB 限制，`captureId` 不变。
+
+编辑器拖动期间只预览几何，松手才请求裁剪。一次成功调整加入原文档撤销历史，保留样式、文字和标注；旧 crop/resize 按原有变换逻辑恢复源坐标后清除，旧 OCR 块映射清除，已有校对文字保留。几何与图片引用随本会话撤销/重做，不加入项目或恢复 schema。新图片、退出或收起使迟到响应失效。原位导入文件不允许从冻结桌面调整其内容。
+
 ## 2026-10-20 轻量编辑器与保存保护
 
 项目 schema 保持 v2。`presentation.editor` 是 `presentation.workbench` 的兼容别名；返回的内部呈现值仍使用 `workbench / overlay / hidden`。用户界面共用轻量编辑器，无第二份文档。`screens` 可带宿主提供的物理 `workArea:PixelRect`；编辑器验证其位于显示器 bounds 内，只用于限制工具位置，不改变选区、图像坐标或导出尺寸。
@@ -62,7 +92,7 @@ The default native capture backend reports `backend:"wgc", colorMode:"sdr", supp
 
 ## P0 additions
 
-Region selection retains the frozen frame after dragging: drag edges/corners or interior to adjust, arrows move one physical pixel, Shift+arrows resize, Ctrl uses ten pixels, Enter/double-click confirms, Escape/right-click cancels, M toggles the frozen-pixel magnifier. This interaction has only model validation until desktop testing resumes.
+Region selection hands off the frozen frame on valid pointer release. In-place editing exposes eight circular handles and direct dragging on empty space inside the selection; arrows move one physical pixel, Shift+arrows resize, Ctrl uses ten pixels. Escape cancels an active adjustment before editor dismissal; explicit reselect is available in the path card and More. Before handoff Escape/right-click cancels and M toggles the frozen-pixel magnifier. Desktop validation remains paused.
 
 `capture.screen` and `capture.region` accept `{backend?:"wgc"|"gdi",target?:{kind:"desktop"|"monitor"|"window",handle?:string,area?:"window"|"client"},timeoutMs?:number}`. Native handles are nonzero decimal or `0x` strings, never JS numbers. Desktop is the default; monitor/window require an explicit valid handle. Timeout is 100–30000 ms (default 8000). Capture overlay metadata also reports the actual `backend`, `colorMode:"sdr"`, and `supportsHdr:false`. WGC uses BGRA8; HDR fidelity is not claimed. Availability is checked on capture without enumerating targets during app.info.
 
@@ -154,3 +184,34 @@ GitHub App device code、access/refresh token、账号授权请求与私有 Rele
 ## 0.4.8 公开源免登录更新
 
 用户自行公开仓库后，原生更新源改为固定官方公开GET；设备码、token会话和Client ID配置已删除。没有认证桥接或新增编辑器权限。公开源核对固定仓库ID与公开状态，401/403/404不转入登录；检查/下载、校验、快照保护及React就绪协议仍由原生宿主管理，安装交接继续要求用户明确确认。
+
+后续交接修复不改变桥接字段：宿主内部 ICaptureHandoff 按捕获身份持有首次框选画面，只有当前 presentation.ready 接受且宿主已处理布局/绘制后释放；取消、超时、退出也释放。PNG 编码和 capture.adjust 裁剪在后台执行，提交前再次核对身份和取消。前端等当前图片真正绘制完成才发送 ready，收到接受结果后才播放工具入场；裁剪期间继续保留几何预览直到当前底图完成绘制。W/C 选择快捷操作已移除，自动吸附仍可通过设置控制。
+
+## 两阶段可见绘制交接
+
+连续截图修正：网页发起 capture.* 请求或收到新 CaptureEnvelope 时暂停旧呈现，按接收序号清理等待状态；取消后的迟到解码/回复不再替换文档，既有超时保留图片的行为不变。r5 已删除 screenshotSuspendCapture / screenshotResumeCapture 和整层 EditorSurface 透明度切换；宿主直接隐藏完整 HWND，托盘状态不再等待固定 180ms，可见状态仅等待本进程合成更新撤离。
+
+ready 新增 hostFrameGate:true。此分支前端完成几何核对后仍不自行揭示选区；宿主处理 painted 时先订阅公开模板 PART_image 的 Source/Source.Changed，再调用 screenshotPresentCapture(captureId)。该回调只接受当前捕获并同步显示静态选区，工具仍隐藏。r5 不再接受任意一次源变化：显示回调完成后，在 Dispatcher.Background 校验现有图像的少量 alpha 样本，选区内部匹配本次冻结图，外部匹配共享遮罩 alpha；透明空帧、无遮罩及采样可识别的旧选区帧均拒绝。已有正确帧允许直接通过，无需等待新的 Changed。校验只读取已有图像，少量样本合成一行统一读回，不捕获屏幕、不保存/传输像素。WPF 渲染队列与 DwmFlush 完成后复核身份/DPI才撤挡；单次 2 秒超时保留遮挡，携 awaitingPaint:true 继续重试，不突变成无遮罩工作台。前端 12 秒及原生 15 秒的总就绪保护保留。DPI 重试不重复验同一已接受捕获。旧模拟桥不返回此标志时保留网页准备流程。
+
+presentation.ready {captureId} 先登记准备阶段，在原生选区遮挡后显示宿主，返回 awaitingPaint:true 和 viewport:{width,height,scale}；此时 pending 身份和 15 秒就绪超时继续有效，不释放原生画面。viewport 来自 Win32 客户区及窗口 DPI，width/height 为 CSS 尺寸，scale 包含 WebView ZoomFactor。前端进入 is-preparing，直到实际视口、共享 React 布局快照与宿主目标匹配，且工具几何连续两帧一致，才调用 presentation.painted {captureId,viewport}。
+
+宿主再次校验当前捕获身份、取消状态、Win32 客户区和 WPF 编辑器实际尺寸/DPI，在 Render 优先级继续后复核，成功才撤挡和激活；没有原生遮挡的屏幕捕获在此之前保持宿主透明。旧视口返回 accepted:false,awaitingPaint:true,viewport:最新目标，前端继续等待并重试，不提前显示工具或作废截图。设备比例容差小于 .001，物理宽高容许 2px 取整。前端等待最多 12 秒，原生 15 秒超时回退仍有效；取消、替换、退出使旧 painted 无效。它取代仅等待浏览器两帧与 WPF 两帧的实现，帧数本身不能证明 DPI 已收敛。
+
+菜单和标注状态不跨原生桥。文档仍使用 v2 的 left/top/width/height/scale/angle 表示箭头，端点由局部中心及矩阵映射；没有保存 Fabric 任意 JSON 或新增项目 schema。
+
+原生遮挡在宿主 Show 之前用 GWLP_HWNDPARENT 建立顶层 owned-window 关系，随后才显示和定位宿主，避免两个无所有权的 TopMost 窗口先后置顶时短暂交换层级；只对当前捕获有效。[Windows owned-window 层级规则](https://learn.microsoft.com/en-us/windows/win32/winmsg/window-features)。
+
+## 2026-10-21 统一设置入口
+settings.configure 增加可选 section（capture / services / updates），在同一原生设置浮卡中切换截图与快捷键、识别与翻译、应用更新；未知或缺省值进入截图页，返回仍为原 PublicSettings。网页不再呈现一层包含“服务设置与应用更新”的独立设置卡。文字工具齿轮指定 services，其余设置入口进入 capture。原生页复用 capture.settings/configure 与 hotkey.read/configure 的宿主处理，仅点击应用才更改配置/注册热键；打开设置只读现有配置，不枚举显示器或截图。原生服务保存与密钥边界不变。关闭后前端重新读取 capture.settings，避免截图方式缓存过期。显示器选择与截图动作在更多操作下保留；条款仍通过只读查看窗口提供。
+
+## 2026-10-21 图片原位翻译
+新增 ai.translateImage {providerId,providerRevision?,imageDataUrl,taskId?}，仅由轨道“翻译图片为中文”的显式动作调用，使用已有 AI 门控、任务取消、原生配置与图片验证。发送当前裁剪/缩放内容，沿用实色隐私遮盖，不发送冻结桌面、装饰或其他标注。要求用户所选服务支持图片输入。原生返回 {blocks:[{source,text,x,y,width,height}]}，坐标为所发图片宽高的千分比；仅接受最多 250 块、有限数值和图内正面积矩形，文字量有界。服务返回的代码、URL、HTML 不执行；格式不合规整体拒绝，无自动重试。前端二次检查并将矩形映射回源图裁剪范围，边缘主色覆盖原外语，中文按框内空间换行和缩放，完整结果作为一次文档历史事务替换图片，保持原图尺寸、裁剪、标注及选区关系。取消、文档/修订/代数/服务配置变化均拒绝迟到结果。原位译文烘焙到当前图片，项目 schema 不变；原图留在当前内存撤销历史内，不自动写盘。复杂背景/旋转文字不提供修复或精确还原保证。
+
+## 2026-10-21 原生设置测试连接
+统一设置的服务页新增“测试连接”，直接使用原生表单草稿发送一次固定文字请求，明确提示可能计费；不上传截图、不保存草稿、不使用缓存，也不新增可传密钥的网页桥。空密钥沿用当前服务已存的本机密钥，填写新密钥仅用于本次草稿测试，显式删除密钥草稿不再沿用旧值。成功仅表明这次文字请求返回，不宣称图片识别/图片翻译能力。测试可取消，关闭设置取消本次请求，修改连接信息清空旧测试状态。已保存密钥以状态和示意圆点展示，不解密回填 PasswordBox，不把占位内容作为密码提交。
+
+## 2026-10-21 设置与截图翻译路径修正
+托盘 settings 直接由原生浮卡打开，隐藏宿主不作为其 Owner，不激活工作台或作废旧截图身份；编辑器 settings.configure 复用同一窗口。关闭发送 editor.action {action:"settings-updated"}，前端仅重新读取 settings.read 与 capture.settings，不加载图片。截图翻译若本地 OCR 可用，先以 taskId 调用 ocr.local，再对外语块通过新 taskId 顺序调用 ai.translate（简体中文），重复文本在本次操作内复用结果；位置来自 OCR polygon，仍按所发内容尺寸映射回填。全部请求及回填沿用身份/修订/配置和取消保护，不自动重试。无本地 OCR 的视觉路线保留，已知 Hunyuan-MT/HY-MT 文字模型会提示准备本地 OCR，不发送图片。专用混元文字翻译改用官方单 user 模板；设置连接测试改为固定翻译示例，仍不上传截图或保存草稿。
+
+## 2026-10-21 框选交接等待调整
+presentation.ready / presentation.painted 字段与当前捕获、DPI、alpha 样本确认条件不变。等待现有 WebView 图像的样本核对改在 Dispatcher.Loaded（渲染后）队列执行，并仅在等待期间每 32ms 重查同一现有 Source，补足原地缓冲更新或通知合并未及时触发核对的情况。仅有验帧谓词才启用重查，超时/取消/结束均停止；时间本身不构成成功依据。确认后不再等 ContextIdle，改等 Render 队列，再执行现有 DwmFlush 与身份/几何复核。网页几何循环保留动画帧，但增加 32ms 定时后备，仅推进布局采样，仍由宿主真实帧检查放行。原总期限和拒绝旧帧规则保持。

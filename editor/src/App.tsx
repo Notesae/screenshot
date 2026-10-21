@@ -1,17 +1,19 @@
 import {parseTranslationDocument,createTranslationDocument,canResumeTranslation,translationText} from './translationDocument';
 import { prepareUpdateSnapshot, prepareLeaveSnapshot, SETTINGS_OPERATION } from './updateSafety';
 import { runTranslationChunks,type TranslationChunk } from './translation';
-import { RecoveryPanel, useRecovery } from './RecoveryPanel';
+import { RecoveryPanel } from './RecoveryPanel';
 import type { RecoveryItem } from './recovery';
 import { parseOcr, ocrText, requestMatches, type LocalOcrStatus, type RequestStamp } from './ocr';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 
 import { native, subscribeNative, type LoadedImage, type Settings, type PresentationResult } from './bridge';
 import { defaultEditor, parseDocument, transformContent, type ContentResize, type SourceCrop, type EditorState, type ProjectDocument } from './document';
 import { fileToImage, imageForProcessing, normalizeImage } from './render';
 import type { CanvasHandle, CanvasRenderStatus, CanvasSelection } from './EditorCanvas';
-import { overlayForImportedImage, parseCapture, type CaptureEnvelope, type OverlayMetadata } from './overlay';
+import { overlayForImportedImage, parseCapture, type CaptureEnvelope, type OverlayMetadata, type PixelRect } from './overlay';
 import { CompactOverlay } from './CompactOverlay';
+import { groupImageTextLines, ocrImageRegions, parseImageTranslation, prepareImageTranslation, shouldTranslateImageText } from './imageTranslation';
 import { useEditorHistory } from './useEditorHistory';
 import { annotationKeyAction, historyKeyAction } from './keyboard';
 
@@ -34,7 +36,10 @@ export default function App() {
   const aiSequence = useRef(0), aiTaskId = useRef<string | null>(null);
   const [overlay, setOverlay] = useState<OverlayMetadata | null>(null);
   const [overlayReady,setOverlayReady]=useState(false);
+  // 暂停的是旧呈现而非文档；解码序号防止旧任务解锁下一次捕获。
+  const [loadingCapture,setLoadingCapture]=useState<number|null>(null);
   const [busy, setBusy] = useState('');
+  const operationRef=useRef(''); // 原生回调读取同步操作状态，避免 React 尚未重绘时误读上一次忙状态。
   const [canvasStatus, setCanvasStatus] = useState<CanvasRenderStatus>('loading');
   const [selection,setSelection] = useState<CanvasSelection|null>(null);
   const [aiBusy, setAiBusy] = useState('');
@@ -43,7 +48,7 @@ export default function App() {
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
   const [hostLocked, setHostLocked] = useState(false);
   const hostLock = useRef(false), savedProject = useRef<{ id:string; revision:number } | null>(null);
-  const [entryPanel, setEntryPanel] = useState<{kind:'more'|'recovery'|'settings';sequence:number}|null>(null);
+  const [entryPanel, setEntryPanel] = useState<{kind:'more'|'recovery';sequence:number}|null>(null);
   const actions = useRef<(action:string,text?:string)=>void>(()=>{});
   // 成功提示按长度留出阅读时间，错误保持到用户关闭；旧计时器不能清除较新的提示。
   useEffect(() => {
@@ -61,17 +66,21 @@ export default function App() {
   const imageInput = useRef<HTMLInputElement>(null), projectInput = useRef<HTMLInputElement>(null);
   const generation = useRef(0), current = useRef(doc); current.current = doc;
   const overlayRef = useRef(overlay); overlayRef.current = overlay;
+  // 图片对象沿撤销历史保留相应物理选区；不把桌面坐标写进项目或恢复库。
+  const captureAdjusting = useRef(false);
+  const captureGeometry = useRef(new WeakMap<LoadedImage,OverlayMetadata>());
+  const imageGeometry = doc.image && captureGeometry.current.get(doc.image);
+  const activeOverlay = overlay && imageGeometry && imageGeometry.captureId===overlay.captureId ? imageGeometry : overlay;
   const overlayReadyRef=useRef(overlayReady);overlayReadyRef.current=overlayReady;
   const pendingCapture = useRef<{ captureId?: string; revision: number } | null>(null);
   const expiredCaptures = useRef(new Set<string>());
   const timedOutCaptures = useRef(new Set<string>());
   const editor = doc.editor;
-  const recovery = useRecovery(documentId, history.revision, doc);
   useLayoutEffect(() => {
     window.screenshotPrepareUpdate = () => prepareUpdateSnapshot({ operation: busy, aiBusy: Boolean(aiBusy), editing: canvas.current?.interactionState().editing || false, loading: Boolean(doc.image) && canvasStatus !== 'ready', documentId, revision: history.revision, document: history.current() });
     window.screenshotPrepareLeave = reason => {
-      if (hostLock.current) return { error: '正在确认保存，请稍后再试。' };
-      const snapshot = prepareLeaveSnapshot({ operation:busy, aiBusy:Boolean(aiBusy), editing:canvas.current?.interactionState().editing || false, loading:Boolean(doc.image) && canvasStatus !== 'ready', documentId, revision:history.currentRevision(), document:history.current(), projectSaved:savedProject.current?.id===documentId && savedProject.current.revision===history.currentRevision() }, reason);
+      if (hostLock.current) return { error: '正在确认编辑状态，请稍后再试。' };
+      const snapshot = prepareLeaveSnapshot({ operation:operationRef.current, aiBusy:Boolean(aiBusy), editing:canvas.current?.interactionState().editing || false, loading:Boolean(doc.image) && canvasStatus !== 'ready', documentId, revision:history.currentRevision(), document:history.current(), projectSaved:savedProject.current?.id===documentId && savedProject.current.revision===history.currentRevision() }, reason);
       if (!('error' in snapshot)) {
         hostLock.current=true;setHostLocked(true);
         // 替换意图先使旧 AI 身份失效，捕获等待期间的迟到结果不能成为未保护的新修改。
@@ -90,7 +99,7 @@ export default function App() {
 
   const errorNotice = (error: unknown) => setNotice({ text: message(error), error: true });
   const update = (change: Partial<EditorState>, group?: string) => {
-    if (hostLock.current) return;
+    if (hostLock.current||captureAdjusting.current) return;
     const fields = Object.keys(change), key = fields[0];
     history.change(change, group || (fields.length === 1 && ['text', 'translation', 'title', 'padding', 'radius', 'fontSize', 'textWidth'].includes(key) ? `input:${key}` : undefined));
   };
@@ -101,7 +110,7 @@ export default function App() {
     let composing = false;
     const start = () => { composing = true; }, end = () => { composing = false; };
     const keydown = (event: KeyboardEvent) => {
-      if (hostLock.current) return;
+      if (hostLock.current||captureAdjusting.current) return;
       const target = event.target instanceof Element ? event.target : null, interaction = canvas.current?.interactionState();
       const action = historyKeyAction({ key: event.key, ctrl: event.ctrlKey, meta: event.metaKey, alt: event.altKey, shift: event.shiftKey, composing: composing || event.isComposing, textInput: Boolean(target?.closest('input,textarea,select,[contenteditable="true"],[role="textbox"]')), fabricEditing: interaction?.editing || false, selectedObject: false, panelOpen: false, textSelection: false });
       if (event.defaultPrevented) return;
@@ -119,9 +128,9 @@ export default function App() {
   }, [overlay]);
   // 本地文件/剪贴板操作共享忙状态，AI 使用独立状态以保持本地操作可用。
   async function run(label: string, action: () => Promise<void>) {
-    if (busy) return;
-    setBusy(label); setNotice(null);
-    try { await action(); } catch (error) { errorNotice(error); } finally { setBusy(''); }
+    if (operationRef.current||hostLock.current) return;
+    operationRef.current=label;setBusy(label); setNotice(null);
+    try { await action(); } catch (error) { errorNotice(error); } finally { operationRef.current='';setBusy(''); }
   }
   // 每次载入推进代数；旧解码或旧 AI 结果不能覆盖之后打开的内容。
   async function acceptImage(value: unknown, revision = ++generation.current, retainOverlay=false) {
@@ -129,22 +138,46 @@ export default function App() {
     const sourceOverlay = overlayRef.current;
     if(retainOverlay&&(!sourceOverlay||!overlayReadyRef.current))throw new Error('原位编辑尚未就绪，请稍后导入。');
     const capture = parseCapture(value);
-    if (capture.overlay) pendingCapture.current = { captureId: capture.overlay.captureId, revision };
-    const image = await normalizeImage(capture.image);
-    if (revision !== generation.current) return;
-    if (native.available && !capture.overlay) await native.request('document.preserve');
-    if (revision !== generation.current) return;
-    if(retainOverlay&&sourceOverlay){
-      if(overlayRef.current?.captureId!==sourceOverlay.captureId||(sourceOverlay.captureId&&expiredCaptures.current.has(sourceOverlay.captureId)))return;
-      setOverlay(overlayForImportedImage(sourceOverlay,image));setDoc({schemaVersion:2,image,editor:defaultEditor()});setDocumentEpoch(v=>v+1);setNotice({text:'图片已在原位打开；显示适配不改变原始导出像素。'});return;
-    }
-    if (!capture.overlay && sourceOverlay) {
-      const result = await native.request<PresentationResult>('presentation.editor', sourceOverlay.captureId ? { captureId: sourceOverlay.captureId } : {});
-      if (result.accepted === false || revision !== generation.current) return;
-    }
-    const expired = Boolean(capture.overlay?.captureId && expiredCaptures.current.has(capture.overlay.captureId));
-    if (pendingCapture.current?.revision === revision) pendingCapture.current = null;
-    setOverlayReady(false);setOverlay(expired ? null : capture.overlay); setDoc({ schemaVersion: 2, image, editor: defaultEditor() }); setDocumentEpoch(value => value + 1); setNotice(expired ? (timedOutCaptures.current.has(capture.overlay!.captureId!) ? { text: '选区编辑已超时，截图已保留在轻量编辑器。', error: true } : null) : capture.overlay ? null : { text: `已载入 ${image.name}` });
+    if(capture.overlay?.captureId&&expiredCaptures.current.has(capture.overlay.captureId)&&!timedOutCaptures.current.has(capture.overlay.captureId))return;
+    if (capture.overlay) {pendingCapture.current = { captureId: capture.overlay.captureId, revision };flushSync(()=>setLoadingCapture(revision));}
+    try {
+      const image = await normalizeImage(capture.image);
+      if (revision !== generation.current) return;
+      if(capture.overlay?.captureId&&expiredCaptures.current.has(capture.overlay.captureId)&&!timedOutCaptures.current.has(capture.overlay.captureId))return;
+      if (native.available && !capture.overlay) await native.request('document.preserve');
+      if (revision !== generation.current) return;
+      if(retainOverlay&&sourceOverlay){
+        if(overlayRef.current?.captureId!==sourceOverlay.captureId||(sourceOverlay.captureId&&expiredCaptures.current.has(sourceOverlay.captureId)))return;
+        setOverlay(overlayForImportedImage(sourceOverlay,image));setDoc({schemaVersion:2,image,editor:defaultEditor()});setDocumentEpoch(v=>v+1);setNotice({text:'图片已在原位打开；显示适配不改变原始导出像素。'});return;
+      }
+      if (!capture.overlay && sourceOverlay) {
+        const result = await native.request<PresentationResult>('presentation.editor', sourceOverlay.captureId ? { captureId: sourceOverlay.captureId } : {});
+        if (result.accepted === false || revision !== generation.current) return;
+      }
+      const expired = Boolean(capture.overlay?.captureId && expiredCaptures.current.has(capture.overlay.captureId));
+      if (pendingCapture.current?.revision === revision) pendingCapture.current = null;
+      if(capture.overlay)captureGeometry.current.set(image,capture.overlay);
+      flushSync(()=>{setOverlayReady(false);setOverlay(expired ? null : capture.overlay); setDoc({ schemaVersion: 2, image, editor: defaultEditor() }); setDocumentEpoch(value => value + 1);setLoadingCapture(null);setNotice(expired ? (timedOutCaptures.current.has(capture.overlay!.captureId!) ? { text: '选区编辑已超时，截图已保留在轻量编辑器。', error: true } : null) : capture.overlay ? null : { text: `已载入 ${image.name}` });});
+    } finally {setLoadingCapture(current=>current===revision?null:current);if(pendingCapture.current?.revision===revision)pendingCapture.current=null;}
+  }
+  // 一次调整作为可撤销的文档修改；宿主不重新捕获，不改身份，不丢校对文字和标注。
+  async function adjustCapture(area:PixelRect):Promise<boolean> {
+    if(hostLock.current||captureAdjusting.current||busy||aiBusy||canvas.current?.interactionState().editing)return false;
+    const source=overlayRef.current;
+    if(!source?.captureId||source.contentScale||!overlayReadyRef.current)return false;
+    captureAdjusting.current=true;let accepted=false;
+    try{await run('调整截图选区',async()=>{
+      const revision=++generation.current,document=current.current;
+      const result=parseCapture(await native.request<CaptureEnvelope>('capture.adjust',{captureId:source.captureId,selection:area}));
+      if(revision!==generation.current||overlayRef.current?.captureId!==source.captureId||!result.overlay||result.overlay.captureId!==source.captureId)return;
+      const image=await normalizeImage(result.image);
+      if(revision!==generation.current||overlayRef.current?.captureId!==source.captureId)return;
+      captureGeometry.current.set(image,result.overlay);
+      const editor=document.editor.mode==='reflow'?document.editor:transformContent(document,null,null).editor;
+      history.commitDocument({...document,image,editor:{...editor,crop:null,resize:null,ocr:null,imageTranslation:null}});
+      setSelection(null);accepted=true;
+    });}finally{captureAdjusting.current=false;}
+    return accepted;
   }
   // 项目校验与图片解码全部完成后才整体替换，并通过 epoch 清空旧画布标注。
   async function acceptProject(value: unknown, revision = ++generation.current, restored?: { documentId: string; revision: number }) {
@@ -172,7 +205,11 @@ export default function App() {
         if (expiredCaptures.current.size > 64) { const oldest = expiredCaptures.current.values().next().value!; expiredCaptures.current.delete(oldest); timedOutCaptures.current.delete(oldest); }
         const activeId = pendingCapture.current?.captureId || overlayRef.current?.captureId;
         if (activeId && activeId !== expiredId) return;
+        if(pendingCapture.current?.captureId===expiredId&&!presentation.timedOutCaptureId){generation.current++;pendingCapture.current=null;setLoadingCapture(null);}
       }
+      // 退出或收起后的迟到裁剪不得继续修改已经保护的文档。
+      if(captureAdjusting.current)generation.current++;
+
       setOverlay(null);
       if (presentation.reason === 'overlay_timeout') setNotice({ text: '选区编辑未及时就绪，已返回轻量编辑器。图片与编辑内容仍保留。', error: true });
     }, (action,text) => actions.current(action,text));
@@ -213,10 +250,13 @@ export default function App() {
     }
     await run(label, async () => {
       const revision = ++generation.current;
-      const image = await native.request<LoadedImage | CaptureEnvelope | null>(method,payload);
-      if (!image || revision !== generation.current) return;
-      const capture = parseCapture(image); if (capture.overlay) pendingCapture.current = { captureId: capture.overlay.captureId, revision };
-      await acceptImage(image, revision);
+      const capturing=method.startsWith('capture.');if(capturing)flushSync(()=>setLoadingCapture(revision));
+      try {
+        const image = await native.request<LoadedImage | CaptureEnvelope | null>(method,payload);
+        if (!image || revision !== generation.current) return;
+        const capture = parseCapture(image); if (capture.overlay) pendingCapture.current = { captureId: capture.overlay.captureId, revision };
+        await acceptImage(image, revision);
+      } finally {if(capturing)setLoadingCapture(current=>current===revision?null:current);}
     });
   }
   async function openProject() {
@@ -240,34 +280,90 @@ export default function App() {
       else { const url = URL.createObjectURL(new Blob([JSON.stringify(document)], { type: 'application/json' })); download(url, '拾影项目.screenshot.json'); setTimeout(() => URL.revokeObjectURL(url), 1000); setNotice({ text: '项目已导出，请保留此文件以继续编辑。' }); }
     });
   }
-  // 保存与复制复用同一 PNG 输出，原生与浏览器只负责最终文件/剪贴板写入。
-  async function exportImage(copy = false) {
-    await run(copy ? '复制图片' : '导出图片', async () => {
+  // 完成只复制当前 PNG；复制成功且身份未变时收起，不自动保存或显示继续编辑提示。
+  async function completeEditing() {
+    await run('完成截图', async () => {
       const stamp={documentId:documentIdRef.current,revision:history.currentRevision(),generation:generation.current};
       const dataUrl = await canvas.current!.exportPng(scale);
       if (native.available) {
-        const result = await native.request<{ saved?: boolean; copied?: boolean }>(copy ? 'image.copy' : 'image.save', { dataUrl, suggestedName: `${(doc.image?.name || '拾影').replace(/\.[^.]+$/, '')}-${editor.mode}.png` });
-        if (result.saved || result.copied) {
-          const text=copy ? '图片已复制到剪贴板' : 'PNG 已保存';
-          setNotice({text});
-          if (stamp.documentId===documentIdRef.current && stamp.revision===history.currentRevision() && stamp.generation===generation.current) {
-            try {
-              const completed=await native.request<{accepted:boolean}>('presentation.complete',{...stamp,captureId:overlayRef.current?.captureId,text});
-              if(completed.accepted){generation.current++;setOverlay(null);setNotice(null);}
-            } catch(error) { setNotice({text:`${text}；${message(error)}`,error:true}); }
-          }
-        }
-      } else if (copy) {
-        if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') throw new Error('此浏览器不支持复制图片，请使用导出 PNG。');
-        const binary = atob(dataUrl.split(',')[1]); const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-        await navigator.clipboard.write([new ClipboardItem({ 'image/png': new Blob([bytes], { type: 'image/png' }) })]); setNotice({ text: '图片已复制' });
-      } else { download(dataUrl, '拾影.png'); setNotice({ text: 'PNG 已导出' }); }
+        const result = await native.request<{ copied:boolean }>('image.copy', { dataUrl });
+        if (!result.copied) throw new Error('图片未复制成功，请重试。');
+        if (stamp.documentId!==documentIdRef.current || stamp.revision!==history.currentRevision() || stamp.generation!==generation.current) return;
+        const completed=await native.request<{accepted:boolean}>('presentation.complete',{...stamp,captureId:overlayRef.current?.captureId,text:'图片已复制到剪贴板'});
+        if(!completed.accepted)throw new Error('图片已复制，编辑状态已变化，请重新完成。');
+        if(stamp.documentId!==documentIdRef.current || stamp.revision!==history.currentRevision() || stamp.generation!==generation.current)return;
+        generation.current++;setOverlay(null);setNotice(null);
+        setDoc(initial);setDocumentEpoch(value=>value+1);
+      } else {
+        if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') throw new Error('此浏览器不支持复制图片，请使用 Windows 桌面应用。');
+        const bytes=Uint8Array.from(atob(dataUrl.split(',')[1]),c=>c.charCodeAt(0));
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png':new Blob([bytes],{type:'image/png'}) })]);
+        if(stamp.documentId===documentIdRef.current && stamp.revision===history.currentRevision() && stamp.generation===generation.current){setDoc(initial);setDocumentEpoch(value=>value+1);setNotice({text:'图片已复制'});}
+      }
     });
   }
   // 身份、历史修订和请求序号共同保护结果；本地与云端都只响应明确点击。
   function requestStamp(sequence = aiSequence.current): RequestStamp { return { documentId: documentIdRef.current, generation: generation.current, revision: history.currentRevision(), sequence }; }
+  // 图片翻译只响应明确点击；独立译文图层同一次入历史，原图保留供撤销、重译和阅读。
+  async function translateImage() {
+    if(aiBusy||aiTaskId.current||operationRef.current||hostLock.current)return;
+    const snapshot=history.current();
+    if(!snapshot.image||snapshot.editor.mode==='reflow'){errorNotice(new Error('请在截图画面中使用图片翻译。'));return;}
+    if(!providerId){await configureSettings('services');return;}
+    const taskId=crypto.randomUUID(),sequence=++aiSequence.current,stamp=requestStamp(sequence);
+    const matches=()=>requestMatches(stamp,requestStamp())&&aiOptions.current.providerId===providerId&&aiOptions.current.providerRevision===providerRevision;
+    aiTaskId.current=taskId;setAiBusy('翻译图片');setNotice({text:'正在将选区中的外语翻译为中文…'});
+    try{
+      const input=await imageForProcessing(snapshot);
+      if(!matches())return;
+      // 有本地文字定位时只发送文字，专用翻译模型无需接收图片或生成坐标 JSON。
+      let result:unknown;
+      if(localStatus?.available){
+        setNotice({text:'正在本地识别选区文字…'});
+        const recognized=await native.request<unknown>('ocr.local',{taskId,imageDataUrl:input.dataUrl});
+        if(!matches())return;
+        const ocr=parseOcr(recognized,{crop:snapshot.editor.crop,resize:snapshot.editor.resize});
+        if(ocr.imageWidth!==input.width||ocr.imageHeight!==input.height)throw new Error('识别位置与截图尺寸不一致。');
+        const foreign=groupImageTextLines(ocrImageRegions(ocr).filter(block=>shouldTranslateImageText(block.source)));
+        if(foreign.length>250||foreign.reduce((sum,block)=>sum+block.source.length+1,0)>20000)throw new Error('选区文字过多，请缩小范围后翻译。');
+        const blocks=[];
+        const translated=new Map<string,string>();
+        for(const [index,block] of foreign.entries()){
+          if(!matches())return;
+          setNotice({text:'正在翻译 '+(index+1)+' / '+foreign.length+' 处文字…'});
+          let text=translated.get(block.source);
+          if(text===undefined){
+            const id=crypto.randomUUID();aiTaskId.current=id;
+            const response=await native.request<{text:string}>('ai.translate',{taskId:id,providerId,providerRevision,text:block.source,targetLanguage:'简体中文',purpose:'image'});
+            if(!matches())return;
+            if(typeof response.text!=='string'||!response.text.trim()||response.text.length>2000)throw new Error('有一段译文无效或过长，截图尚未修改。');
+            text=response.text;translated.set(block.source,text);
+          }
+          if(text.trim()===block.source.trim())continue;
+          blocks.push({...block,text});
+        }
+        result={blocks};
+      }else{
+        const model=settings.providers.find(provider=>provider.id===providerId)?.model??'';
+        if(/(?:hunyuan-mt|hy-mt)/i.test(model))throw new Error('当前是文字翻译模型，需要先准备本地 OCR；不会把截图发给它。');
+        try{result=await native.request<unknown>('ai.translateImage',{taskId,providerId,providerRevision,imageDataUrl:input.dataUrl});}
+        catch(error){throw new Error(message(error)+' 当前未能使用本地识别，图片直译需要支持图片输入的模型。');}
+      }
+      if(!matches())return;
+      const returned=parseImageTranslation(result),blocks=returned.filter(block=>shouldTranslateImageText(block.source)&&block.source.trim()!==block.text.trim());
+      if(!blocks.length){setNotice({text:'没有发现需要替换的外语文字，截图保持原样。'});return;}
+      // 短标签被扩写成解释时明确拒绝，避免将错误长文回填到图中；不自动追加付费重试。
+      if(blocks.some(block=>block.source.trim().length<=40&&block.text.trim().length>Math.max(40,block.source.trim().length*2.5)))throw new Error('服务将短语扩写成了说明，未修改截图。请换用直接翻译的模型后重试。');
+      const imageTranslation=await prepareImageTranslation(snapshot,blocks,canvas.current?.getDisplayScale?.());
+      if(!matches())return;
+      const text=blocks.map(block=>block.source).join('\n'),translation=blocks.map(block=>block.text).join('\n');
+      history.commitDocument({...snapshot,editor:{...snapshot.editor,imageTranslation,ocr:null,text,translation,translationSource:text,translationData:null}});
+      setNotice({text:imageTranslation.blocks.some(block=>block.overflow)?'已按原位置排版；空间不足处保留节选或原文，点击“阅读译文”可看全文。':imageTranslation.blocks.some(block=>block.needsReading)?'已按原位置排版；点击“阅读译文”可放大查看小字和长段落。':'已按原位置翻译，可用撤销恢复原图。'});
+    }catch(error){if(sequence===aiSequence.current)errorNotice(error);}
+    finally{if(sequence===aiSequence.current){aiTaskId.current=null;setAiBusy('');}}
+  }
   async function ai(kind: 'ocr' | 'translate', retry=false) {
-    if (aiBusy) return;
+    if (aiBusy || aiTaskId.current) return;
     const taskId=crypto.randomUUID(); aiTaskId.current=taskId;
     const sequence = ++aiSequence.current;let stamp = requestStamp(sequence);const snapshot = history.current();
     const local = kind === 'ocr' && ocrEngine === 'local';
@@ -318,11 +414,13 @@ export default function App() {
     const taskId=aiTaskId.current; aiTaskId.current=null; aiSequence.current++; setAiBusy('');
     try { if(taskId) await native.request('ai.cancel',{taskId}); setNotice({ text: '已取消此任务，现有校对内容保持不变。' }); } catch (error) { errorNotice(error); }
   }
-  async function configureCapture(backend: 'wgc' | 'gdi') {
-    await run('切换捕获后端', async () => {
-      const result = await native.request<{ backend: 'wgc' | 'gdi' }>('capture.configure', { backend });
-      if (result.backend !== backend) throw new Error('宿主未确认所选捕获后端。');
-      setCaptureBackend(result.backend);
+  // 所有入口共用一张设置浮卡，关闭后同步服务和截图方式，避免沿用旧状态。
+  async function configureSettings(section:'capture'|'services'='capture') {
+    await run(SETTINGS_OPERATION, async () => {
+      applySettings(await native.request<Settings>('settings.configure', {section}));
+      const capture = await native.request<{backend:'wgc'|'gdi'}>('capture.settings');
+      if (capture.backend !== 'wgc' && capture.backend !== 'gdi') throw new Error('截图方式无效。');
+      setCaptureBackend(capture.backend);
     });
   }
   // 文件输入和拖放共用入口，限制项目体积后解析 JSON，不执行其中任何代码。
@@ -367,18 +465,24 @@ export default function App() {
       setNotice({text:'文字已复制'});
     });
   }
-  const textTools = { onProbe:(kind:"text"|"image")=>{void probeAi(kind);}, translationProgress:translationJob?{done:translationJob.chunks.filter(c=>c.status==='done').length,total:translationJob.chunks.length,failed:translationJob.chunks.filter(c=>c.status==='failed').length,pending:translationJob.chunks.filter(c=>c.status==='pending'||c.status==='running').length,canRetry:!!doc.editor.translationData&&canResumeTranslation(doc.editor.translationData,doc.editor,providerId,providerRevision,targetLanguage),errors:translationJob.chunks.filter(c=>c.error).map(c=>c.error!)}:null, onRetryTranslation:()=>{void ai('translate',true);}, onCopyText:(text:string)=>{void copyPlainText(text);}, document: doc, update, settings, providerId, setProviderId, targetLanguage, setTargetLanguage, ocrEngine, setOcrEngine, localStatus, busy, aiBusy, onAi: (kind: 'ocr' | 'translate') => { void ai(kind); }, onCancelOcr: () => { void cancelOcr(); }, onConfigure: () => { void run(SETTINGS_OPERATION, async () => applySettings(await native.request<Settings>('settings.configure'))); }, onError: errorNotice };
-  const recoveryPanel = <RecoveryPanel state={recovery} onRestore={restoreRecovery} onError={errorNotice} onDeleteCurrent={recovery.pause} currentId={documentId} autoOpen/>;
+  const textTools = { onProbe:(kind:"text"|"image")=>{void probeAi(kind);}, translationProgress:translationJob?{done:translationJob.chunks.filter(c=>c.status==='done').length,total:translationJob.chunks.length,failed:translationJob.chunks.filter(c=>c.status==='failed').length,pending:translationJob.chunks.filter(c=>c.status==='pending'||c.status==='running').length,canRetry:!!doc.editor.translationData&&canResumeTranslation(doc.editor.translationData,doc.editor,providerId,providerRevision,targetLanguage),errors:translationJob.chunks.filter(c=>c.error).map(c=>c.error!)}:null, onRetryTranslation:()=>{void ai('translate',true);}, onCopyText:(text:string)=>{void copyPlainText(text);}, document: doc, update, settings, providerId, setProviderId, targetLanguage, setTargetLanguage, ocrEngine, setOcrEngine, localStatus, busy, aiBusy, onAi: (kind: 'ocr' | 'translate') => { void ai(kind); }, onCancelOcr: () => { void cancelOcr(); }, onConfigure: () => { void configureSettings('services'); }, onError: errorNotice };
+  const recoveryPanel = <RecoveryPanel onRestore={restoreRecovery} onError={errorNotice} autoOpen/>;
   actions.current=(action,text)=>{
     if(action==='open-image')void openImage();
     else if(action==='open-project')void openProject();
     else if(action==='paste')void nativeImage('image.paste','粘贴图片');
-    else if(action==='recovery'||action==='settings')setEntryPanel(value=>({kind:action,sequence:(value?.sequence??0)+1}));
+    else if(action==='settings')void configureSettings();
+    else if(action==='settings-updated'){
+      // 托盘设置关闭只刷新公开配置，不恢复窗口、加载图片或改变编辑历史。
+      void native.request<Settings>('settings.read').then(applySettings).catch(errorNotice);
+      void native.request<{backend:'wgc'|'gdi'}>('capture.settings').then(value=>{if(value.backend==='wgc'||value.backend==='gdi')setCaptureBackend(value.backend);}).catch(errorNotice);
+    }
+    else if(action==='recovery')setEntryPanel(value=>({kind:action,sequence:(value?.sequence??0)+1}));
     else if(action==='notice'&&text)setNotice({text,error:true});
   };
   return <>
     <input hidden ref={imageInput} type="file" accept="image/png,image/jpeg,image/webp" onChange={event=>{void chooseFiles(event.currentTarget.files);event.currentTarget.value='';}}/>
     <input hidden ref={projectInput} type="file" accept=".json" onChange={event=>{void chooseFiles(event.currentTarget.files);event.currentTarget.value='';}}/>
-    <CompactOverlay locked={hostLocked} requestedPanel={entryPanel} onOpenImage={()=>{void openImage();}} onOpenProject={()=>{void openProject();}} onPaste={()=>{void nativeImage('image.paste','粘贴图片');}} selection={selection} onSelection={setSelection} recoveryState={recovery} renderStatus={canvasStatus} onRenderStatus={setCanvasStatus} skipReady={overlayReady} onFiles={files=>chooseFiles(files,Boolean(overlay))} onCapture={(method,payload)=>{void nativeImage(method,"捕获屏幕",payload);}} key={documentEpoch} document={doc} metadata={overlay} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo} onTransform={changeTransform} textTools={textTools} recoveryPanel={recoveryPanel} captureBackend={captureBackend} onCaptureBackend={backend => { void configureCapture(backend); }} onReadyResult={handleReadyResult} canvasRef={canvas} update={update} onExport={copy => { void exportImage(copy); }} onAi={kind => { void ai(kind); }} onPresentation={mode => { void presentation(mode); }} onConfigure={() => { void run(SETTINGS_OPERATION, async () => applySettings(await native.request<Settings>('settings.configure'))); }} onSaveProject={() => { void saveProject(); }} onError={errorNotice} busy={busy} aiBusy={aiBusy} settings={settings} providerId={providerId} setProviderId={setProviderId} targetLanguage={targetLanguage} setTargetLanguage={setTargetLanguage} scale={scale} setScale={setScale} notice={notice} clearNotice={() => setNotice(null)}/>
+    <CompactOverlay onTranslateImage={()=>{void translateImage();}} onCancelAi={()=>{void cancelOcr();}} suspended={loadingCapture!==null} onAdjustCapture={adjustCapture} locked={hostLocked} requestedPanel={entryPanel} onOpenImage={()=>{void openImage();}} onOpenProject={()=>{void openProject();}} onPaste={()=>{void nativeImage('image.paste','粘贴图片');}} selection={selection} onSelection={setSelection} renderStatus={canvasStatus} onRenderStatus={setCanvasStatus} skipReady={overlayReady} onFiles={files=>chooseFiles(files,Boolean(overlay))} onCapture={(method,payload)=>{void nativeImage(method,"捕获屏幕",payload);}} key={documentEpoch} document={doc} metadata={activeOverlay} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo} onTransform={changeTransform} textTools={textTools} recoveryPanel={recoveryPanel} captureBackend={captureBackend} onReadyResult={handleReadyResult} canvasRef={canvas} update={update} onComplete={() => { void completeEditing(); }} onAi={kind => { void ai(kind); }} onPresentation={mode => { void presentation(mode); }} onConfigure={() => { void configureSettings(); }} onSaveProject={() => { void saveProject(); }} onError={errorNotice} busy={busy} aiBusy={aiBusy} settings={settings} providerId={providerId} setProviderId={setProviderId} targetLanguage={targetLanguage} setTargetLanguage={setTargetLanguage} scale={scale} setScale={setScale} notice={notice} clearNotice={() => setNotice(null)}/>
   </>;
 }
