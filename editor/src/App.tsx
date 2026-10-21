@@ -1,7 +1,7 @@
 import {parseTranslationDocument,createTranslationDocument,canResumeTranslation,translationText} from './translationDocument';
 import { prepareUpdateSnapshot, prepareLeaveSnapshot, SETTINGS_OPERATION } from './updateSafety';
 import { runTranslationChunks,type TranslationChunk } from './translation';
-import { RecoveryPanel, useRecovery } from './RecoveryPanel';
+import { RecoveryPanel } from './RecoveryPanel';
 import type { RecoveryItem } from './recovery';
 import { parseOcr, ocrText, requestMatches, type LocalOcrStatus, type RequestStamp } from './ocr';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -74,11 +74,10 @@ export default function App() {
   const expiredCaptures = useRef(new Set<string>());
   const timedOutCaptures = useRef(new Set<string>());
   const editor = doc.editor;
-  const recovery = useRecovery(documentId, history.revision, doc);
   useLayoutEffect(() => {
     window.screenshotPrepareUpdate = () => prepareUpdateSnapshot({ operation: busy, aiBusy: Boolean(aiBusy), editing: canvas.current?.interactionState().editing || false, loading: Boolean(doc.image) && canvasStatus !== 'ready', documentId, revision: history.revision, document: history.current() });
     window.screenshotPrepareLeave = reason => {
-      if (hostLock.current) return { error: '正在确认保存，请稍后再试。' };
+      if (hostLock.current) return { error: '正在确认编辑状态，请稍后再试。' };
       const snapshot = prepareLeaveSnapshot({ operation:busy, aiBusy:Boolean(aiBusy), editing:canvas.current?.interactionState().editing || false, loading:Boolean(doc.image) && canvasStatus !== 'ready', documentId, revision:history.currentRevision(), document:history.current(), projectSaved:savedProject.current?.id===documentId && savedProject.current.revision===history.currentRevision() }, reason);
       if (!('error' in snapshot)) {
         hostLock.current=true;setHostLocked(true);
@@ -279,28 +278,26 @@ export default function App() {
       else { const url = URL.createObjectURL(new Blob([JSON.stringify(document)], { type: 'application/json' })); download(url, '拾影项目.screenshot.json'); setTimeout(() => URL.revokeObjectURL(url), 1000); setNotice({ text: '项目已导出，请保留此文件以继续编辑。' }); }
     });
   }
-  // 保存与复制复用同一 PNG 输出，原生与浏览器只负责最终文件/剪贴板写入。
-  async function exportImage(copy = false) {
-    await run(copy ? '复制图片' : '导出图片', async () => {
+  // 完成只复制当前 PNG；复制成功且身份未变时收起，不自动保存或显示继续编辑提示。
+  async function completeEditing() {
+    await run('完成截图', async () => {
       const stamp={documentId:documentIdRef.current,revision:history.currentRevision(),generation:generation.current};
       const dataUrl = await canvas.current!.exportPng(scale);
       if (native.available) {
-        const result = await native.request<{ saved?: boolean; copied?: boolean }>(copy ? 'image.copy' : 'image.save', { dataUrl, suggestedName: `${(doc.image?.name || '拾影').replace(/\.[^.]+$/, '')}-${editor.mode}.png` });
-        if (result.saved || result.copied) {
-          const text=copy ? '图片已复制到剪贴板' : 'PNG 已保存';
-          setNotice({text});
-          if (stamp.documentId===documentIdRef.current && stamp.revision===history.currentRevision() && stamp.generation===generation.current) {
-            try {
-              const completed=await native.request<{accepted:boolean}>('presentation.complete',{...stamp,captureId:overlayRef.current?.captureId,text});
-              if(completed.accepted){generation.current++;setOverlay(null);setNotice(null);}
-            } catch(error) { setNotice({text:`${text}；${message(error)}`,error:true}); }
-          }
-        }
-      } else if (copy) {
-        if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') throw new Error('此浏览器不支持复制图片，请使用导出 PNG。');
-        const binary = atob(dataUrl.split(',')[1]); const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-        await navigator.clipboard.write([new ClipboardItem({ 'image/png': new Blob([bytes], { type: 'image/png' }) })]); setNotice({ text: '图片已复制' });
-      } else { download(dataUrl, '拾影.png'); setNotice({ text: 'PNG 已导出' }); }
+        const result = await native.request<{ copied:boolean }>('image.copy', { dataUrl });
+        if (!result.copied) throw new Error('图片未复制成功，请重试。');
+        if (stamp.documentId!==documentIdRef.current || stamp.revision!==history.currentRevision() || stamp.generation!==generation.current) return;
+        const completed=await native.request<{accepted:boolean}>('presentation.complete',{...stamp,captureId:overlayRef.current?.captureId,text:'图片已复制到剪贴板'});
+        if(!completed.accepted)throw new Error('图片已复制，编辑状态已变化，请重新完成。');
+        if(stamp.documentId!==documentIdRef.current || stamp.revision!==history.currentRevision() || stamp.generation!==generation.current)return;
+        generation.current++;setOverlay(null);setNotice(null);
+        setDoc(initial);setDocumentEpoch(value=>value+1);
+      } else {
+        if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') throw new Error('此浏览器不支持复制图片，请使用 Windows 桌面应用。');
+        const bytes=Uint8Array.from(atob(dataUrl.split(',')[1]),c=>c.charCodeAt(0));
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png':new Blob([bytes],{type:'image/png'}) })]);
+        if(stamp.documentId===documentIdRef.current && stamp.revision===history.currentRevision() && stamp.generation===generation.current){setDoc(initial);setDocumentEpoch(value=>value+1);setNotice({text:'图片已复制'});}
+      }
     });
   }
   // 身份、历史修订和请求序号共同保护结果；本地与云端都只响应明确点击。
@@ -407,7 +404,7 @@ export default function App() {
     });
   }
   const textTools = { onProbe:(kind:"text"|"image")=>{void probeAi(kind);}, translationProgress:translationJob?{done:translationJob.chunks.filter(c=>c.status==='done').length,total:translationJob.chunks.length,failed:translationJob.chunks.filter(c=>c.status==='failed').length,pending:translationJob.chunks.filter(c=>c.status==='pending'||c.status==='running').length,canRetry:!!doc.editor.translationData&&canResumeTranslation(doc.editor.translationData,doc.editor,providerId,providerRevision,targetLanguage),errors:translationJob.chunks.filter(c=>c.error).map(c=>c.error!)}:null, onRetryTranslation:()=>{void ai('translate',true);}, onCopyText:(text:string)=>{void copyPlainText(text);}, document: doc, update, settings, providerId, setProviderId, targetLanguage, setTargetLanguage, ocrEngine, setOcrEngine, localStatus, busy, aiBusy, onAi: (kind: 'ocr' | 'translate') => { void ai(kind); }, onCancelOcr: () => { void cancelOcr(); }, onConfigure: () => { void run(SETTINGS_OPERATION, async () => applySettings(await native.request<Settings>('settings.configure'))); }, onError: errorNotice };
-  const recoveryPanel = <RecoveryPanel state={recovery} onRestore={restoreRecovery} onError={errorNotice} onDeleteCurrent={recovery.pause} currentId={documentId} autoOpen/>;
+  const recoveryPanel = <RecoveryPanel onRestore={restoreRecovery} onError={errorNotice} autoOpen/>;
   actions.current=(action,text)=>{
     if(action==='open-image')void openImage();
     else if(action==='open-project')void openProject();
@@ -418,6 +415,6 @@ export default function App() {
   return <>
     <input hidden ref={imageInput} type="file" accept="image/png,image/jpeg,image/webp" onChange={event=>{void chooseFiles(event.currentTarget.files);event.currentTarget.value='';}}/>
     <input hidden ref={projectInput} type="file" accept=".json" onChange={event=>{void chooseFiles(event.currentTarget.files);event.currentTarget.value='';}}/>
-    <CompactOverlay suspended={loadingCapture!==null} onAdjustCapture={adjustCapture} locked={hostLocked} requestedPanel={entryPanel} onOpenImage={()=>{void openImage();}} onOpenProject={()=>{void openProject();}} onPaste={()=>{void nativeImage('image.paste','粘贴图片');}} selection={selection} onSelection={setSelection} recoveryState={recovery} renderStatus={canvasStatus} onRenderStatus={setCanvasStatus} skipReady={overlayReady} onFiles={files=>chooseFiles(files,Boolean(overlay))} onCapture={(method,payload)=>{void nativeImage(method,"捕获屏幕",payload);}} key={documentEpoch} document={doc} metadata={activeOverlay} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo} onTransform={changeTransform} textTools={textTools} recoveryPanel={recoveryPanel} captureBackend={captureBackend} onCaptureBackend={backend => { void configureCapture(backend); }} onReadyResult={handleReadyResult} canvasRef={canvas} update={update} onExport={copy => { void exportImage(copy); }} onAi={kind => { void ai(kind); }} onPresentation={mode => { void presentation(mode); }} onConfigure={() => { void run(SETTINGS_OPERATION, async () => applySettings(await native.request<Settings>('settings.configure'))); }} onSaveProject={() => { void saveProject(); }} onError={errorNotice} busy={busy} aiBusy={aiBusy} settings={settings} providerId={providerId} setProviderId={setProviderId} targetLanguage={targetLanguage} setTargetLanguage={setTargetLanguage} scale={scale} setScale={setScale} notice={notice} clearNotice={() => setNotice(null)}/>
+    <CompactOverlay suspended={loadingCapture!==null} onAdjustCapture={adjustCapture} locked={hostLocked} requestedPanel={entryPanel} onOpenImage={()=>{void openImage();}} onOpenProject={()=>{void openProject();}} onPaste={()=>{void nativeImage('image.paste','粘贴图片');}} selection={selection} onSelection={setSelection} renderStatus={canvasStatus} onRenderStatus={setCanvasStatus} skipReady={overlayReady} onFiles={files=>chooseFiles(files,Boolean(overlay))} onCapture={(method,payload)=>{void nativeImage(method,"捕获屏幕",payload);}} key={documentEpoch} document={doc} metadata={activeOverlay} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo} onTransform={changeTransform} textTools={textTools} recoveryPanel={recoveryPanel} captureBackend={captureBackend} onCaptureBackend={backend => { void configureCapture(backend); }} onReadyResult={handleReadyResult} canvasRef={canvas} update={update} onComplete={() => { void completeEditing(); }} onAi={kind => { void ai(kind); }} onPresentation={mode => { void presentation(mode); }} onConfigure={() => { void run(SETTINGS_OPERATION, async () => applySettings(await native.request<Settings>('settings.configure'))); }} onSaveProject={() => { void saveProject(); }} onError={errorNotice} busy={busy} aiBusy={aiBusy} settings={settings} providerId={providerId} setProviderId={setProviderId} targetLanguage={targetLanguage} setTargetLanguage={setTargetLanguage} scale={scale} setScale={setScale} notice={notice} clearNotice={() => setNotice(null)}/>
   </>;
 }

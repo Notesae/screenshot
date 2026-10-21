@@ -79,7 +79,7 @@ function installHost() {
 
 async function annotations(page) { return page.evaluate(() => window.screenshotPrepareUpdate().document.editor.annotations); }
 async function click(page, name) { await page.getByRole('button', { name, exact:true }).click(); }
-async function settle(page) { await page.waitForFunction(() => !window.screenshotPrepareUpdate?.().error && !document.querySelector('button[aria-label="保存 PNG"]').disabled); }
+async function settle(page) { await page.waitForFunction(() => !window.screenshotPrepareUpdate?.().error && !document.querySelector('button[aria-label="完成"]').disabled); }
 
 /** 坐标均相对合成画布，输入只发送给 headless 页面的虚拟指针。 */
 async function draw(page, from, to) {

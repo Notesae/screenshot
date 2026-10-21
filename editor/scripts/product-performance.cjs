@@ -14,14 +14,14 @@ let browser;
  p.on('pageerror',e=>errors.push(e.message));await p.route('**/*',r=>new URL(r.request().url()).origin===origin?r.continue():r.abort());await installMock(p);await p.goto(origin);
  await p.getByRole('button',{name:'打开图片',exact:true}).waitFor();
  await p.evaluate(()=>{const c=document.createElement('canvas');c.width=3840;c.height=2160;const g=c.getContext('2d');g.fillStyle='#fcfbf7';g.fillRect(0,0,c.width,c.height);g.fillStyle='#ac432e';g.fillRect(80,80,1200,120);const dataUrl=c.toDataURL();window.__performanceImage=dataUrl;window.__imageAssignments=0;const descriptor=Object.getOwnPropertyDescriptor(HTMLImageElement.prototype,'src');Object.defineProperty(HTMLImageElement.prototype,'src',{...descriptor,set(value){if(value===window.__performanceImage)window.__imageAssignments++;descriptor.set.call(this,value);}});window.__emit({event:'image.loaded',payload:{dataUrl,name:'synthetic-4k.png',width:3840,height:2160}});});
- await p.waitForFunction(()=>document.querySelector('.lower-canvas')?.width===3840);await p.waitForFunction(()=>!document.querySelector('button[aria-label="保存 PNG"]').disabled);
+ await p.waitForFunction(()=>document.querySelector('.lower-canvas')?.width===3840);await p.waitForFunction(()=>!document.querySelector('button[aria-label="完成"]').disabled);
  await p.getByRole('button',{name:'矩形标注',exact:true}).click();await drawRect(p);
  // 只修改原样模式中不可见的校对文本；观察解码次数与选择状态，而非只看总耗时。
  await p.getByRole('button',{name:'文字',exact:true}).click();await p.evaluate(()=>window.__imageAssignments=0);const edits=[];
  for(let i=0;i<12;i++){
   const started=await p.evaluate(()=>performance.now());await p.locator('#compact-text').fill('合成校对文本 '+i+'，原样画布不需要重绘。');
   await p.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(r)))));
-  await p.waitForFunction(()=>!document.querySelector('button[aria-label="保存 PNG"]').disabled);edits.push(await p.evaluate(()=>performance.now())-started);
+  await p.waitForFunction(()=>!document.querySelector('button[aria-label="完成"]').disabled);edits.push(await p.evaluate(()=>performance.now())-started);
  }
  const imageAssignments=await p.evaluate(()=>window.__imageAssignments);
  await p.keyboard.press('Escape');await p.keyboard.press('Delete');await p.getByRole('button',{name:'更多操作',exact:true}).click();await p.getByRole('button',{name:'保存可编辑项目',exact:true}).click();await p.waitForFunction(()=>window.__messages.some(m=>m.method==='project.save'));

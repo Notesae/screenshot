@@ -1,5 +1,9 @@
 # Native bridge v1
 
+## 2026-10-21 关闭自动保存、统一完成
+
+当前用户要求关闭自动保存。document.preserve 为兼容保留，但仅检查忙状态和内存身份，返回 {checkedState:true,saved:false}，不写恢复库。recovery.save 已停止发布能力，旧请求明确拒绝；历史记录的读取和显式删除保留。presentation.complete 仅接受图片已复制到剪贴板，核对当前 documentId/revision/captureId 与呈现代数后收起，不写快照、不创建继续编辑提示；前端收到当前完成确认后清空本次文档。复制失败、返回 copied:false、过期回复或未接受完成均保留当前编辑。更新安装前也只检查忙状态，不自动保存；手动 project.save 保留。以下旧版保存保护描述为历史协议，由本节覆盖。
+
 ## 2026-10-21 松手进入编辑与选区调整
 
 区域框选有效松手立即返回同一 `CaptureEnvelope`，无用户确认阶段；编辑器同时展示动作轨与原样路径浮卡。`presentation.ready` 继续防止未完成布局的窗口闪现，不对应任何确认 UI。

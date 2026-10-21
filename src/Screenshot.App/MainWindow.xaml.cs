@@ -96,7 +96,6 @@ public partial class MainWindow : Window
         menu.Items.Add(SoftClayTrayMenu.Command("当前屏幕截图","M3 4h18v13H3z M8 21h8 M12 17v4",()=>{_=CaptureCurrentFromTrayAsync();}));
         menu.Items.Add(SoftClayTrayMenu.Command("整个桌面截图","M2 5h14v12H2z M16 8h6v12H9v-3 M6 21h6 M9 17v4",()=>{_=CaptureFromTrayAsync(CaptureRequest.Default(false) with{Backend=_captureBackend});}));
         menu.Items.Add(SoftClayTrayMenu.Divider(menu));
-        menu.Items.Add(SoftClayTrayMenu.Command("继续编辑","M9 5l7 7-7 7",()=>ShowEditorAction("continue")));
         menu.Items.Add(SoftClayTrayMenu.Command("打开图片…","M3 3h18v18H3z M3 16l6-6 4 4 3-3 5 5 M7 7h.01",()=>ShowEditorAction("open-image")));
         menu.Items.Add(SoftClayTrayMenu.Command("打开项目…","M3 7h7l2 2h9v11H3z M3 7V4h7l2 3",()=>ShowEditorAction("open-project")));
         menu.Items.Add(SoftClayTrayMenu.Command("粘贴图片","M9 4H5v17h14V4h-4 M9 2h6v4H9z M8 12h8 M8 16h5",()=>ShowEditorAction("paste")));
@@ -199,7 +198,7 @@ public partial class MainWindow : Window
     private async Task<CaptureEnvelope?> CaptureAsync(CaptureRequest request)
     {
         var trace=new CaptureDiagnostics();_captureDiagnostics=trace;
-        try{await PreserveEditorAsync("replace");trace.Mark("checkpoint_saved");}catch{trace.Mark("checkpoint_failed");trace.Flush();throw;}
+        try{await CheckEditorAsync("replace");trace.Mark("editor_checked");}catch{trace.Mark("editor_check_failed");trace.Flush();throw;}
         InvalidateCompletion();
         var wasVisible = IsVisible;
         var previousWindowState = WindowState;
@@ -459,10 +458,10 @@ public partial class MainWindow : Window
         _terms.RequireAccepted();
         switch (method)
         {
-            case "app.info": return new { version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "unknown", platform = "windows", presentation = _presentation.Mode.ToString().ToLowerInvariant(), capture = new { backend = _captureBackend, colorMode = "sdr", supportsHdr = false, availableBackends = new[] { "wgc", "gdi" }, targets = new[] { "desktop", "monitor", "window" }, availability = "checked-on-capture" }, capabilities = new[] { "image.open", "image.paste", "capture.adjust", "capture.screen", "capture.region", "capture.current", "capture.monitors", "capture.settings", "capture.configure", "hotkey.read", "hotkey.configure", "image.save", "image.copy", "text.copy", "project.open", "project.save", "ai.ocr", "ai.translate", "ocr.local", "ocr.cancel", "ocr.status", "ai.cancel", "ai.usage", "ai.test", "recovery.save", "recovery.list", "recovery.load", "recovery.delete", "recovery.usage", "recovery.deleteMany", "presentation.workbench", "presentation.editor", "presentation.dismiss", "presentation.ready", "presentation.complete", "document.preserve", "app.terms" } };
-            case "document.preserve": await PreserveEditorAsync("replace"); return new { saved = true };
-            case "image.open": await PreserveEditorAsync("replace"); return NativeImages.Open(this);
-            case "image.paste": await PreserveEditorAsync("replace"); return NativeImages.Paste();
+            case "app.info": return new { version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "unknown", platform = "windows", presentation = _presentation.Mode.ToString().ToLowerInvariant(), capture = new { backend = _captureBackend, colorMode = "sdr", supportsHdr = false, availableBackends = new[] { "wgc", "gdi" }, targets = new[] { "desktop", "monitor", "window" }, availability = "checked-on-capture" }, capabilities = new[] { "image.open", "image.paste", "capture.adjust", "capture.screen", "capture.region", "capture.current", "capture.monitors", "capture.settings", "capture.configure", "hotkey.read", "hotkey.configure", "image.save", "image.copy", "text.copy", "project.open", "project.save", "ai.ocr", "ai.translate", "ocr.local", "ocr.cancel", "ocr.status", "ai.cancel", "ai.usage", "ai.test", "recovery.list", "recovery.load", "recovery.delete", "recovery.usage", "recovery.deleteMany", "presentation.workbench", "presentation.editor", "presentation.dismiss", "presentation.ready", "presentation.complete", "document.preserve", "app.terms" } };
+            case "document.preserve": await CheckEditorAsync("replace"); return new { checkedState = true, saved = false };
+            case "image.open": await CheckEditorAsync("replace"); return NativeImages.Open(this);
+            case "image.paste": await CheckEditorAsync("replace"); return NativeImages.Paste();
             case "capture.monitors": return ReadCaptureMonitors();
             case "capture.current": return await CaptureAsync(CurrentMonitorRequest());
             case "capture.screen": return await CaptureAsync(ParseCaptureRequest(payload, false));
@@ -494,7 +493,7 @@ public partial class MainWindow : Window
                 if(!payload.TryGetProperty("documentIds",out var ids)||ids.ValueKind!=JsonValueKind.Array||ids.GetArrayLength()>1000)throw new InvalidOperationException("恢复记录列表无效。");
                 var selectedIds=new List<string>();foreach(var id in ids.EnumerateArray()){if(id.ValueKind!=JsonValueKind.String)throw new InvalidOperationException("恢复文档标识无效。");selectedIds.Add(id.GetString()!);}
                 return await RunRecoveryAsync(store=>store.DeleteManyAsync(selectedIds,_lifetime.Token));
-            case "recovery.save": return await SaveRecoveryAsync(payload);
+            case "recovery.save": throw new InvalidOperationException("自动保存已关闭，请使用手动保存项目。");
             case "recovery.list": return new { items = await RunRecoveryAsync(store => store.ListAsync(_lifetime.Token)) };
             case "recovery.load": return await RunRecoveryAsync(store => store.LoadAsync(RequiredString(payload, "documentId"), _lifetime.Token));
             case "recovery.delete": return await RunRecoveryAsync(store => store.DeleteAsync(RequiredString(payload, "documentId"), _lifetime.Token));
@@ -508,7 +507,7 @@ public partial class MainWindow : Window
                 var dismissCaptureId = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("captureId", out _) ? RequiredString(payload, "captureId") : null;
                 if (!_presentation.Matches(dismissCaptureId)) return new { presentation = _presentation.Mode.ToString().ToLowerInvariant(), accepted = false, captureId = _presentation.Overlay?.CaptureId };
                 var dismissSequence = _completionSequence;
-                await PreserveEditorAsync("close");
+                await CheckEditorAsync("close");
                 var wasWorkbench = _presentation.Mode == PresentationMode.Workbench;
                 var dismissed = dismissSequence == _completionSequence && _presentation.TryDismiss(dismissCaptureId);
                 if (dismissed) { if (wasWorkbench) RememberWorkbenchPlacement(); DismissPresentation(); }
@@ -521,7 +520,7 @@ public partial class MainWindow : Window
             case "image.save": return NativeImages.Save(this, RequiredString(payload, "dataUrl"), OptionalString(payload, "suggestedName"));
             case "text.copy": return NativeImages.CopyText(RequiredString(payload, "text"));
             case "image.copy": return NativeImages.Copy(RequiredString(payload, "dataUrl"));
-            case "project.open": await PreserveEditorAsync("replace"); return NativeImages.OpenProject(this);
+            case "project.open": await CheckEditorAsync("replace"); return NativeImages.OpenProject(this);
             case "project.save": return NativeImages.SaveProject(this, payload.GetProperty("document"), OptionalString(payload, "suggestedName"));
             case "settings.read": return await _ai.ReadSettingsAsync(_lifetime.Token);
             case "settings.configure": new ProviderSettingsWindow(_ai, SaveBeforeUpdateAsync) { Owner = this }.ShowDialog(); return await _ai.ReadSettingsAsync(_lifetime.Token);

@@ -1,5 +1,9 @@
 # 原位编辑改版实施记录
 
+## 2026-10-21 关闭自动保存、统一完成
+
+关闭自动保存与完成入口：移除编辑器自动写入和状态提示，宿主替换/退出/完成/更新均只检查内存状态，不写恢复快照；旧写入请求明确拒绝。动作轨统一“完成”，复制成功后确认当前身份再收起、清空文档，删除独立继续编辑提示窗及托盘继续入口。旧恢复记录与手动项目保存保留，未删除用户数据。
+
 ## 2026-10-21 修正
 
 r5 针对松手阶段全屏闪动和快捷键等待：r4b 的“任何 Source.Changed 即成功”存在透明空帧也被接受的确定缺陷，离屏测试已复现。现显示回调完成后才验帧，按本次冻结图和遮罩 alpha 检查有限采样，单行 RenderTargetBitmap 读回，不新增屏幕捕获或保存像素；在 SDK Unlock/setter 返回后的 Dispatcher.Background 执行，取消/失败清理排队检查。撤销 EditorSurface 的隐藏/恢复，保留正常 WebView 合成；单次 2 秒超时维持原生遮挡重试。RenderTargetBitmap 的 D3DImage 软件回退读回行为参照 [WPF/Direct3D 互操作](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/advanced/wpf-and-direct3d9-interoperation)。这仍是采样检查，真实驱动读回成本与 GPU 合成不能由 DrawingImage 测试证明。

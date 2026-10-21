@@ -25,7 +25,7 @@
             <TextBlock x:Name="UpdateStatus" TextWrapping="Wrap" Foreground="#FFC3B6" AutomationProperties.LiveSetting="Polite"/>
             <TextBlock Margin="0,14,0,14" TextWrapping="Wrap" Foreground="{DynamicResource ClayMuted}"
                        Text="下载将校验官方 API 的 SHA-256 和包内清单。这是完整性检查，当前便携 ZIP 没有发布者数字签名；仍信任 GitHub 官方仓库账号及 HTTPS，无法抵御发布账号失陷。"/>
-            <TextBlock Margin="0,0,0,12" TextWrapping="Wrap" Text="安装会保存当前编辑至本机恢复库，然后关闭并重启应用；下次从恢复记录继续编辑。原安装目录会保留为回滚备份，用户设置、密钥及恢复库留在原数据目录。含额外文件、只读目录或被其他实例占用时，不覆盖安装。"/>
+            <TextBlock Margin="0,0,0,12" TextWrapping="Wrap" Text="安装会关闭并重启应用，不会自动保存当前编辑；需要保留时请先手动保存项目。原安装目录会保留为回滚备份，用户设置、密钥及恢复库留在原数据目录。含额外文件、只读目录或被其他实例占用时，不覆盖安装。"/>
             <WrapPanel>
                 <Button x:Name="InstallButton" Content="安装并重启…" IsEnabled="False" Click="Install_Click"/>
                 <Button x:Name="ExportButton" Content="解压到新目录…" IsEnabled="False" Click="Export_Click"/>

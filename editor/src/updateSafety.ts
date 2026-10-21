@@ -14,10 +14,10 @@ declare global { interface Window { screenshotPrepareUpdate?: () => ReturnType<t
 
 export type LeaveReason = 'replace' | 'close' | 'complete';
 type LeaveState = Parameters<typeof prepareUpdateSnapshot>[0] & { projectSaved: boolean };
-/** 输出 PNG 不代表保存项目；只有确认落盘的项目或恢复快照才允许结束会话。 */
+/** 离开前仅校验忙状态与内存身份；用户已关闭自动保存，不要求恢复快照。 */
 export function prepareLeaveSnapshot(state: LeaveState, reason: LeaveReason) {
   const allowed = reason === 'replace' ? ['导入图片','读取文件','打开项目','恢复本机记录','捕获屏幕','捕获桌面','选择区域','粘贴图片']
-    : reason === 'complete' ? ['复制图片','导出图片'] : ['退出编辑'];
+    : reason === 'complete' ? ['完成截图'] : ['退出编辑'];
   if ((state.aiBusy && reason !== 'replace') || (state.operation && !allowed.includes(state.operation))) return { error: '仍有操作或识别、翻译任务，请等待完成或取消后再试。' };
   if (state.editing) return { error: '请先结束画布文字编辑，再继续此操作。' };
   if (state.loading) return { error: '画布尚未就绪，请稍后再试。' };
