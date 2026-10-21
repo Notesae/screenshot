@@ -1,0 +1,408 @@
+{
+  "$meta": {
+    "source": "v3/index.html (mode G 融合)",
+    "unit": "ms / px / spring k,c with mass=1",
+    "solver": "semi-implicit Euler, 4 substeps/frame, settle when |x-to|<0.5% range && |v|<5% range/s"
+  },
+  "easing": {
+    "out": {
+      "name": "easeOutCubic",
+      "cubicBezier": [
+        0.33,
+        1,
+        0.68,
+        1
+      ],
+      "code": "EO"
+    },
+    "inOut": {
+      "name": "easeInOutCubic",
+      "cubicBezier": [
+        0.65,
+        0,
+        0.35,
+        1
+      ],
+      "code": "EIO"
+    },
+    "in": {
+      "name": "easeInCubic",
+      "cubicBezier": [
+        0.32,
+        0,
+        0.67,
+        0
+      ],
+      "code": "EI"
+    },
+    "odometer": {
+      "cubicBezier": [
+        0.2,
+        0.8,
+        0.2,
+        1
+      ],
+      "duration": 260
+    },
+    "linear": {
+      "code": "k=>k"
+    }
+  },
+  "spring": {
+    "clayPop": {
+      "k": 700,
+      "c": 40,
+      "use": "rail 按钮挤出 (release)"
+    },
+    "rimPress": {
+      "k": 700,
+      "c": 40,
+      "use": "边框按压 scale .97→1"
+    },
+    "beadSettle": {
+      "k": 600,
+      "c": 38,
+      "use": "松手泥珠手柄 1.6→1"
+    },
+    "beadPop": {
+      "k": 520,
+      "c": 18,
+      "use": "拖框开始手柄出现 0→1"
+    },
+    "railBody": {
+      "k": 420,
+      "c": 28,
+      "use": "轨道底板从角落挤出"
+    },
+    "pressRebound": {
+      "k": 600,
+      "c": 14,
+      "use": "按下后回弹"
+    },
+    "hover": {
+      "k": 520,
+      "c": 16,
+      "use": "按钮悬停 1→1.08"
+    },
+    "handleHover": {
+      "k": 520,
+      "c": 14,
+      "use": "手柄悬停膨胀 1→1.7 (逐帧 follow)"
+    },
+    "cardMorph": {
+      "k": 400,
+      "c": 22,
+      "use": "属性卡/抽屉 共享元素挤出"
+    },
+    "cardClose": {
+      "k": 600,
+      "c": 34,
+      "use": "属性卡/抽屉收回按钮"
+    },
+    "buttonRecoil": {
+      "k": 500,
+      "c": 14,
+      "v0": -6,
+      "use": "卡片挤出时按钮反冲"
+    },
+    "iconWobble": {
+      "k": 400,
+      "c": 10,
+      "use": "选中工具图标 -28°→0"
+    },
+    "badgePop": {
+      "k": 500,
+      "c": 14,
+      "use": "光标工具角标 0→1"
+    },
+    "tipDab": {
+      "k": 520,
+      "c": 12,
+      "use": "落笔泥点 scale(1.8,.45)→1"
+    },
+    "pellet": {
+      "k": 620,
+      "c": 40,
+      "use": "完成: 选区压成泥丸"
+    },
+    "doneSwell": {
+      "k": 520,
+      "c": 22,
+      "v0": 8,
+      "use": "完成键膨胀 1→1.3"
+    },
+    "railFollow": {
+      "k": 360,
+      "c": 20,
+      "use": "轨道/卡片跟随选区 (逐帧 follow)"
+    },
+    "rimStretch": {
+      "k": 300,
+      "c": 16,
+      "use": "边框速度拉伸 (逐帧 follow)"
+    },
+    "liquidLead": {
+      "k": 520,
+      "c": 28,
+      "use": "液态指示主滴"
+    },
+    "liquidTrail": {
+      "k": 150,
+      "c": 17,
+      "use": "液态指示尾滴 (scale .8)"
+    },
+    "liquidAppear": {
+      "k": 420,
+      "c": 12,
+      "use": "指示首次出现 0→1"
+    },
+    "bridgeIn": {
+      "k": 600,
+      "c": 30,
+      "use": "液桥出现 0→1"
+    },
+    "bridgeSnap": {
+      "k": 520,
+      "c": 16,
+      "use": "液桥断开 1→0"
+    },
+    "capsuleLag": {
+      "k": 170,
+      "c": 16,
+      "use": "尺寸胶囊跟随光标 (逐帧 follow)"
+    },
+    "toastDrop": {
+      "k": 300,
+      "c": 16,
+      "use": "提示滴落 y -40→35"
+    },
+    "toastSpread": {
+      "k": 400,
+      "c": 18,
+      "use": "提示展开 宽 30→150"
+    },
+    "parallax": {
+      "k": 90,
+      "c": 19,
+      "use": "背景视差 (逐帧 follow)"
+    },
+    "vignette": {
+      "k": 140,
+      "c": 22,
+      "use": "暗角中心跟随光标 (逐帧 follow)"
+    },
+    "hoverLightPos": {
+      "k": 300,
+      "c": 30,
+      "use": "悬停光位置跟随指针 (逐帧 follow)"
+    },
+    "hoverLightFade": {
+      "k": 200,
+      "c": 28,
+      "use": "悬停光强度 0↔1"
+    }
+  },
+  "duration": {
+    "reducedFade": 120,
+    "hotkeyChip": 1100,
+    "maskIn": 320,
+    "vignetteIn": 520,
+    "deskRecedeIn": 420,
+    "rippleIn": 500,
+    "pulse": 400,
+    "vignettePulse": 380,
+    "innerShadow": 340,
+    "pressDown": 60,
+    "cardContentOut": 70,
+    "penStroke": 480,
+    "penRipple": 360,
+    "rowPulse": 300,
+    "tipOut": 160,
+    "doneMask": 230,
+    "doneIndicator": 150,
+    "doneDesk": 280,
+    "doneFlash": 240,
+    "doneSlide": 210,
+    "doneRailBody": 240,
+    "doneSelFade": 100,
+    "doneRailFade": 120,
+    "toastText": 160,
+    "toastHold": 1150,
+    "toastOut": 220,
+    "escVignette": 260,
+    "escMask": 270,
+    "escSel": 290,
+    "escCrumb": 270,
+    "escBead": 280,
+    "escRailBody": 290,
+    "escPanel": 280,
+    "borderSweepLoop": 2600,
+    "railAmbientLoop": 4000,
+    "railSweep": 240,
+    "idleSweepLoop": 8000
+  },
+  "delay": {
+    "stagger.railPop": 18,
+    "stagger.handleSettle": 8,
+    "stagger.handlePop": 25,
+    "stagger.doneSlide": 12,
+    "drawerAfterCardClose": 40,
+    "bridgeHold": 110,
+    "done.mask": 30,
+    "done.flash": 140,
+    "done.railBody": 40,
+    "done.swell": 170,
+    "done.railFade": 20,
+    "done.toast": 150,
+    "toastText": 80,
+    "esc.mask": 40,
+    "esc.crumbMax": 50,
+    "esc.beadMax": 40,
+    "reduced.enableButtons": 60,
+    "railSweep": 220,
+    "idleSweepFirst": 1200
+  },
+  "value": {
+    "rim.width": 7,
+    "rim.press.from": 0.97,
+    "rim.insetShadow": [
+      0,
+      12,
+      5
+    ],
+    "rim.stretch.max": 0.08,
+    "rim.stretch.speedDiv": 9000,
+    "handle.diameter": 16,
+    "handle.release.from": 1.6,
+    "handle.hover.scale": 1.7,
+    "handle.hover.radius": 16,
+    "rail.pop.offset": {
+      "dx": "RW-14-btnCenter",
+      "dy": -38
+    },
+    "rail.pop.squashGain": 0.035,
+    "rail.pop.squashMax": 0.4,
+    "rail.pop.icon.rotate": -40,
+    "rail.pop.clickableAt": 0.85,
+    "rail.body.scaleY.from": 0.75,
+    "rail.follow.squashMax": 0.12,
+    "rail.follow.speedDiv": 3500,
+    "rail.follow.skewMax": 8,
+    "press.scaleX": 1.06,
+    "press.scaleY": 0.86,
+    "hover.scale": 1.08,
+    "card.width": 180,
+    "card.height": 114,
+    "drawer.height": 158,
+    "card.radius": 20,
+    "card.from": {
+      "x": 65,
+      "y": -60,
+      "w": 50,
+      "h": 44,
+      "r": 22
+    },
+    "card.contentFrom": 0.6,
+    "indicator.size": 40,
+    "indicator.stretchX.max": 0.35,
+    "indicator.stretchX.div": 3000,
+    "indicator.squashY.max": 0.2,
+    "indicator.squashY.div": 5000,
+    "bridge.size": [
+      22,
+      34
+    ],
+    "capsule.offset": [
+      18,
+      22
+    ],
+    "capsule.stretch.max": 0.6,
+    "capsule.stretch.div": 2200,
+    "capsule.cross": 0.45,
+    "parallax.desk.x": 10,
+    "parallax.desk.y": 8,
+    "parallax.vignette.x": 5,
+    "parallax.vignette.y": 4,
+    "vignette.radius": {
+      "idle": 240,
+      "enterFrom": 900,
+      "pulsePeak": 360,
+      "doneTo": 520,
+      "escTo": 30
+    },
+    "vignette.stops": [
+      "#140c0826 0",
+      "#140c0870 VR",
+      "#0a0604d0 720px"
+    ],
+    "desk.recede.scale": 0.975,
+    "desk.recede.blur": 1.2,
+    "done.desk.blurPeakExtra": 1.6,
+    "pulse.opacity": 0.85,
+    "pulse.scaleTo": 1.12,
+    "flash.peak": 0.35,
+    "flash.peakAt": 0.3,
+    "pellet.size": 28,
+    "done.slide.scaleTo": 0.25,
+    "done.railBody.scale": [
+      0.14,
+      0.9
+    ],
+    "done.swell": 1.3,
+    "pen.tip.from": [
+      1.8,
+      0.45
+    ],
+    "pen.ripple.scale": [
+      0.3,
+      1.7
+    ],
+    "pen.row.pulse": 1.06,
+    "pen.stroke.width": 4,
+    "esc.sel": {
+      "translateY": 40,
+      "scaleX": 1.04,
+      "scaleY": 0.85,
+      "skewX": 4
+    },
+    "esc.crumbs": 16,
+    "esc.crumb.fall": 260,
+    "esc.bead.fall": 280,
+    "esc.bead.rotate": 45,
+    "esc.panel": {
+      "translateY": 120,
+      "rotate": 8
+    },
+    "ambient.opacity": [
+      0.15,
+      0.7
+    ],
+    "accent": "#3B82F6",
+    "hoverLight.button.radius": 40,
+    "hoverLight.button.opacity": 0.6,
+    "hoverLight.done.opacity": 0.55,
+    "hoverLight.panel.radius": 90,
+    "hoverLight.panel.opacity": 0.75,
+    "hoverLight.stops": [
+      "#fff 0",
+      "#fffa/#fff9 25%",
+      "#fff0 75%"
+    ],
+    "railSweep.width": 90,
+    "railSweep.skewX": -24,
+    "railSweep.translateX": [
+      -200,
+      520
+    ],
+    "railSweep.easing": "linear",
+    "railSweep.zIndex": 2,
+    "idleSweep.opacity": 0.35,
+    "idleSweep.activePortion": 0.18
+  },
+  "budget": {
+    "releaseToClickable": 220,
+    "releaseToSettled": 600,
+    "doneToGone": 420,
+    "escToGone": 420
+  }
+}
