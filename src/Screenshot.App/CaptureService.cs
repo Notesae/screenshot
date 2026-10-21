@@ -160,7 +160,8 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
                     var handle=new RectangleF(x-diameter/2,y-diameter/2,diameter,diameter);
                     using var fill=new System.Drawing.Drawing2D.LinearGradientBrush(handle,Color.White,Color.FromArgb(215,222,233),90);
                     g.FillEllipse(fill,handle);g.DrawEllipse(pen,handle);}
-            DrawHint(g,_handingOff?$"{r.Width} × {r.Height} px":$"{r.Width} × {r.Height} px · 松手即编辑",box.X,box.Y-38);
+            // 松手前后尺寸胶囊保持相同内容，避免交接时突然缩短。
+            DrawHint(g,$"{r.Width} × {r.Height} px",box.X,box.Y-38);
         }
         else DrawHint(g,"拖动框选 · M 放大镜 · Esc / 右键取消",Math.Max(12,-_desktop.X+24),Math.Max(12,-_desktop.Y+24));
         if(_magnifier)DrawMagnifier(g);

@@ -5,14 +5,16 @@ import { parseImage, MAX_IMAGE_BYTES } from './document';
 import type { LoadedImage } from './bridge';
 
 export const FONT = '"Microsoft YaHei", "PingFang SC", sans-serif';
-// 仅接收已校验的 data URL，解码失败时向界面提供错误。
+// 只缓存最近一张解码结果，复用校验与首次画布渲染；不按撤销历史积累整图像素。
+let lastDecoded:{url:string;promise:Promise<HTMLImageElement>}|null=null;
 export function loadImage(dataUrl: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('图片无法解码，请选择有效图片。'));
-    image.src = dataUrl;
+  if(lastDecoded?.url===dataUrl)return lastDecoded.promise;
+  const image=new Image();
+  const promise=new Promise<HTMLImageElement>((resolve,reject)=>{
+    image.onload=()=>resolve(image);
+    image.onerror=()=>{if(lastDecoded?.promise===promise)lastDecoded=null;reject(new Error('图片无法解码，请选择有效图片。'));};
   });
+  lastDecoded={url:dataUrl,promise};image.src=dataUrl;return promise;
 }
 /** 生成预览与导出共用的底图，原样模式无装饰，美化与重排在此合成。 */
 export async function renderBase(doc: ProjectDocument, scale = 1): Promise<HTMLCanvasElement> {

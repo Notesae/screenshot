@@ -167,7 +167,9 @@ GitHub App device code、access/refresh token、账号授权请求与私有 Rele
 
 ## 两阶段可见绘制交接
 
-presentation.ready {captureId} 先登记准备阶段，在原生选区遮挡后显示宿主，返回 awaitingPaint:true；此时 pending 身份和 15 秒就绪超时继续有效，不释放原生画面。前端进入 is-preparing 并等待两次 requestAnimationFrame 后调用 presentation.painted {captureId}。宿主核对已经准备且未取消的当前身份，等待两个不同的 WPF Rendering 帧后才接受、撤挡和激活；没有原生遮挡的屏幕捕获在此之前保持宿主透明。WPF 等待超过 2 秒则安全返回中性编辑器，当前图片仍保留；取消、替换、退出、超时使旧 painted 无效。
+presentation.ready {captureId} 先登记准备阶段，在原生选区遮挡后显示宿主，返回 awaitingPaint:true 和 viewport:{width,height,scale}；此时 pending 身份和 15 秒就绪超时继续有效，不释放原生画面。viewport 来自 Win32 客户区及窗口 DPI，width/height 为 CSS 尺寸，scale 包含 WebView ZoomFactor。前端进入 is-preparing，直到实际视口、共享 React 布局快照与宿主目标匹配，且工具几何连续两帧一致，才调用 presentation.painted {captureId,viewport}。
+
+宿主再次校验当前捕获身份、取消状态、Win32 客户区和 WPF 编辑器实际尺寸/DPI，在 Render 优先级继续后复核，成功才撤挡和激活；没有原生遮挡的屏幕捕获在此之前保持宿主透明。旧视口返回 accepted:false,awaitingPaint:true,viewport:最新目标，前端继续等待并重试，不提前显示工具或作废截图。设备比例容差小于 .001，物理宽高容许 2px 取整。前端等待最多 12 秒，原生 15 秒超时回退仍有效；取消、替换、退出使旧 painted 无效。它取代仅等待浏览器两帧与 WPF 两帧的实现，帧数本身不能证明 DPI 已收敛。
 
 菜单和标注状态不跨原生桥。文档仍使用 v2 的 left/top/width/height/scale/angle 表示箭头，端点由局部中心及矩阵映射；没有保存 Fabric 任意 JSON 或新增项目 schema。
 

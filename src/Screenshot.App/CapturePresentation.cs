@@ -160,3 +160,10 @@ internal static class OverlayWindowGeometry
         outer.X + target.X - client.X, outer.Y + target.Y - client.Y,
         outer.Width + target.Width - client.Width, outer.Height + target.Height - client.Height);
 }
+
+// 浏览器 CSS 尺寸与设备比例必须对应同一原生客户区，旧 DPI 的绘制应答不能撤掉遮挡。
+internal sealed record PresentationViewport(double Width,double Height,double Scale)
+{
+    public bool Matches(PresentationViewport expected)=>double.IsFinite(Width)&&double.IsFinite(Height)&&double.IsFinite(Scale)&&Width>0&&Height>0&&Scale>0
+        &&Math.Abs(Scale-expected.Scale)<.001&&Math.Abs(Width*Scale-expected.Width*expected.Scale)<=2&&Math.Abs(Height*Scale-expected.Height*expected.Scale)<=2;
+}

@@ -104,7 +104,7 @@
 @media(prefers-reduced-motion:reduce){.clay-editor *,.clay-editor *::before,.clay-editor *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 
 /* 选区外的深色遮罩与圆形手柄属于视图，不写入截图或导出。 */
-.clay-capture-selection{position:absolute;z-index:3;pointer-events:none;outline:var(--clay-size-selectionBorder) solid var(--accent);box-shadow:0 0 0 100vmax var(--clay-mask),0 0 9px #3b82f655}
+.clay-capture-selection{position:absolute;z-index:3;pointer-events:none;outline:var(--clay-size-selectionBorder) solid var(--accent);box-shadow:0 0 9px #3b82f655}
 .clay-selection-size{position:absolute;left:0;top:-38px;border-radius:var(--clay-radius-pill);padding:4px 12px;white-space:nowrap;color:var(--clay-ink);background:var(--clay-raised);box-shadow:var(--clay-button);font-variant-numeric:tabular-nums}
 .clay-editor .clay-selection-handle{position:absolute;pointer-events:auto;touch-action:none;width:24px;height:24px;min-width:0;min-height:0;padding:6px;border-radius:50%;background:transparent;box-shadow:none;transform:translate(-50%,-50%);transition:none}
 .clay-selection-handle::after{content:'';width:var(--clay-size-handle);height:var(--clay-size-handle);border-radius:50%;background:linear-gradient(#fff,#dde2e9);box-shadow:0 2px 5px #0007,inset 0 1px 2px white,0 0 0 1px var(--accent)}
@@ -137,3 +137,10 @@
 
 /* 未获得宿主可见阶段前不绘制选区装饰，避免交接时叠出两组边框。 */
 .clay-editor.is-awaiting:not(.is-preparing) .clay-capture-layer{visibility:hidden}
+
+/* 遮罩只栅格化视口内路径，不为百倍扩散阴影创建超大离屏区域。 */
+.clay-editor svg.clay-selection-mask{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none;overflow:hidden;fill:var(--clay-mask)}
+/* 首次捕获入场只淡入，边框与工具不做位移/缩放回弹。 */
+@keyframes clay-capture-in{from{opacity:0}to{opacity:1}}
+.clay-editor.is-overlay .clay-rail,.clay-editor.is-overlay .clay-card[aria-label="原样截图"]:not(.is-closing){animation-name:clay-capture-in;animation-duration:120ms;animation-timing-function:ease-out}
+.clay-editor.is-awaiting .clay-rail,.clay-editor.is-awaiting .clay-card{animation:none}

@@ -36,6 +36,17 @@ internal static class CaptureHandoffTests
         Check(!state.TryAcceptPainted(b.CaptureId),"取消后迟到绘制不能重开窗口");
         state.BeginCapture();state.CompleteCapture(b);state.TryPrepare(b.CaptureId);
         Check(state.TryExpireReady(b.CaptureId)&&!state.IsPrepared(b.CaptureId),"第二阶段超时同样释放准备状态");
+        var viewport=new PresentationViewport(3584,1440,1.25);
+        Check(viewport.Matches(viewport),"相同客户区与 DPI 可以交接");
+        Check(new PresentationViewport(2987,1200,1.5).Matches(new(4480/1.5,1200,1.5)),"分数 DPI 容许一个物理像素取整");
+        Check(!new PresentationViewport(4480/1.5,1200,1.5).Matches(viewport),"物理尺寸相同但 DPI 过期不能交接");
+        Check(!new PresentationViewport(1100,760,1).Matches(viewport),"浏览器尚未收到尺寸变化不能交接");
+        Check(!new PresentationViewport(3581,1440,1.25).Matches(viewport),"超过取整容差不能交接");
+        foreach(var invalid in new[]{0d,-1d,double.NaN,double.PositiveInfinity})
+        {
+            Check(!new PresentationViewport(3584,1440,invalid).Matches(viewport),"无效浏览器 DPI 不能交接");
+            Check(!viewport.Matches(new(invalid,1440,1.25)),"无效目标尺寸不能交接");
+        }
         return checks;
     }
     private sealed class FakeHandoff : ICaptureHandoff

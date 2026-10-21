@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode, type RefObject, type PointerEvent, type KeyboardEvent, type CSSProperties } from 'react';
+import { flushSync } from 'react-dom';
+import { matchesPresentationViewport, readPresentationViewport } from './presentationViewport';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type PointerEvent, type KeyboardEvent, type CSSProperties } from 'react';
 import { ArrowDownToLine, ArrowUpRight, Copy, FolderOpen, Frame, GripVertical, Highlighter, ImagePlus, MoreHorizontal, RotateCcw, ScanText, Settings2, Shield, Sparkles, Trash2, Type, X } from 'lucide-react';
 import { RecoveryStatus, type RecoveryView } from './RecoveryPanel';
 import { StyleTools } from './StyleTools';
@@ -55,7 +57,8 @@ export function CompactOverlay(props:Props) {
   useEffect(()=>{if(!metadata||props.skipReady)setChromeVisible(true);},[Boolean(metadata),props.skipReady]);
   const [preparing,setPreparing]=useState(false),[drawingTool,setDrawingTool]=useState<AnnotationKind|null>(null);
   const [paintedImage,setPaintedImage]=useState<ProjectDocument["image"]>(null);
-  const [viewport,setViewport]=useState({width:window.innerWidth,height:window.innerHeight});
+  const [viewport,setViewport]=useState(readPresentationViewport);
+  const renderedViewport=useRef(viewport);renderedViewport.current=viewport;
   const [railSize,setRailSize]=useState({width:800,height:52}),[canvasReady,setCanvasReady]=useState(false);
   const trigger=useRef<HTMLButtonElement|null>(null),railRef=useRef<HTMLDivElement>(null),readySent=useRef(false),composing=useRef(false);
   const drag=useRef<{kind:'rail'|'card';pointer:number;start:Point;origin:Point}|null>(null);
@@ -75,24 +78,33 @@ export function CompactOverlay(props:Props) {
   useEffect(()=>{if(props.requestedPanel)setPanel(props.requestedPanel.kind);},[props.requestedPanel]);
   useEffect(()=>{if(cardContent.current)cardContent.current.scrollTop=0;},[panel]);
   useEffect(()=>{if(props.selection)setPanel('properties');},[props.selection?.id]);
-  useEffect(()=>{
-    const resize=()=>setViewport({width:window.innerWidth,height:window.innerHeight});window.addEventListener('resize',resize);
-    const observer=new ResizeObserver(()=>{if(railRef.current)setRailSize({width:Math.min(800,window.innerWidth-32),height:railRef.current.getBoundingClientRect().height});});
-    if(railRef.current)observer.observe(railRef.current);
+  // resize 回调同步提交整组布局；选区、画布和工具不能各使用不同一帧的视口。
+  useLayoutEffect(()=>{
+    const resize=()=>flushSync(()=>setViewport(readPresentationViewport()));
+    const measure=()=>{if(railRef.current){const size={width:Math.min(800,window.innerWidth-32),height:railRef.current.offsetHeight};setRailSize(current=>current.width===size.width&&current.height===size.height?current:size);}};
+    measure();window.addEventListener('resize',resize);
+    const observer=new ResizeObserver(()=>flushSync(measure));if(railRef.current)observer.observe(railRef.current);
     return()=>{window.removeEventListener('resize',resize);observer.disconnect();};
   },[]);
   useEffect(()=>{
     if(props.skipReady||!canvasReady||!canvasSettled||readySent.current||!metadata?.captureId)return;
     let cancelled=false;const id=metadata.captureId;
-    // 先让宿主在原生遮挡后显示 WebView，再等待浏览器实际提交两帧，最后交换画面。
+    // 先在原生遮挡后展示 WebView；视口与工具布局连续稳定且宿主核对通过才交接。
     const timer=setTimeout(()=>{readySent.current=true;void (async()=>{
       let result=await native.request<PresentationResult>('presentation.ready',{captureId:id});
       if(cancelled)return;
       if(result.accepted!==false&&result.awaitingPaint){
-        setPreparing(true);
-        await new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())));
-        if(cancelled)return;
-        result=await native.request<PresentationResult>('presentation.painted',{captureId:id});
+        flushSync(()=>setPreparing(true));
+        const deadline=performance.now()+12000;let previous='';
+        // 等待宿主目标视口与实际 DOM 一致，而不是把任意两帧误当作 DPI 已稳定。
+        while(result.awaitingPaint){
+          await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));if(cancelled)return;
+          if(performance.now()>deadline)throw new Error('截图布局未能及时稳定，请重新截图。');
+          const actual=readPresentationViewport(),rail=railRef.current;
+          const signature=JSON.stringify([actual,rail?.offsetLeft,rail?.offsetTop,rail?.offsetWidth,rail?.offsetHeight]);
+          if(!matchesPresentationViewport(actual,result.viewport)||!matchesPresentationViewport(actual,renderedViewport.current)||signature!==previous){previous=signature;continue;}
+          result=await native.request<PresentationResult>('presentation.painted',{captureId:id,viewport:actual});previous='';
+        }
       }
       if(!cancelled){if(result.accepted!==false)setChromeVisible(true);props.onReadyResult(id,result);}
     })().catch(props.onError);},0);
@@ -123,7 +135,7 @@ export function CompactOverlay(props:Props) {
   }
   const title=visiblePanel==='raw'?'原样截图':visiblePanel==='beauty'?'美化截图':visiblePanel==='text'?'识别与校对':visiblePanel==='properties'?'标注属性':visiblePanel==='recovery'?'历史与恢复':visiblePanel==='settings'?'设置':'更多操作';
   return <div data-editor-root className={'clay-editor '+(metadata?'is-overlay':'is-neutral')+(chromeVisible?' is-presented':' is-awaiting')+(preparing?' is-preparing':'')} inert={props.locked} onKeyDownCapture={event=>{const target=event.target;if(event.key==='Escape'&&!event.nativeEvent.isComposing&&!composing.current&&target instanceof HTMLElement&&target.matches('input,textarea,select')){event.preventDefault();event.stopPropagation();target.blur();}}} onDragOver={event=>{if(Array.from(event.dataTransfer.types).includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();void props.onFiles(event.dataTransfer.files);}}>
-    <CaptureSelection metadata={metadata} disabled={!!busy||!!aiBusy||props.locked||!canvasSettled} settled={canvasSettled&&!busy} onAdjust={props.onAdjustCapture} onPreview={setSelectionPreview} onDragging={active=>{selectionDragging.current=active;}} hitAnnotation={event=>canvasRef.current?.hasAnnotationAt(event)??false} onBegin={()=>canvasRef.current?.exitSelection()}>
+    <CaptureSelection viewport={viewport} metadata={metadata} disabled={!!busy||!!aiBusy||props.locked||!canvasSettled} settled={canvasSettled&&!busy} onAdjust={props.onAdjustCapture} onPreview={setSelectionPreview} onDragging={active=>{selectionDragging.current=active;}} hitAnnotation={event=>canvasRef.current?.hasAnnotationAt(event)??false} onBegin={()=>canvasRef.current?.exitSelection()}>
     <div className={metadata?'clay-canvas-fixed':'clay-canvas-stage'} inert={!!busy} style={mapped?{visibility:selectionPreview?'hidden':undefined,left:mapped.frame.x,top:mapped.frame.y,width:mapped.frame.width,height:mapped.frame.height}:undefined}>
       {hasContent?<EditorCanvas ref={canvasRef} document={doc} onDrawingToolChange={setDrawingTool} onSelection={props.onSelection} onRenderStatus={props.onRenderStatus} fixedDisplayScale={mapped?.scale} onReady={()=>{setCanvasReady(true);setPaintedImage(doc.image);}} onAnnotations={(annotations,group)=>update({annotations},group)} onError={props.onError}/>:<div className="clay-launcher"><Frame size={32} aria-hidden="true"/><h1>截图，接着编辑。</h1><p>从托盘或快捷键开始，也可以打开本机文件。</p><button className="clay-primary" disabled={!!busy} onClick={()=>props.onCapture('capture.region')}>区域截图</button><button disabled={!!busy} onClick={props.onOpenImage}>打开图片</button><button disabled={!!busy} onClick={props.onOpenProject}>打开项目</button></div>}
     </div>

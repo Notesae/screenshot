@@ -38,6 +38,8 @@ public partial class MainWindow : Window
     private HwndSource? _source;
     private System.Windows.Forms.NotifyIcon? _trayIcon; // 隐藏后仍可恢复同一 WebView 中的内存文档。
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
+    // HWND 的最新 DPI 用于拒绝 WebView 尚未完成缩放的旧布局应答。
+    [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
     [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hwnd, out NativeRect rect);
     [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hwnd, ref NativePoint point);
@@ -302,37 +304,44 @@ public partial class MainWindow : Window
             var owner=new WindowInteropHelper(this).Handle;_captureHandoff.KeepAbove(captureId,owner);
             Show();ApplyOverlayBounds(overlay.DesktopBounds);UpdateLayout();_captureHandoff.KeepAbove(captureId,owner);
         }
-        return new{presentation=_presentation.Mode.ToString().ToLowerInvariant(),accepted,awaitingPaint=accepted,captureId=_presentation.Overlay?.CaptureId};
+        return new{presentation=_presentation.Mode.ToString().ToLowerInvariant(),accepted,awaitingPaint=accepted,captureId=_presentation.Overlay?.CaptureId,viewport=accepted?ReadOverlayViewport():null};
     }
-    // 浏览器已提交两帧后，再等 WPF 合成帧；只有当前捕获可以撤掉原生遮挡。
-    private async Task<object> PaintedPresentationAsync(string captureId)
+    // 获取 Win32 的当前 DPI，而非仍在异步追赶的 Chromium/WPF 缩放快照。
+    private PresentationViewport ReadOverlayViewport()
     {
-        var accepted=false;
+        var handle=new WindowInteropHelper(this).Handle;var dpi=GetDpiForWindow(handle);
+        if(!GetClientRect(handle,out var bounds)||dpi==0)throw new InvalidOperationException("无法读取截图客户区和缩放比例。");
+        var scale=dpi/96d*Editor.ZoomFactor;
+        return new((bounds.Right-bounds.Left)/scale,(bounds.Bottom-bounds.Top)/scale,scale);
+    }
+    // WPF 本身也要完成 DPI/尺寸更新，不能只验证浏览器传来的数学比例。
+    private bool OverlayViewportMatches(PresentationViewport actual,PresentationViewport expected)
+    {
+        var dpi=VisualTreeHelper.GetDpi(Editor);
+        return actual.Matches(expected)&&Math.Abs(dpi.DpiScaleX*Editor.ZoomFactor-expected.Scale)<.001
+            &&Math.Abs(Editor.ActualWidth*dpi.DpiScaleX-expected.Width*expected.Scale)<=2
+            &&Math.Abs(Editor.ActualHeight*dpi.DpiScaleY-expected.Height*expected.Scale)<=2;
+    }
+    // 几何匹配后提交已排队的 WPF 渲染，再次核对；旧视口只要求重试，不放行或作废截图。
+    private async Task<object> PaintedPresentationAsync(string captureId,PresentationViewport viewport)
+    {
+        var accepted=false;PresentationViewport? expected=null;
         if(_presentation.IsPrepared(captureId)&&!_captureHandoff.IsCancelled(captureId))
         {
-            var painted=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            TimeSpan? previous=null;var frames=0;
-            EventHandler rendering=(_,args)=>{if(args is RenderingEventArgs frame&&frame.RenderingTime!=previous){previous=frame.RenderingTime;if(++frames>=2)painted.TrySetResult();else InvalidateVisual();}};
-            CompositionTarget.Rendering+=rendering;
-            try
+            expected=ReadOverlayViewport();
+            if(OverlayViewportMatches(viewport,expected))
             {
-                InvalidateVisual();await painted.Task.WaitAsync(TimeSpan.FromSeconds(2),_lifetime.Token);
-                if(!_captureHandoff.IsCancelled(captureId)&&_presentation.TryAcceptPainted(captureId))
+                await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.Render,_lifetime.Token);
+                expected=ReadOverlayViewport();
+                if(OverlayViewportMatches(viewport,expected)&&!_captureHandoff.IsCancelled(captureId)&&_presentation.TryAcceptPainted(captureId))
                 {
                     Opacity=1;ShowActivated=true;_captureHandoff.Release(captureId);Activate();accepted=true;
                 }
             }
-            catch(TimeoutException)
-            {
-                if(_presentation.TryExpireReady(captureId))
-                {
-                    ShowWorkbench();Post(new{@event="presentation.changed",payload=new{presentation="workbench",reason="overlay_timeout",timedOutCaptureId=captureId}});
-                }
-            }
-            finally{CompositionTarget.Rendering-=rendering;}
         }
         if(_captureHandoff.IsCancelled(captureId)&&_presentation.TryDismiss(captureId))DismissPresentation();
-        return new{presentation=_presentation.Mode.ToString().ToLowerInvariant(),accepted,captureId=_presentation.Overlay?.CaptureId};
+        var awaitingPaint=!accepted&&_presentation.IsPrepared(captureId);
+        return new{presentation=_presentation.Mode.ToString().ToLowerInvariant(),accepted,awaitingPaint,viewport=expected,captureId=_presentation.Overlay?.CaptureId};
     }
     // 前端解码或布局失败时不永久隐藏应用；计时器只能回收自己等待的 captureId。
     private async Task WaitForOverlayReadyAsync(string captureId)
@@ -463,7 +472,9 @@ public partial class MainWindow : Window
                 if (dismissed) { if (wasWorkbench) RememberWorkbenchPlacement(); DismissPresentation(); }
                 return new { presentation = _presentation.Mode.ToString().ToLowerInvariant(), accepted = dismissed, captureId = _presentation.Overlay?.CaptureId };
             case "presentation.ready": return ReadyPresentation(RequiredString(payload, "captureId"));
-            case "presentation.painted": return await PaintedPresentationAsync(RequiredString(payload, "captureId"));
+            case "presentation.painted":
+                var viewport=payload.GetProperty("viewport");
+                return await PaintedPresentationAsync(RequiredString(payload,"captureId"),new(viewport.GetProperty("width").GetDouble(),viewport.GetProperty("height").GetDouble(),viewport.GetProperty("scale").GetDouble()));
             case "presentation.complete": return await CompleteEditingAsync(payload);
             case "image.save": return NativeImages.Save(this, RequiredString(payload, "dataUrl"), OptionalString(payload, "suggestedName"));
             case "text.copy": return NativeImages.CopyText(RequiredString(payload, "text"));

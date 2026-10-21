@@ -3,8 +3,8 @@ import { adjustSelection, type CaptureHandle } from './selectionGeometry';
 import type { OverlayMetadata, PixelRect } from './overlay';
 
 /** 选区内空白直接拖动；标注命中交还画布。裁剪及绘制完成前保留落点，避免旧帧闪回。 */
-export function CaptureSelection({ metadata, disabled, settled, onAdjust, onPreview, onDragging, hitAnnotation, onBegin, children }: {
-  metadata: OverlayMetadata|null; disabled: boolean; settled: boolean; onAdjust: (area: PixelRect) => Promise<boolean>;
+export function CaptureSelection({ viewport, metadata, disabled, settled, onAdjust, onPreview, onDragging, hitAnnotation, onBegin, children }: {
+  viewport:{width:number;height:number};metadata: OverlayMetadata|null; disabled: boolean; settled: boolean; onAdjust: (area: PixelRect) => Promise<boolean>;
   onPreview: (area: PixelRect|null) => void; onDragging: (active: boolean) => void;
   hitAnnotation: (event: globalThis.PointerEvent) => boolean; onBegin: () => void; children: ReactNode;
 }) {
@@ -39,7 +39,7 @@ export function CaptureSelection({ metadata, disabled, settled, onAdjust, onPrev
   }
   function move(event: PointerEvent<HTMLDivElement>) {
     const current=drag.current;if(!current||!metadata||event.pointerId!==current.id)return;
-    current.next=adjustSelection(current.area,current.handle,(event.clientX-current.x)*metadata.desktopBounds.width/window.innerWidth,(event.clientY-current.y)*metadata.desktopBounds.height/window.innerHeight,metadata.desktopBounds);
+    current.next=adjustSelection(current.area,current.handle,(event.clientX-current.x)*metadata.desktopBounds.width/viewport.width,(event.clientY-current.y)*metadata.desktopBounds.height/viewport.height,metadata.desktopBounds);
     setPreview(current.next);onPreview(current.next);
   }
   // 松手只结束指针手势；成功后由同一图片的绘制完成信号清除预览，失败才回滚。
@@ -64,9 +64,10 @@ export function CaptureSelection({ metadata, disabled, settled, onAdjust, onPrev
     void onAdjust(next).then(ok=>{if(!ok&&request===sequence.current)reset();}).catch(()=>{if(request===sequence.current)reset();});
   }
   const area=preview??metadata?.selection,desktop=metadata?.desktopBounds;
-  const scale=desktop?{x:window.innerWidth/desktop.width,y:window.innerHeight/desktop.height}:{x:1,y:1};
+  const scale=desktop?{x:viewport.width/desktop.width,y:viewport.height/desktop.height}:{x:1,y:1};
   return <div className="clay-capture-layer" onPointerDownCapture={begin} onPointerMoveCapture={move} onPointerUpCapture={event=>{void end(event);}} onPointerCancel={cancel} onLostPointerCapture={cancel} onKeyDownCapture={key}>
     {children}
+    {active&&area&&desktop&&<svg className="clay-selection-mask" width={viewport.width} height={viewport.height} aria-hidden="true"><path fillRule="evenodd" d={`M0 0H${viewport.width}V${viewport.height}H0Z M${(area.x-desktop.x)*scale.x} ${(area.y-desktop.y)*scale.y}h${area.width*scale.x}v${area.height*scale.y}h${-area.width*scale.x}Z`}/></svg>}
     {active&&area&&desktop&&<div ref={frame} className="clay-capture-selection" role="group" tabIndex={0} aria-label="截图选区" aria-disabled={disabled||pending} style={{left:(area.x-desktop.x)*scale.x,top:(area.y-desktop.y)*scale.y,width:area.width*scale.x,height:area.height*scale.y}}>
       <span className="clay-selection-size" aria-live="polite" style={{top:(area.y-desktop.y)*scale.y<38?6:undefined}}>{area.width} × {area.height} px</span>
       {(['nw','n','ne','e','se','s','sw','w'] as const).map(handle=><button key={handle} data-selection-handle={handle} className={'clay-selection-handle is-'+handle} aria-label={'调整截图选区 '+handle} title="拖动调整选区，方向键微调" disabled={disabled||pending}/>)}

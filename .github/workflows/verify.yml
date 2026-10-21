@@ -43,6 +43,8 @@ jobs:
           if ($LASTEXITCODE) { throw 'Headless overlay regressions failed.' }
           node scripts/test-annotation-drawing.cjs
           if ($LASTEXITCODE) { throw 'Annotation drawing and presentation regressions failed.' }
+          node scripts/test-capture-handoff-layout.cjs
+          if ($LASTEXITCODE) { throw 'Capture viewport and handoff layout regressions failed.' }
           node editor/scripts/update-safety-audit.cjs artifacts/qa/product/update-safety.json
           if ($LASTEXITCODE) { throw 'Update snapshot regressions failed.' }
       - name: Product state and layout regressions on synthetic content
@@ -77,6 +79,7 @@ jobs:
           path: |
             artifacts/qa/redesign/
             artifacts/qa/annotation-drawing/
+            artifacts/qa/capture-handoff-layout/
           if-no-files-found: error
           retention-days: 14
       # 先收集独立合成回归；性能比较仍是直接失败并阻止打包的硬门禁。
