@@ -36,7 +36,7 @@ type Props = {
   targetLanguage:string;setTargetLanguage:(language:string)=>void;scale:number;setScale:(scale:number)=>void;
   notice:{text:string;error?:boolean}|null;clearNotice:()=>void;onReadyResult:(captureId:string,result:PresentationResult)=>void;
   onOpenImage:()=>void;onOpenProject:()=>void;onPaste:()=>void;locked:boolean;
-  onAdjustCapture:(area:PixelRect)=>void;
+  onAdjustCapture:(area:PixelRect)=>Promise<boolean>;
   requestedPanel:{kind:'more'|'recovery'|'settings';sequence:number}|null;
 };
 
@@ -51,6 +51,9 @@ export function CompactOverlay(props:Props) {
   const [selectionPreview,setSelectionPreview]=useState<PixelRect|null>(null);
   const selectionDragging=useRef(false);
   useEffect(()=>setPositions({}),[metadata?.selection.x,metadata?.selection.y,metadata?.selection.width,metadata?.selection.height]);
+  const [chromeVisible,setChromeVisible]=useState(!metadata||props.skipReady);
+  useEffect(()=>{if(!metadata||props.skipReady)setChromeVisible(true);},[Boolean(metadata),props.skipReady]);
+  const [paintedImage,setPaintedImage]=useState<ProjectDocument["image"]>(null);
   const [viewport,setViewport]=useState({width:window.innerWidth,height:window.innerHeight});
   const [railSize,setRailSize]=useState({width:800,height:52}),[canvasReady,setCanvasReady]=useState(false);
   const trigger=useRef<HTMLButtonElement|null>(null),railRef=useRef<HTMLDivElement>(null),readySent=useRef(false),composing=useRef(false);
@@ -60,7 +63,10 @@ export function CompactOverlay(props:Props) {
   const hasContent=Boolean(doc.image)||editor.mode==='reflow';
   let output={width:doc.image?.width||1,height:doc.image?.height||1};
   try{output=outputSize(doc.image,editor);}catch{/* 画布报告尺寸错误，工具仍允许修正文字。 */}
-  const mapped=metadata?overlayLayout(selectionPreview?{...metadata,selection:selectionPreview}:metadata,viewport,output,editor.mode==='beauty'?editor.padding:0,{...railSize,statusHeight:0},editor.mode==='reflow'?undefined:editor.crop||(editor.resize?{x:0,y:0}:undefined)):null;
+  const padding=editor.mode==='beauty'?editor.padding:0;
+  const previewOutput=selectionPreview&&editor.mode!=='reflow'?{width:selectionPreview.width+padding*2,height:selectionPreview.height+padding*2}:output;
+  const adjusting=busy==='调整截图选区',canvasSettled=props.renderStatus==='ready'&&paintedImage===doc.image;
+  const mapped=metadata?overlayLayout(selectionPreview?{...metadata,selection:selectionPreview}:metadata,viewport,previewOutput,editor.mode==='beauty'?editor.padding:0,{...railSize,statusHeight:0},selectionPreview||editor.mode==='reflow'?undefined:editor.crop||(editor.resize?{x:0,y:0}:undefined)):null;
   const screen=mapped?.screen??{x:0,y:0,...viewport};
   const tools=placeTools(screen,mapped?.frame??null,railSize,{width:panel==='text'?420:panel==='beauty'?360:320,height:panel==='properties'?300:500},selectionPreview?{}:positions);
   function closePanel(){setPanel(null);trigger.current?.focus();}
@@ -75,11 +81,11 @@ export function CompactOverlay(props:Props) {
     return()=>{window.removeEventListener('resize',resize);observer.disconnect();};
   },[]);
   useEffect(()=>{
-    if(props.skipReady||!canvasReady||readySent.current||!metadata?.captureId)return;
+    if(props.skipReady||!canvasReady||!canvasSettled||readySent.current||!metadata?.captureId)return;
     let cancelled=false;const id=metadata.captureId;
-    const timer=setTimeout(()=>{readySent.current=true;void native.request<PresentationResult>('presentation.ready',{captureId:id}).then(result=>{if(!cancelled)props.onReadyResult(id,result);}).catch(props.onError);},0);
+    const timer=setTimeout(()=>{readySent.current=true;void native.request<PresentationResult>('presentation.ready',{captureId:id}).then(result=>{if(!cancelled){if(result.accepted!==false)setChromeVisible(true);props.onReadyResult(id,result);}}).catch(props.onError);},0);
     return()=>{cancelled=true;clearTimeout(timer);};
-  },[canvasReady,metadata?.captureId,props.skipReady]);
+  },[canvasReady,canvasSettled,metadata?.captureId,props.skipReady]);
   useEffect(()=>{
     const start=()=>{composing.current=true;},end=()=>{composing.current=false;};
     const keydown=(event:globalThis.KeyboardEvent)=>{
@@ -104,12 +110,13 @@ export function CompactOverlay(props:Props) {
     const direction=directions[event.key];if(!direction)return;event.preventDefault();const current=tools[kind];setPositions(value=>({...value,[kind]:boundTool({x:current.x+direction.x,y:current.y+direction.y},current,tools.area)}));
   }
   const title=visiblePanel==='raw'?'原样截图':visiblePanel==='beauty'?'美化截图':visiblePanel==='text'?'识别与校对':visiblePanel==='properties'?'标注属性':visiblePanel==='recovery'?'历史与恢复':visiblePanel==='settings'?'设置':'更多操作';
-  return <div data-editor-root className={'clay-editor '+(metadata?'is-overlay':'is-neutral')} inert={props.locked} onKeyDownCapture={event=>{const target=event.target;if(event.key==='Escape'&&!event.nativeEvent.isComposing&&!composing.current&&target instanceof HTMLElement&&target.matches('input,textarea,select')){event.preventDefault();event.stopPropagation();target.blur();}}} onDragOver={event=>{if(Array.from(event.dataTransfer.types).includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();void props.onFiles(event.dataTransfer.files);}}>
+  return <div data-editor-root className={'clay-editor '+(metadata?'is-overlay':'is-neutral')+(chromeVisible?' is-presented':' is-awaiting')} inert={props.locked} onKeyDownCapture={event=>{const target=event.target;if(event.key==='Escape'&&!event.nativeEvent.isComposing&&!composing.current&&target instanceof HTMLElement&&target.matches('input,textarea,select')){event.preventDefault();event.stopPropagation();target.blur();}}} onDragOver={event=>{if(Array.from(event.dataTransfer.types).includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();void props.onFiles(event.dataTransfer.files);}}>
+    <CaptureSelection metadata={metadata} disabled={!!busy||!!aiBusy||props.locked||!canvasSettled} settled={canvasSettled&&!busy} onAdjust={props.onAdjustCapture} onPreview={setSelectionPreview} onDragging={active=>{selectionDragging.current=active;}} hitAnnotation={event=>canvasRef.current?.hasAnnotationAt(event)??false} onBegin={()=>canvasRef.current?.exitSelection()}>
     <div className={metadata?'clay-canvas-fixed':'clay-canvas-stage'} inert={!!busy} style={mapped?{visibility:selectionPreview?'hidden':undefined,left:mapped.frame.x,top:mapped.frame.y,width:mapped.frame.width,height:mapped.frame.height}:undefined}>
-      {hasContent?<EditorCanvas ref={canvasRef} document={doc} onSelection={props.onSelection} onRenderStatus={props.onRenderStatus} fixedDisplayScale={mapped?.scale} onReady={()=>setCanvasReady(true)} onAnnotations={(annotations,group)=>update({annotations},group)} onError={props.onError}/>:<div className="clay-launcher"><Frame size={32} aria-hidden="true"/><h1>截图，接着编辑。</h1><p>从托盘或快捷键开始，也可以打开本机文件。</p><button className="clay-primary" disabled={!!busy} onClick={()=>props.onCapture('capture.region')}>区域截图</button><button disabled={!!busy} onClick={props.onOpenImage}>打开图片</button><button disabled={!!busy} onClick={props.onOpenProject}>打开项目</button></div>}
+      {hasContent?<EditorCanvas ref={canvasRef} document={doc} onSelection={props.onSelection} onRenderStatus={props.onRenderStatus} fixedDisplayScale={mapped?.scale} onReady={()=>{setCanvasReady(true);setPaintedImage(doc.image);}} onAnnotations={(annotations,group)=>update({annotations},group)} onError={props.onError}/>:<div className="clay-launcher"><Frame size={32} aria-hidden="true"/><h1>截图，接着编辑。</h1><p>从托盘或快捷键开始，也可以打开本机文件。</p><button className="clay-primary" disabled={!!busy} onClick={()=>props.onCapture('capture.region')}>区域截图</button><button disabled={!!busy} onClick={props.onOpenImage}>打开图片</button><button disabled={!!busy} onClick={props.onOpenProject}>打开项目</button></div>}
     </div>
-    {metadata?.captureId&&!metadata.contentScale&&<CaptureSelection metadata={metadata} disabled={!!busy||!!aiBusy||props.locked||props.renderStatus!=='ready'} onAdjust={props.onAdjustCapture} onPreview={setSelectionPreview} onDragging={active=>{selectionDragging.current=active;}}/>}
-    <fieldset className="clay-chrome" disabled={!!busy}>
+    </CaptureSelection>
+    <fieldset className="clay-chrome" disabled={!!busy&&!adjusting} inert={adjusting||Boolean(selectionPreview&&!selectionDragging.current)}>
       <div className="clay-rail" ref={railRef} role="toolbar" aria-label="截图编辑工具" style={{left:tools.rail.x,top:tools.rail.y,width:tools.rail.width,maxHeight:tools.area.height}}>
         <span className="clay-grip" role="button" tabIndex={0} aria-label="移动动作轨，方向键微调" onPointerDown={event=>beginDrag('rail',event)} onPointerMove={moveDrag} onPointerUp={endDrag} onLostPointerCapture={endDrag} onKeyDown={event=>moveByKey('rail',event)}><GripVertical aria-hidden="true"/></span>
         <div className="clay-paths" role="group" aria-label="编辑路径"><button aria-pressed={editor.mode==='raw'&&panel!=='text'} disabled={!hasContent} onClick={()=>{update({mode:'raw'});openPanel('raw');}}>原样</button><button aria-pressed={editor.mode==='beauty'&&panel!=='text'} disabled={!hasContent} onClick={event=>{update({mode:'beauty'});openPanel('beauty',event.currentTarget);}}><img src={clayBeauty} width={20} height={20} alt="" aria-hidden="true"/>美化</button><button aria-pressed={panel==='text'} disabled={!hasContent} onClick={event=>openPanel('text',event.currentTarget)}><img src={clayText} width={20} height={20} alt="" aria-hidden="true"/>文字</button></div>
@@ -121,7 +128,7 @@ export function CompactOverlay(props:Props) {
       {visiblePanel&&<section aria-hidden={!panel} className={'clay-card '+(visiblePanel==='more'?'clay-drawer ':'')+(!panel?'is-closing':'')} role="region" aria-label={title} style={{left:tools.card.x,top:tools.card.y,width:tools.card.width,maxHeight:tools.card.height}}>
         <header className="clay-card-heading" tabIndex={0} aria-label={'移动'+title+'，方向键微调'} onPointerDown={event=>beginDrag('card',event)} onPointerMove={moveDrag} onPointerUp={endDrag} onLostPointerCapture={endDrag} onKeyDown={event=>{if(event.target===event.currentTarget)moveByKey('card',event);}}><h2>{title}</h2><button aria-label="关闭浮卡" onClick={closePanel}><img src={clayClose} width={18} height={18} alt="" aria-hidden="true"/></button></header>
         <div className="clay-card-content" ref={cardContent}>
-          {visiblePanel==='raw'&&<><p className="clay-hint">保留原始像素。拖动圆形手柄调整选区，拖动移动把手平移；方向键微调，Shift 调整尺寸。</p><button className="clay-primary" disabled={props.renderStatus!=='ready'} onClick={()=>props.onExport(true)}>复制原样 PNG</button><button onClick={()=>props.onCapture('capture.region')}>重新框选</button></>}
+          {visiblePanel==='raw'&&<><p className="clay-hint">保留原始像素。拖动圆形手柄调整选区，在框内空白处按住拖动；方向键微调，Shift 调整尺寸。</p><button className="clay-primary" disabled={props.renderStatus!=='ready'} onClick={()=>props.onExport(true)}>复制原样 PNG</button><button onClick={()=>props.onCapture('capture.region')}>重新框选</button></>}
           {visiblePanel==='beauty'&&<><StyleTools editor={editor} update={update} onError={props.onError}/><button className="clay-primary" disabled={props.renderStatus!=='ready'} onClick={()=>props.onExport(true)}>应用并复制 PNG</button><details><summary>细调外观</summary><label>背景颜色<input type="color" aria-label="背景颜色" value={editor.background} onChange={event=>update({background:event.target.value})}/></label><Range label="留白" value={editor.padding} max={200} onChange={padding=>update({padding})}/><Range label="圆角" value={editor.radius} max={100} onChange={radius=>update({radius})}/><label className="checkbox-row"><input type="checkbox" checked={editor.shadow} onChange={event=>update({shadow:event.target.checked})}/>柔和阴影</label></details><button onClick={()=>{update({mode:'raw'});setPanel(null);}}>恢复原样</button></>}
           {visiblePanel==='text'&&<TextTools {...props.textTools} compact/>}
           {visiblePanel==='properties'&&<><AnnotationPalette selection={props.selection} disabled={props.renderStatus!=='ready'} canvasRef={canvasRef} onError={props.onError}/><button disabled={!props.selection} onClick={()=>canvasRef.current?.remove()}><Trash2 aria-hidden="true"/>删除选中标注</button></>}
@@ -131,7 +138,7 @@ export function CompactOverlay(props:Props) {
         </div>
       </section>}
     </fieldset>
-    <div className="clay-status" style={{left:screen.x+16,top:screen.y+12,maxWidth:screen.width-32}}><RecoveryStatus state={props.recoveryState}/>{(busy||aiBusy||hasContent&&props.renderStatus==='loading')&&<div role="status" className="clay-task"><span className="spinner"/>{busy||aiBusy||'画布更新中'}…{aiBusy&&<button onClick={props.textTools.onCancelOcr}>取消任务</button>}</div>}</div>
+    <div className="clay-status" style={{left:screen.x+16,top:screen.y+12,maxWidth:screen.width-32}}><RecoveryStatus state={props.recoveryState}/>{(!adjusting&&busy||aiBusy||hasContent&&props.renderStatus==='loading')&&<div role="status" className="clay-task"><span className="spinner"/>{busy||aiBusy||'画布更新中'}…{aiBusy&&<button onClick={props.textTools.onCancelOcr}>取消任务</button>}</div>}</div>
     {props.notice&&<div className={'clay-notice '+(props.notice.error?'is-error':'')} role={props.notice.error?'alert':'status'}><span>{props.notice.text}</span><button aria-label="关闭提示" onClick={props.clearNotice}><img src={clayClose} width={18} height={18} alt="" aria-hidden="true"/></button></div>}
   </div>;
 }

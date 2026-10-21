@@ -153,11 +153,11 @@ export default function App() {
     setOverlayReady(false);setOverlay(expired ? null : capture.overlay); setDoc({ schemaVersion: 2, image, editor: defaultEditor() }); setDocumentEpoch(value => value + 1); setNotice(expired ? (timedOutCaptures.current.has(capture.overlay!.captureId!) ? { text: '选区编辑已超时，截图已保留在轻量编辑器。', error: true } : null) : capture.overlay ? null : { text: `已载入 ${image.name}` });
   }
   // 一次调整作为可撤销的文档修改；宿主不重新捕获，不改身份，不丢校对文字和标注。
-  async function adjustCapture(area:PixelRect) {
-    if(hostLock.current||captureAdjusting.current||busy||aiBusy||canvas.current?.interactionState().editing)return;
+  async function adjustCapture(area:PixelRect):Promise<boolean> {
+    if(hostLock.current||captureAdjusting.current||busy||aiBusy||canvas.current?.interactionState().editing)return false;
     const source=overlayRef.current;
-    if(!source?.captureId||source.contentScale||!overlayReadyRef.current)return;
-    captureAdjusting.current=true;
+    if(!source?.captureId||source.contentScale||!overlayReadyRef.current)return false;
+    captureAdjusting.current=true;let accepted=false;
     try{await run('调整截图选区',async()=>{
       const revision=++generation.current,document=current.current;
       const result=parseCapture(await native.request<CaptureEnvelope>('capture.adjust',{captureId:source.captureId,selection:area}));
@@ -167,8 +167,9 @@ export default function App() {
       captureGeometry.current.set(image,result.overlay);
       const editor=document.editor.mode==='reflow'?document.editor:transformContent(document,null,null).editor;
       history.commitDocument({...document,image,editor:{...editor,crop:null,resize:null,ocr:null}});
-      setSelection(null);
+      setSelection(null);accepted=true;
     });}finally{captureAdjusting.current=false;}
+    return accepted;
   }
   // 项目校验与图片解码全部完成后才整体替换，并通过 epoch 清空旧画布标注。
   async function acceptProject(value: unknown, revision = ++generation.current, restored?: { documentId: string; revision: number }) {
@@ -405,6 +406,6 @@ export default function App() {
   return <>
     <input hidden ref={imageInput} type="file" accept="image/png,image/jpeg,image/webp" onChange={event=>{void chooseFiles(event.currentTarget.files);event.currentTarget.value='';}}/>
     <input hidden ref={projectInput} type="file" accept=".json" onChange={event=>{void chooseFiles(event.currentTarget.files);event.currentTarget.value='';}}/>
-    <CompactOverlay onAdjustCapture={area=>{void adjustCapture(area);}} locked={hostLocked} requestedPanel={entryPanel} onOpenImage={()=>{void openImage();}} onOpenProject={()=>{void openProject();}} onPaste={()=>{void nativeImage('image.paste','粘贴图片');}} selection={selection} onSelection={setSelection} recoveryState={recovery} renderStatus={canvasStatus} onRenderStatus={setCanvasStatus} skipReady={overlayReady} onFiles={files=>chooseFiles(files,Boolean(overlay))} onCapture={(method,payload)=>{void nativeImage(method,"捕获屏幕",payload);}} key={documentEpoch} document={doc} metadata={activeOverlay} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo} onTransform={changeTransform} textTools={textTools} recoveryPanel={recoveryPanel} captureBackend={captureBackend} onCaptureBackend={backend => { void configureCapture(backend); }} onReadyResult={handleReadyResult} canvasRef={canvas} update={update} onExport={copy => { void exportImage(copy); }} onAi={kind => { void ai(kind); }} onPresentation={mode => { void presentation(mode); }} onConfigure={() => { void run(SETTINGS_OPERATION, async () => applySettings(await native.request<Settings>('settings.configure'))); }} onSaveProject={() => { void saveProject(); }} onError={errorNotice} busy={busy} aiBusy={aiBusy} settings={settings} providerId={providerId} setProviderId={setProviderId} targetLanguage={targetLanguage} setTargetLanguage={setTargetLanguage} scale={scale} setScale={setScale} notice={notice} clearNotice={() => setNotice(null)}/>
+    <CompactOverlay onAdjustCapture={adjustCapture} locked={hostLocked} requestedPanel={entryPanel} onOpenImage={()=>{void openImage();}} onOpenProject={()=>{void openProject();}} onPaste={()=>{void nativeImage('image.paste','粘贴图片');}} selection={selection} onSelection={setSelection} recoveryState={recovery} renderStatus={canvasStatus} onRenderStatus={setCanvasStatus} skipReady={overlayReady} onFiles={files=>chooseFiles(files,Boolean(overlay))} onCapture={(method,payload)=>{void nativeImage(method,"捕获屏幕",payload);}} key={documentEpoch} document={doc} metadata={activeOverlay} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo} onTransform={changeTransform} textTools={textTools} recoveryPanel={recoveryPanel} captureBackend={captureBackend} onCaptureBackend={backend => { void configureCapture(backend); }} onReadyResult={handleReadyResult} canvasRef={canvas} update={update} onExport={copy => { void exportImage(copy); }} onAi={kind => { void ai(kind); }} onPresentation={mode => { void presentation(mode); }} onConfigure={() => { void run(SETTINGS_OPERATION, async () => applySettings(await native.request<Settings>('settings.configure'))); }} onSaveProject={() => { void saveProject(); }} onError={errorNotice} busy={busy} aiBusy={aiBusy} settings={settings} providerId={providerId} setProviderId={setProviderId} targetLanguage={targetLanguage} setTargetLanguage={setTargetLanguage} scale={scale} setScale={setScale} notice={notice} clearNotice={() => setNotice(null)}/>
   </>;
 }

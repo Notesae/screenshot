@@ -108,12 +108,20 @@ Check(!presentation.TryAcceptReady("stale-id"), "stale layout acknowledgement ca
 Check(presentation.TryAcceptReady(frame.CaptureId), "current layout acknowledgement accepted once");
 Check(!presentation.TryAcceptReady(frame.CaptureId), "duplicate acknowledgement ignored");
 // 调整仅裁剪合成冻结图，既不枚举显示器也不再次捕获；失败保持原选区。
-Reject(() => presentation.Adjust("stale-id", desktopBounds), "stale capture cannot crop frozen pixels");
-Reject(() => presentation.Adjust(frame.CaptureId, new(-3, -1, 2, 2)), "out of desktop crop rejected");
-var recropped = presentation.Adjust(frame.CaptureId, desktopBounds);
+Reject(() => presentation.AdjustAsync("stale-id", desktopBounds).GetAwaiter().GetResult(), "stale capture cannot crop frozen pixels");
+Reject(() => presentation.AdjustAsync(frame.CaptureId, new(-3, -1, 2, 2)).GetAwaiter().GetResult(), "out of desktop crop rejected");
+// 取消后台裁剪不能把未完成的落点写回宿主。
+using(var cancelledCrop=new CancellationTokenSource())
+{
+    cancelledCrop.Cancel();var cancelled=false;
+    try{await presentation.AdjustAsync(frame.CaptureId,desktopBounds,cancelledCrop.Token);}catch(OperationCanceledException){cancelled=true;}
+    Check(cancelled,"cancelled recrop stops before commit");
+    Check(presentation.Overlay?.Selection==selection,"cancelled recrop keeps prior selection");
+}
+var recropped = await presentation.AdjustAsync(frame.CaptureId, desktopBounds);
 Check(recropped.Image.Width == 4 && recropped.Image.Height == 2 && recropped.Overlay.Selection == desktopBounds, "resize returns matching crop and physical geometry");
 Check(recropped.Overlay.CaptureId == frame.CaptureId && ReferenceEquals(presentation.FrozenBackdrop, backdrop), "resize keeps capture identity and frozen native pixels");
-presentation.Adjust(frame.CaptureId, selection);
+await presentation.AdjustAsync(frame.CaptureId, selection);
 presentation.BeginCapture(); presentation.CancelCapture();
 Check(presentation.Mode == PresentationMode.Overlay && ReferenceEquals(presentation.FrozenBackdrop, backdrop), "cancelled selection preserves previous overlay and backdrop");
 var envelope = frame.ToEnvelope();
@@ -189,6 +197,7 @@ checks += EditorCheckpointTests.Run();
 checks += HotkeyTests.Run();
 checks += CaptureTargetsTests.Run();
 checks += RegionSelectionTests.Run();
+checks += CaptureHandoffTests.Run();
 checks += SoftClayThemeTests.Run();
 checks += await CapturePipelineTests.RunAsync();
 checks += await UpdateTests.RunAsync();

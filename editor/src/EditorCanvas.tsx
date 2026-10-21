@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import { Canvas, StaticCanvas, FabricImage, Textbox } from 'fabric';
 import { Minus, Plus } from 'lucide-react';
 import { renderBase } from './render';
@@ -8,7 +8,7 @@ import { annotationFromObject as serialize, annotationToObject as restore, patch
 
 export type CanvasSelection = Pick<Annotation, 'id' | 'type' | 'color' | 'fontSize'>;
 export type CanvasRenderStatus = 'loading' | 'ready' | 'error';
-export type CanvasHandle = { exportPng: (scale: number) => Promise<string>; add: (type: AnnotationKind) => void; remove: () => void; patchSelection: (change: {color: string; fontSize: number}) => boolean; interactionState: () => { editing: boolean; selected: boolean }; exitSelection: () => void };
+export type CanvasHandle = { exportPng: (scale: number) => Promise<string>; add: (type: AnnotationKind) => void; remove: () => void; patchSelection: (change: {color: string; fontSize: number}) => boolean; interactionState: () => { editing: boolean; selected: boolean }; exitSelection: () => void; hasAnnotationAt: (event:PointerEvent) => boolean };
 type Props = { document: ProjectDocument; onAnnotations: (objects: Annotation[], group?: string) => void; onError: (error: unknown) => void; fixedDisplayScale?: { x: number; y: number }; onReady?: () => void; onRenderStatus?: (status: CanvasRenderStatus) => void; onSelection?: (selection:CanvasSelection|null)=>void };
 // 每个底图都是renderBase私有canvas；替换/卸载时归零背板，避免等待GC回收大图像素。
 function releaseBackground(canvas:Canvas){
@@ -26,6 +26,8 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
   const viewport = useRef<HTMLDivElement>(null);
   const actualZoom = manualZoom ?? zoom;
   const displayScale = fixedDisplayScale || { x: actualZoom, y: actualZoom };
+  // 异步底图提交也使用当前显示比例，避免先按原尺寸展示一帧再缩放。
+  const displayScaleRef=useRef(displayScale);displayScaleRef.current=displayScale;
   const [size, setSize] = useState({ width: 720, height: 480 });
   const callbacks = useRef({ onAnnotations, onError, onRenderStatus, onSelection }); callbacks.current = { onAnnotations, onError, onRenderStatus, onSelection };
   const current = useRef(doc); current.current = doc;
@@ -83,7 +85,8 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
       restoreObjects(canvas,annotations,selectedId);
       lastAnnotations.current = annotations;
       setSize({ width: base.width, height: base.height });
-      canvas.requestRenderAll(); updating.current = false; rendered.current = { image: doc.image, properties }; loaded.current = true; publishSelection();callbacks.current.onRenderStatus?.('ready');
+      canvas.setDimensions({width:base.width*displayScaleRef.current.x,height:base.height*displayScaleRef.current.y},{cssOnly:true});
+      canvas.renderAll(); updating.current = false; rendered.current = { image: doc.image, properties }; loaded.current = true; publishSelection();callbacks.current.onRenderStatus?.('ready');
     })().catch(error => { if (!cancelled) { updating.current=false;publishSelection();callbacks.current.onRenderStatus?.('error'); callbacks.current.onError(error); } });
     return () => { cancelled = true; };
     // 标注已直接存在于 Fabric 中，逐字输入时重建会丢失编辑焦点。
@@ -108,11 +111,13 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
     return () => observer.disconnect();
   }, [size, fixedDisplayScale?.x, fixedDisplayScale?.y]);
   // 紧凑覆盖层直接使用物理选区映射比例，不执行工作台的留边自适应缩放。
-  useEffect(() => {
+  useLayoutEffect(() => {
     fabric.current?.setDimensions({ width: size.width * displayScale.x, height: size.height * displayScale.y }, { cssOnly: true });
     if (loaded.current && rendered.current?.image === current.current.image && rendered.current?.properties === latestProperties.current) onReady?.();
   }, [displayScale.x, displayScale.y, size]);
   useImperativeHandle(ref, () => ({
+    // 命中标注时交还 Fabric，空白背景才可拖动截图选区。
+    hasAnnotationAt(event) { const target=fabric.current?.findTarget(event).target;return Boolean(target?.selectable||target?.evented); },
     async exportPng(scale) {
       // 同时核对模型与已渲染版本，防止快速切换样式时导出上一帧。
       const canvas = fabric.current;

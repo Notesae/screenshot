@@ -70,7 +70,7 @@ The default native capture backend reports `backend:"wgc", colorMode:"sdr", supp
 
 ## P0 additions
 
-Region selection hands off the frozen frame on valid pointer release. In-place editing exposes eight circular handles and a move grip; arrows move one physical pixel, Shift+arrows resize, Ctrl uses ten pixels. Escape cancels an active adjustment before editor dismissal; explicit reselect is available in the path card and More. Before handoff Escape/right-click cancels and M toggles the frozen-pixel magnifier. Desktop validation remains paused.
+Region selection hands off the frozen frame on valid pointer release. In-place editing exposes eight circular handles and direct dragging on empty space inside the selection; arrows move one physical pixel, Shift+arrows resize, Ctrl uses ten pixels. Escape cancels an active adjustment before editor dismissal; explicit reselect is available in the path card and More. Before handoff Escape/right-click cancels and M toggles the frozen-pixel magnifier. Desktop validation remains paused.
 
 `capture.screen` and `capture.region` accept `{backend?:"wgc"|"gdi",target?:{kind:"desktop"|"monitor"|"window",handle?:string,area?:"window"|"client"},timeoutMs?:number}`. Native handles are nonzero decimal or `0x` strings, never JS numbers. Desktop is the default; monitor/window require an explicit valid handle. Timeout is 100–30000 ms (default 8000). Capture overlay metadata also reports the actual `backend`, `colorMode:"sdr"`, and `supportsHdr:false`. WGC uses BGRA8; HDR fidelity is not claimed. Availability is checked on capture without enumerating targets during app.info.
 
@@ -162,3 +162,5 @@ GitHub App device code、access/refresh token、账号授权请求与私有 Rele
 ## 0.4.8 公开源免登录更新
 
 用户自行公开仓库后，原生更新源改为固定官方公开GET；设备码、token会话和Client ID配置已删除。没有认证桥接或新增编辑器权限。公开源核对固定仓库ID与公开状态，401/403/404不转入登录；检查/下载、校验、快照保护及React就绪协议仍由原生宿主管理，安装交接继续要求用户明确确认。
+
+后续交接修复不改变桥接字段：宿主内部 ICaptureHandoff 按捕获身份持有首次框选画面，只有当前 presentation.ready 接受且宿主已处理布局/绘制后释放；取消、超时、退出也释放。PNG 编码和 capture.adjust 裁剪在后台执行，提交前再次核对身份和取消。前端等当前图片真正绘制完成才发送 ready，收到接受结果后才播放工具入场；裁剪期间继续保留几何预览直到当前底图完成绘制。W/C 选择快捷操作已移除，自动吸附仍可通过设置控制。

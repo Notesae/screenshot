@@ -20,20 +20,29 @@ public sealed class WgcCaptureBackend : ICaptureBackend
     // 后台获取帧后回到调用方上下文，区域控件仍在原生 UI 线程运行。
     public async Task<CapturedFrame?> CaptureAsync(CaptureRequest request, CancellationToken token)
     {
-        var acquired = await _acquisition.AcquireAsync(request, token);
-        var selected = acquired.Selection; var imagePixels = acquired.Selected;
-        if (request.Region)
+        var acquired=await _acquisition.AcquireAsync(request,token);
+        var backdrop=ToBitmapSource(acquired.Backdrop);
+        var selected=acquired.Selection;
+        RegionOverlay? overlay=null;Bitmap? frozen=null;var transferred=false;
+        try
         {
-            using var frozen = ToDrawingBitmap(acquired.Backdrop);
-            using var overlay = new RegionOverlay(frozen, new Rectangle(acquired.DesktopBounds.X, acquired.DesktopBounds.Y, acquired.DesktopBounds.Width, acquired.DesktopBounds.Height), selected, request.SnapWindows ? WindowsWindowTargets.Snapshot() : null, request.SnapClientArea);
-            if (overlay.ShowDialog() != DialogResult.OK) return null;
-            selected = overlay.Selection;
-            imagePixels = CapturePixelGeometry.Crop(acquired.Selected,
-                new(selected.X - acquired.Selection.X, selected.Y - acquired.Selection.Y, selected.Width, selected.Height));
+            if(request.Region)
+            {
+                frozen=ToDrawingBitmap(acquired.Backdrop);
+                overlay=new RegionOverlay(frozen,new Rectangle(acquired.DesktopBounds.X,acquired.DesktopBounds.Y,acquired.DesktopBounds.Width,acquired.DesktopBounds.Height),selected,request.SnapWindows?WindowsWindowTargets.Snapshot():null,request.SnapClientArea);
+                var area=await overlay.SelectAsync(token);if(area is null)return null;selected=area.Value;
+            }
+            // PNG 编码不占原生 UI 线程；原生选区在等待期间仍显示冻结画面并可取消。
+            var image=await Task.Run(()=>
+            {
+                var pixels=request.Region?CapturePixelGeometry.Crop(acquired.Selected,new(selected.X-acquired.Selection.X,selected.Y-acquired.Selection.Y,selected.Width,selected.Height)):acquired.Selected;
+                return NativeImages.FromBitmap(ToBitmapSource(pixels),request.Target.Kind==CaptureTargetKind.Window?"窗口截图.png":request.Region?"区域截图.png":"屏幕截图.png");
+            },token);
+            token.ThrowIfCancellationRequested();if(overlay?.IsCancelled==true)return null;
+            var frame=new CapturedFrame(image,backdrop,acquired.DesktopBounds,selected,acquired.Screens){Backend=Id,Handoff=overlay};
+            transferred=overlay is not null;return frame;
         }
-        token.ThrowIfCancellationRequested();
-        var image = NativeImages.FromBitmap(ToBitmapSource(imagePixels), request.Target.Kind == CaptureTargetKind.Window ? "窗口截图.png" : request.Region ? "区域截图.png" : "屏幕截图.png");
-        return new(image, ToBitmapSource(acquired.Backdrop), acquired.DesktopBounds, selected, acquired.Screens) { Backend = Id };
+        finally{if(!transferred){if(overlay is not null)overlay.Dispose();else frozen?.Dispose();}}
     }
 
     private static BitmapSource ToBitmapSource(CapturePixels pixels)

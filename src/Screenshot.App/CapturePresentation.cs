@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using System.Windows;
 using System.Windows.Media.Imaging;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Screenshot.App;
 
@@ -14,13 +16,31 @@ public sealed record CaptureOverlay(string CaptureId, PixelRect DesktopBounds, P
 // 发往编辑器的捕获数据，只含选区像素和定位紧凑画布所需的几何信息。
 public sealed record CaptureEnvelope(LoadedImage Image, CaptureOverlay Overlay);
 
+// 首次框选的原生画面保留到编辑器接手；实现只能在宿主内部持有，不跨桥接。
+internal interface ICaptureHandoff : IDisposable { bool IsCancelled { get; } }
+
 // 原生捕获结果同时持有选区图片和只供 WPF 显示的冻结桌面。
 public sealed record CapturedFrame(LoadedImage Image, [property: JsonIgnore] BitmapSource FrozenDesktop,
     PixelRect DesktopBounds, PixelRect Selection, IReadOnlyList<CaptureScreen> Screens)
 {
     public string CaptureId { get; } = Guid.NewGuid().ToString("N");
     public string Backend { get; init; } = "gdi";
+    [JsonIgnore] internal ICaptureHandoff? Handoff { get; init; }
     public CaptureEnvelope ToEnvelope() => new(Image, new(CaptureId, DesktopBounds, Selection, Screens, Backend));
+}
+
+// 按捕获身份释放临时原生画面，迟到的布局应答不能关闭后一次框选。
+internal sealed class CaptureHandoffState
+{
+    private string? _captureId;
+    private ICaptureHandoff? _visual;
+    public bool IsCancelled(string captureId) => _captureId==captureId&&_visual?.IsCancelled==true;
+    public void Take(CapturedFrame frame) { Release(); _captureId=frame.CaptureId; _visual=frame.Handoff; }
+    public void Release(string? captureId=null)
+    {
+        if(captureId is not null&&captureId!=_captureId)return;
+        var visual=_visual;_visual=null;_captureId=null;visual?.Dispose();
+    }
 }
 
 // 工作台、就地覆盖层与隐藏状态；隐藏仍保留 WebView 中的编辑文档。
@@ -77,7 +97,7 @@ internal sealed class CapturePresentationState
     }
 
     // 只从本次原生冻结图裁剪；过期身份、未就绪状态及越界区域均不能读取像素。
-    public CaptureEnvelope Adjust(string captureId, PixelRect selection)
+    public async Task<CaptureEnvelope> AdjustAsync(string captureId, PixelRect selection, CancellationToken token=default)
     {
         if (!Matches(captureId) || PendingCaptureId is not null || FrozenBackdrop is not { } frozen || Overlay is not { } overlay)
             throw new InvalidOperationException("截图已失效，请重新截图。");
@@ -86,8 +106,10 @@ internal sealed class CapturePresentationState
             || (long)selection.Width * selection.Height > 40_000_000 || selection.X < bounds.X || selection.Y < bounds.Y
             || (long)selection.X + selection.Width > (long)bounds.X + bounds.Width || (long)selection.Y + selection.Height > (long)bounds.Y + bounds.Height)
             throw new InvalidOperationException("选区超出冻结桌面或图片尺寸限制。");
-        var crop = new CroppedBitmap(frozen, new Int32Rect(selection.X - bounds.X, selection.Y - bounds.Y, selection.Width, selection.Height));
-        var image = NativeImages.FromBitmap(crop, "区域截图.png");
+        // 冻结图可安全跨线程读取；编码和 Base64 转换不阻塞原生覆盖层重绘。
+        var image = await Task.Run(()=>NativeImages.FromBitmap(new CroppedBitmap(frozen,new Int32Rect(selection.X-bounds.X,selection.Y-bounds.Y,selection.Width,selection.Height)),"区域截图.png"),token);
+        token.ThrowIfCancellationRequested();
+        if(!Matches(captureId)||!ReferenceEquals(FrozenBackdrop,frozen)||PendingCaptureId is not null)throw new InvalidOperationException("截图已失效，请重新截图。");
         // 前端接受的图片最多 24 MiB，超限时保持宿主选区不变。
         if (image.DataUrl.Length > 24 * 1024 * 1024 * 4L / 3 + 64) throw new InvalidOperationException("选区图片过大，请缩小选区。");
         Overlay = overlay with { Selection = selection };

@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     private readonly JsonSerializerOptions _json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     private readonly RequestGate _requests = new();
     private readonly CapturePresentationState _presentation = new();
+    private readonly CaptureHandoffState _captureHandoff = new(); // 布局完成前保持原生框选画面。
     private WorkbenchPlacement? _workbenchPlacement;
     private bool _boundsUpdateQueued; // 合并 DPI 更新后的边界校正，避免递归窗口消息。
     private bool _ready;
@@ -64,6 +65,7 @@ public partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _lifetime.Cancel();
+            _captureHandoff.Release(); _startupNotice?.Close();
             InvalidateCompletion();
             FrozenBackdrop.Source = null; _presentation.Dismiss();
             if (_trayIcon is { } tray)
@@ -202,12 +204,17 @@ public partial class MainWindow : Window
             if (!_captureBackends.TryGetValue(request.Backend, out var backend)) throw new CaptureException("invalid_capture_backend", "不支持的截图后端。");
             var frame = await backend.CaptureAsync(request, _lifetime.Token);
             if (frame is null) return null;
-            if (!_presentation.IsSelecting) { completed = true; return null; }
-            PrepareOverlay(frame);
-            if (!_presentation.CompleteCapture(frame)) return null;
-            completed = true;
-            _ = WaitForOverlayReadyAsync(frame.CaptureId);
-            return frame.ToEnvelope();
+            var transferred=false;
+            try
+            {
+                if(!_presentation.IsSelecting){completed=true;return null;}
+                PrepareOverlay(frame);
+                if(!_presentation.CompleteCapture(frame))return null;
+                _captureHandoff.Take(frame);transferred=true;completed=true;
+                _=WaitForOverlayReadyAsync(frame.CaptureId);
+                return frame.ToEnvelope();
+            }
+            finally{if(!transferred)frame.Handoff?.Dispose();}
         }
         finally
         {
@@ -256,34 +263,46 @@ public partial class MainWindow : Window
     // 主动进入无冻结背景的轻量编辑器，文档保持不变；加载失败时才显示原生兜底条。
     private void ShowWorkbench()
     {
+        _captureHandoff.Release();
         _presentation.ShowWorkbench();
         FrozenBackdrop.Source = null; FrozenBackdrop.Visibility = Visibility.Collapsed;
         Background = new SolidColorBrush(Color.FromRgb(32, 32, 34));
         StatusBar.Visibility = _ready ? Visibility.Collapsed : Visibility.Visible;
         var saved = _workbenchPlacement;
-        WindowState = WindowState.Normal; WindowStyle = saved?.Style ?? WindowStyle.SingleBorderWindow;
+        WindowState = WindowState.Normal; WindowStyle = saved?.Style ?? WindowStyle.None;
         ResizeMode = saved?.ResizeMode ?? ResizeMode.CanResize;
         Topmost = saved?.Topmost ?? false; ShowInTaskbar = saved?.ShowInTaskbar ?? true;
         MinWidth = saved?.MinWidth ?? 640; MinHeight = saved?.MinHeight ?? 480;
         if (saved is not null) { Left = saved.Bounds.X; Top = saved.Bounds.Y; Width = saved.Bounds.Width; Height = saved.Bounds.Height; }
+        else { var area=SystemParameters.WorkArea;Width=1100;Height=760;Left=area.Left+Math.Max(0,(area.Width-Width)/2);Top=area.Top+Math.Max(0,(area.Height-Height)/2); }
         Show(); WindowState = saved?.State ?? WindowState.Normal; Activate();
     }
     // 隐藏覆盖层并解除冻结桌面的所有宿主持有引用；不关闭 WebView 或清除文档。
     private void DismissPresentation()
     {
         if (_presentation.Mode == PresentationMode.Workbench) RememberWorkbenchPlacement();
-        Hide(); _presentation.Dismiss(); FrozenBackdrop.Source = null;
+        Hide(); _captureHandoff.Release(); _presentation.Dismiss(); FrozenBackdrop.Source = null;
         FrozenBackdrop.Visibility = Visibility.Collapsed; Topmost = false;
     }
     // 只有当前 captureId 对应的紧凑界面已完成布局，才显示覆盖层，避免工作台闪现。
-    private object ReadyPresentation(string captureId)
+    private async Task<object> ReadyPresentationAsync(string captureId)
     {
-        var accepted = _presentation.TryAcceptReady(captureId);
-        if (accepted && _presentation.Overlay is { } overlay)
+        if(_captureHandoff.IsCancelled(captureId))
         {
-            Show(); ApplyOverlayBounds(overlay.DesktopBounds); UpdateLayout(); Activate();
+            if(_presentation.TryDismiss(captureId))DismissPresentation();
+            return new{presentation=_presentation.Mode.ToString().ToLowerInvariant(),accepted=false,captureId=_presentation.Overlay?.CaptureId};
         }
-        return new { presentation = _presentation.Mode.ToString().ToLowerInvariant(), accepted, captureId = _presentation.Overlay?.CaptureId };
+        var accepted=_presentation.TryAcceptReady(captureId);
+        if(accepted&&_presentation.Overlay is {} overlay)
+        {
+            Show();ApplyOverlayBounds(overlay.DesktopBounds);UpdateLayout();
+            // 先处理 WPF 已排队的布局/绘制，再释放原生框选，避免交接时露出桌面或黑底。
+            await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.Loaded);
+            if(!_presentation.Matches(captureId))accepted=false;
+            else if(_captureHandoff.IsCancelled(captureId)){_presentation.TryDismiss(captureId);DismissPresentation();accepted=false;}
+            else{_captureHandoff.Release(captureId);Activate();}
+        }
+        return new{presentation=_presentation.Mode.ToString().ToLowerInvariant(),accepted,captureId=_presentation.Overlay?.CaptureId};
     }
     // 前端解码或布局失败时不永久隐藏应用；计时器只能回收自己等待的 captureId。
     private async Task WaitForOverlayReadyAsync(string captureId)
@@ -369,7 +388,7 @@ public partial class MainWindow : Window
             case "capture.region": return await CaptureAsync(ParseCaptureRequest(payload, true));
             case "capture.adjust":
                 var area = payload.GetProperty("selection");
-                return _presentation.Adjust(RequiredString(payload, "captureId"), new PixelRect(area.GetProperty("x").GetInt32(), area.GetProperty("y").GetInt32(), area.GetProperty("width").GetInt32(), area.GetProperty("height").GetInt32()));
+                return await _presentation.AdjustAsync(RequiredString(payload, "captureId"), new PixelRect(area.GetProperty("x").GetInt32(), area.GetProperty("y").GetInt32(), area.GetProperty("width").GetInt32(), area.GetProperty("height").GetInt32()),_lifetime.Token);
             case "hotkey.read": return _hotkeys?.State??new HotkeyStatus(HotkeyBinding.Default,false,false,"快捷键尚未就绪。");
             case "hotkey.configure":
                 if(_hotkeys is null)throw new InvalidOperationException("快捷键尚未就绪。");
@@ -413,7 +432,7 @@ public partial class MainWindow : Window
                 var dismissed = dismissSequence == _completionSequence && _presentation.TryDismiss(dismissCaptureId);
                 if (dismissed) { if (wasWorkbench) RememberWorkbenchPlacement(); DismissPresentation(); }
                 return new { presentation = _presentation.Mode.ToString().ToLowerInvariant(), accepted = dismissed, captureId = _presentation.Overlay?.CaptureId };
-            case "presentation.ready": return ReadyPresentation(RequiredString(payload, "captureId"));
+            case "presentation.ready": return await ReadyPresentationAsync(RequiredString(payload, "captureId"));
             case "presentation.complete": return await CompleteEditingAsync(payload);
             case "image.save": return NativeImages.Save(this, RequiredString(payload, "dataUrl"), OptionalString(payload, "suggestedName"));
             case "text.copy": return NativeImages.CopyText(RequiredString(payload, "text"));

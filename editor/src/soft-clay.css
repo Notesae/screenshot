@@ -112,8 +112,6 @@
 .clay-editor .clay-selection-handle:active:enabled{transform:translate(-50%,-50%);box-shadow:none}
 .clay-editor .clay-selection-handle:disabled{opacity:.4}
 .clay-selection-handle.is-nw{left:0;top:0;cursor:nwse-resize}.clay-selection-handle.is-n{left:50%;top:0;cursor:ns-resize}.clay-selection-handle.is-ne{left:100%;top:0;cursor:nesw-resize}.clay-selection-handle.is-e{left:100%;top:50%;cursor:ew-resize}.clay-selection-handle.is-se{left:100%;top:100%;cursor:nwse-resize}.clay-selection-handle.is-s{left:50%;top:100%;cursor:ns-resize}.clay-selection-handle.is-sw{left:0;top:100%;cursor:nesw-resize}.clay-selection-handle.is-w{left:0;top:50%;cursor:ew-resize}
-.clay-editor .clay-selection-handle.is-move{left:50%;top:18px;width:32px;height:32px;background:var(--clay-raised);box-shadow:var(--clay-button);cursor:move;color:var(--clay-ink)}
-.clay-selection-handle.is-move::after{display:none}
 @keyframes clay-rail-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 @keyframes clay-card-out{to{opacity:0;transform:translateY(10px) scale(.86)}}
 .clay-card.is-closing{pointer-events:none;animation:clay-card-out var(--clay-time-close) ease-in forwards}
@@ -125,3 +123,14 @@
 .clay-card-content input[type=range]::-webkit-slider-runnable-track{height:9px;border-radius:999px;background:linear-gradient(to right,var(--accent) var(--range-progress,0%),var(--clay-well) var(--range-progress,0%));box-shadow:var(--clay-press)}
 .clay-card-content input[type=range]::-webkit-slider-thumb{appearance:none;width:22px;height:22px;margin-top:-7px;border-radius:50%;background:linear-gradient(#fff,#dde2e9);box-shadow:var(--clay-button)}
 @media(prefers-reduced-motion:reduce){.clay-rail,.clay-card.is-closing{animation:none}}
+
+/* HWND 可见并确认布局后才播放入场；等待裁剪时不淡出整条工具栏。 */
+.clay-capture-layer{position:absolute;inset:0;pointer-events:none}
+.clay-canvas-stage{pointer-events:auto}
+.clay-editor.is-awaiting .clay-rail,.clay-editor.is-awaiting .clay-card,.clay-editor.is-awaiting .clay-status{visibility:hidden;opacity:0;animation:none}
+.clay-editor.is-presented .clay-rail{animation-fill-mode:backwards}
+.clay-editor.is-presented .clay-card:not(.is-closing){animation-delay:40ms;animation-fill-mode:backwards}
+.clay-editor.is-presented .clay-status{animation:clay-rail-in var(--clay-time-exit) ease-out 80ms backwards}
+.clay-editor .clay-selection-handle:disabled{opacity:1;cursor:progress}
+.clay-capture-selection:focus-visible{outline:var(--clay-size-selectionBorder) solid var(--clay-focus);outline-offset:0}
+@media(prefers-reduced-motion:reduce){.clay-editor.is-presented .clay-rail,.clay-editor.is-presented .clay-card,.clay-editor.is-presented .clay-status{animation:none}}

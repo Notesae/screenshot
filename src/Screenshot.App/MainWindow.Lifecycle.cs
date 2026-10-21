@@ -4,6 +4,8 @@ using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace Screenshot.App;
 
@@ -16,29 +18,52 @@ public partial class MainWindow
     private long _completionSequence;
     private bool _preserving;
     private bool _startingInTray;
+    private Window? _startupNotice; // 仅错误或用户在预热期间操作时显示的小型提示。
 
-    // 透明且不激活地加载 WebView；条款门禁之后才创建托盘和热键，不显示启动空白页。
+    // 屏外无边框宿主只负责 WebView 预热，用户桌面不展示主窗口或加载黑底。
     internal async Task StartInTrayAsync()
     {
         _startingInTray = true;
-        Opacity = 0; ShowActivated = false; ShowInTaskbar = false;
-        Show();
+        _startupNotice?.Close();
+        Opacity=0;ShowActivated=false;ShowInTaskbar=false;
+        WindowStartupLocation=WindowStartupLocation.Manual;WindowStyle=WindowStyle.None;ResizeMode=ResizeMode.NoResize;
+        MinWidth=0;MinHeight=0;Width=1100;Height=760;Left=-32000;Top=-32000;
         try
         {
+            Show();
             await InitializeEditorAsync();
             await _editorMounted.Task.WaitAsync(TimeSpan.FromSeconds(20));
             DismissPresentation();
             _startingInTray = false;
             Opacity = 1; ShowActivated = true;
             if (_trayIcon is null || _hotkeys?.State is { Binding.Enabled: true, Registered: false })
-                ShowEditorAction("notice", "托盘或快捷键不可用，请在这里截图或调整设置。");
+                ShowStartupNotice("托盘或快捷键不可用，可以打开设置调整。","打开设置",()=>ShowEditorAction("settings"));
         }
         catch (Exception error)
         {
             _startingInTray = false;
-            Opacity = 1; ShowActivated = true; ShowWorkbench();
-            Status.Text = "编辑器启动失败，请重试或退出：" + error.Message;
+            if(_lifetime.IsCancellationRequested)return;
+            Hide();Opacity=1;ShowActivated=true;
+            ShowStartupNotice("编辑器启动失败："+error.Message,"重试启动",()=>{_=StartInTrayAsync();});
         }
+    }
+
+    // 启动失败只用独立软泥提示提供恢复入口，不展开空编辑器或系统标题栏。
+    private void ShowStartupNotice(string text,string actionText="关闭提示",Action? action=null)
+    {
+        _startupNotice?.Close();
+        var notice=new Window{Width=440,SizeToContent=SizeToContent.Height,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,ShowInTaskbar=false,Topmost=true,AllowsTransparency=true,Background=Brushes.Transparent,WindowStartupLocation=WindowStartupLocation.CenterScreen};
+        var panel=new StackPanel{Margin=new Thickness(18)};
+        panel.Children.Add(new TextBlock{Text="Screenshot",FontSize=15,FontWeight=FontWeights.SemiBold,Foreground=SoftClayTheme.Brush("ink")});
+        panel.Children.Add(new TextBlock{Text=text,TextWrapping=TextWrapping.Wrap,Foreground=SoftClayTheme.Brush("muted"),Margin=new Thickness(0,10,0,16)});
+        var actions=new StackPanel{Orientation=Orientation.Horizontal,HorizontalAlignment=HorizontalAlignment.Right};
+        var retry=new Button{Content=actionText,Style=SoftClayTheme.ButtonStyle(),Background=SoftClayTheme.Surface(true)};
+        retry.Click+=(_,_)=>{notice.Close();action?.Invoke();};actions.Children.Add(retry);
+        var exit=new Button{Content="退出应用",Style=SoftClayTheme.ButtonStyle(),Margin=new Thickness(10,0,0,0)};
+        exit.Click+=(_,_)=>{notice.Close();Close();};actions.Children.Add(exit);panel.Children.Add(actions);
+        notice.Content=new Border{Background=SoftClayTheme.Surface(),CornerRadius=new CornerRadius(SoftClayTheme.Number("radius","floating")),Margin=new Thickness(14),Effect=SoftClayTheme.Shadow(),Child=panel};
+        notice.Closed+=(_,_)=>{if(ReferenceEquals(_startupNotice,notice))_startupNotice=null;};
+        _startupNotice=notice;notice.Show();
     }
 
     private async void RetryEditor(object sender, RoutedEventArgs args)
@@ -58,6 +83,7 @@ public partial class MainWindow
     private void ShowEditorAction(string action, string? text = null)
     {
         if (_presentation.IsSelecting) return;
+        if(!_ready||!_editorMounted.Task.IsCompletedSuccessfully){ShowStartupNotice("截图工具正在准备，请稍后再试。");return;}
         InvalidateCompletion();
         ShowWorkbenchFromTray();
         if (_ready) Post(new { @event = "editor.action", payload = new { action, text } });

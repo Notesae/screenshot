@@ -44,7 +44,7 @@ function mockHost(){
         case 'recovery.save':result={saved:true,stale:false};break;
         case 'recovery.list':result={items:[]};break;
         case 'recovery.usage':result={documents:0,referencedAssetBytes:0,maxDocuments:100,maxAssetBytes:100000};break;
-        case 'presentation.ready':result={accepted:request.payload.captureId===state.captureId,presentation:'overlay',captureId:state.captureId};break;
+        case 'presentation.ready':if(state.holdReady)await new Promise(resolve=>state.releaseReady=resolve);result={accepted:request.payload.captureId===state.captureId,presentation:'overlay',captureId:state.captureId};break;
         case 'presentation.editor':state.backdrop=false;state.captureId=null;result={accepted:true,presentation:'workbench'};break;
         case 'presentation.dismiss':await checkpoint('close');state.hidden=true;state.backdrop=false;state.captureId=null;result={accepted:true,presentation:'hidden'};break;
         case 'presentation.complete':{
@@ -77,17 +77,33 @@ async function main(){
   const click=label=>page.getByRole('button',{name:label,exact:true}).click();
   await click('打开图片');await page.waitForFunction(()=>!document.querySelector('button[aria-label="保存 PNG"]').disabled);
   assert.equal(await page.getByText('完整工作台',{exact:true}).count(),0);
-  await page.evaluate(()=>window.__mock.capture());await page.waitForSelector('.is-overlay');
+  await page.evaluate(()=>{window.__mock.state.holdReady=true;window.__mock.capture();});await page.waitForSelector('.is-overlay');
   await page.waitForFunction(()=>window.__mock.state.requests.includes('presentation.ready'));
+  assert.equal(await page.locator('.clay-rail').evaluate(e=>getComputedStyle(e).animationName),'none','hidden native handoff must not consume the entrance animation');
+  await page.evaluate(()=>{window.__mock.state.holdReady=false;window.__mock.state.releaseReady();});
   await page.getByRole('region',{name:'原样截图',exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'移动截图选区',exact:true}).count(),0,'no separate move icon');
   await page.screenshot({path:path.join(out,'01-raw.png')});
   // 以下指针和键盘均在无头页面中模拟；验证松手后的调整不要求额外确认。
-  const moveSelection=page.getByRole('button',{name:'移动截图选区',exact:true});
+  const moveSelection=page.getByRole('group',{name:'截图选区',exact:true});
   await moveSelection.focus();await page.keyboard.press('ArrowRight');
   await page.waitForFunction(()=>window.screenshotPrepareUpdate?.().document?.image?.width===560&&!document.querySelector('button[aria-label="保存 PNG"]').disabled);
   await page.waitForFunction(()=>Math.round(document.querySelector('.clay-capture-selection').getBoundingClientRect().x)===301);
   await click('撤销');await page.waitForFunction(()=>Math.round(document.querySelector('.clay-capture-selection').getBoundingClientRect().x)===300);
   await click('重做');await page.waitForFunction(()=>Math.round(document.querySelector('.clay-capture-selection').getBoundingClientRect().x)===301);
+  // 历史已切换不等于底图已绘完；只在选区手柄重新可用后注入下一次虚拟手势。
+  await page.waitForFunction(()=>!window.screenshotPrepareUpdate().error&&!document.querySelector('.clay-selection-handle.is-se').disabled);await page.evaluate(()=>window.__mock.state.holdAdjust=true);
+  const bodyBox=await page.locator('.clay-capture-selection').boundingBox();
+  await page.locator('.clay-canvas-fixed .upper-canvas').click({position:{x:bodyBox.width-40,y:bodyBox.height-40},trial:true});
+  await page.mouse.move(bodyBox.x+bodyBox.width-40,bodyBox.y+bodyBox.height-40);await page.mouse.down();await page.mouse.move(bodyBox.x+bodyBox.width-10,bodyBox.y+bodyBox.height-20);await page.mouse.up();
+  await page.waitForFunction(()=>typeof window.__mock.state.releaseAdjust==='function');
+  const landed=await page.locator('.clay-capture-selection').boundingBox(),landedRail=await page.locator('.clay-rail').boundingBox();
+  assert.equal(Math.round(landed.x),331,'pointer release must retain the preview while crop is pending');assert.equal(Math.round(landed.y),200);
+  await page.evaluate(()=>{window.__mock.state.holdAdjust=false;window.__mock.state.releaseAdjust();delete window.__mock.state.releaseAdjust;});
+  await page.waitForFunction(()=>!window.screenshotPrepareUpdate().error&&!document.querySelector('.clay-selection-handle.is-se').disabled);
+  const settledArea=await page.locator('.clay-capture-selection').boundingBox(),settledRail=await page.locator('.clay-rail').boundingBox();
+  assert.equal(settledArea.x,landed.x);assert.equal(settledArea.y,landed.y);assert.equal(settledRail.x,landedRail.x);assert.equal(settledRail.y,landedRail.y);
+  await click('撤销');await page.waitForFunction(()=>Math.round(document.querySelector('.clay-capture-selection').getBoundingClientRect().x)===301);
   const southeast=page.getByRole('button',{name:'调整截图选区 se',exact:true});await page.waitForFunction(()=>!document.querySelector('.clay-selection-handle.is-se').disabled);await southeast.click({trial:true});const corner=await southeast.boundingBox();
   await page.mouse.move(corner.x+12,corner.y+12);await page.mouse.down();await page.mouse.move(corner.x+32,corner.y+22);await page.mouse.up();
   await page.waitForFunction(()=>window.screenshotPrepareUpdate?.().document?.image?.width===580&&!document.querySelector('button[aria-label="保存 PNG"]').disabled);
@@ -111,6 +127,11 @@ async function main(){
   assert.equal(Math.round((await page.locator('.clay-capture-selection').boundingBox()).x),300);
   await click('矩形标注');await page.waitForFunction(()=>window.screenshotPrepareUpdate().document.editor.annotations.length===1);
   const original=await page.evaluate(()=>window.screenshotPrepareUpdate().document.editor.annotations[0].id);
+  const annotationBefore=await page.evaluate(()=>window.screenshotPrepareUpdate().document.editor.annotations[0]),captureCount=await page.evaluate(()=>window.__mock.state.requests.filter(m=>m==='capture.adjust').length);
+  const contentBox=await page.locator('.clay-canvas-fixed').boundingBox(),objectX=contentBox.x+annotationBefore.left+annotationBefore.width/2,objectY=contentBox.y+annotationBefore.top+annotationBefore.height/2;
+  await page.mouse.move(objectX,objectY);await page.mouse.down();await page.mouse.move(objectX+12,objectY+8,{steps:4});await page.mouse.up();
+  await page.waitForFunction(left=>window.screenshotPrepareUpdate().document.editor.annotations[0].left>left+5,annotationBefore.left);
+  assert.equal(await page.evaluate(()=>window.__mock.state.requests.filter(m=>m==='capture.adjust').length),captureCount,'annotation drag must stay in Fabric');
   await click('美化');await click('柔和留白');await page.waitForFunction(()=>!document.querySelector('button[aria-label="保存 PNG"]').disabled);
   assert.equal(await page.evaluate(()=>window.screenshotPrepareUpdate().document.editor.annotations[0].id),original);
   await page.screenshot({path:path.join(out,'02-beauty.png')});
@@ -155,12 +176,12 @@ async function main(){
       await dpiPage.screenshot({path:path.join(out,'mock-dpr-'+dpr+'-'+surface+'.png')});
     }
     const beforeMove=await dpiPage.locator('.clay-capture-selection').boundingBox();
-    await dpiPage.getByRole('button',{name:'移动截图选区',exact:true}).focus();await dpiPage.keyboard.press('ArrowRight');
+    await dpiPage.getByRole('group',{name:'截图选区',exact:true}).focus();await dpiPage.keyboard.press('ArrowRight');
     await dpiPage.waitForFunction(()=>Math.round(document.querySelector('.clay-capture-selection').getBoundingClientRect().x)===301);
     assert.equal(Math.round((await dpiPage.locator('.clay-capture-selection').boundingBox()).x-beforeMove.x),1);
     await dpiContext.close();
   }
-  assert.deepEqual(errors,[]);fs.writeFileSync(path.join(out,'report.json'),JSON.stringify({syntheticOnly:true,desktopAccess:false,checks:['automatic entry with path card','physical selection move/resize/undo','Escape cancels adjustment first','blank click does not reselect','failed recrop preserves document','stale recrop cannot replace newer capture','synthetic DPR 1 and 1.5','shared annotation history','virtual pointer drag and keyboard adjustment','explicit OCR','text copy separation','visible text copy','panel scroll reset','failed checkpoint stays open','cancelled save stays open','completion releases backdrop','resume preserves document','four-level Escape','bounded responsive chrome','reduced motion'],screenshots:fs.readdirSync(out).filter(name=>name.endsWith('.png'))},null,2));
+  assert.deepEqual(errors,[]);fs.writeFileSync(path.join(out,'report.json'),JSON.stringify({syntheticOnly:true,desktopAccess:false,checks:['entry animation starts only after host accepts layout','no separate move icon','body drag holds frame and toolbar while recrop is pending','annotation drag does not adjust capture','automatic entry with path card','physical selection move/resize/undo','Escape cancels adjustment first','blank click does not reselect','failed recrop preserves document','stale recrop cannot replace newer capture','synthetic DPR 1 and 1.5','shared annotation history','virtual pointer drag and keyboard adjustment','explicit OCR','text copy separation','visible text copy','panel scroll reset','failed checkpoint stays open','cancelled save stays open','completion releases backdrop','resume preserves document','four-level Escape','bounded responsive chrome','reduced motion'],screenshots:fs.readdirSync(out).filter(name=>name.endsWith('.png'))},null,2));
   console.log('PASS synthetic editor lifecycle and responsive checks');await browser.close();server.close();
 }
 main().catch(async error=>{console.error(error);if(activePage){console.error(await activePage.evaluate(()=>{const s=window.__mock?.state;return {requests:s?.requests.slice(-16),completion:s?.completion,copied:s?.copied,hidden:s?.hidden,notice:document.querySelector('[role=alert]')?.textContent,handles:Array.from(document.querySelectorAll('.clay-selection-handle')).map(e=>({class:e.className,disabled:e.disabled,box:e.getBoundingClientRect().toJSON()})),snapshot:window.screenshotPrepareUpdate?.()};}).then(value=>{if(value.snapshot?.document)value.snapshot.document='synthetic document omitted';return value;}).catch(()=>({})));}await activeBrowser?.close();server.close();process.exitCode=1;});

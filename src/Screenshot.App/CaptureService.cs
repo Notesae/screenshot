@@ -1,7 +1,6 @@
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
-using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using System.Windows.Media.Imaging;
@@ -23,47 +22,52 @@ public sealed class GdiCaptureBackend : ICaptureBackend
     public string Id => "gdi";
     public bool SupportsHdr => false;
     [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
-    // 先冻结整个虚拟桌面，再按用户选区裁剪，确保覆盖层不进入截图。
-    public Task<CapturedFrame?> CaptureAsync(CaptureRequest request, CancellationToken token) => Task.FromResult(CaptureCore(request, token));
-
-    // GDI 仅保留原桌面兼容流程，目标类型不支持时明确拒绝而不是伪装 WGC 能力。
-    private CapturedFrame? CaptureCore(CaptureRequest request, CancellationToken token)
+    // 显式捕获后保持原生选区画面，PNG 编码在后台执行，完成握手后由宿主释放。
+    public async Task<CapturedFrame?> CaptureAsync(CaptureRequest request, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        if (request.Target.Kind != CaptureTargetKind.Desktop) throw new CaptureException("capture_target_unsupported", "GDI 兼容模式目前仅支持桌面与区域截图。");
-        var region = request.Region;
-        var bounds = new Rectangle(GetSystemMetrics(76), GetSystemMetrics(77), GetSystemMetrics(78), GetSystemMetrics(79));
-        if (bounds.Width <= 0 || bounds.Height <= 0 || (long)bounds.Width * bounds.Height > 100_000_000) throw new InvalidOperationException("桌面尺寸无效或过大。");
-        using var frozen = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppArgb);
-        using (var graphics = Graphics.FromImage(frozen)) graphics.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size, CopyPixelOperation.SourceCopy);
-        var desktop = new PixelRect(bounds.X, bounds.Y, bounds.Width, bounds.Height);
-        var selected = desktop;
-        if (region)
+        if(request.Target.Kind!=CaptureTargetKind.Desktop)throw new CaptureException("capture_target_unsupported","GDI 兼容模式目前仅支持桌面与区域截图。");
+        var bounds=new Rectangle(GetSystemMetrics(76),GetSystemMetrics(77),GetSystemMetrics(78),GetSystemMetrics(79));
+        if(bounds.Width<=0||bounds.Height<=0||(long)bounds.Width*bounds.Height>100_000_000)throw new InvalidOperationException("桌面尺寸无效或过大。");
+        var frozen=new Bitmap(bounds.Width,bounds.Height,PixelFormat.Format32bppArgb);
+        RegionOverlay? overlay=null;var transferred=false;
+        try
         {
-            using var overlay = new RegionOverlay(frozen, bounds, snapTargets: request.SnapWindows ? WindowsWindowTargets.Snapshot() : null, snapClient: request.SnapClientArea);
-            if (overlay.ShowDialog() != DialogResult.OK) return null;
-            selected = overlay.Selection;
+            using(var graphics=Graphics.FromImage(frozen))graphics.CopyFromScreen(bounds.Location,Point.Empty,bounds.Size,CopyPixelOperation.SourceCopy);
+            var desktop=new PixelRect(bounds.X,bounds.Y,bounds.Width,bounds.Height);
+            var backdrop=ReadFrozenBitmap(frozen);var selected=desktop;
+            if(request.Region)
+            {
+                overlay=new RegionOverlay(frozen,bounds,snapTargets:request.SnapWindows?WindowsWindowTargets.Snapshot():null,snapClient:request.SnapClientArea);
+                var area=await overlay.SelectAsync(token);if(area is null)return null;selected=area.Value;
+            }
+            var image=await Task.Run(()=>NativeImages.FromBitmap(new CroppedBitmap(backdrop,new System.Windows.Int32Rect(selected.X-bounds.X,selected.Y-bounds.Y,selected.Width,selected.Height)),request.Region?"区域截图.png":"桌面截图.png"),token);
+            if(overlay?.IsCancelled==true)return null;
+            var screens=new System.Collections.Generic.List<CaptureScreen>();
+            foreach(var screen in Screen.AllScreens)screens.Add(new(new(screen.Bounds.X,screen.Bounds.Y,screen.Bounds.Width,screen.Bounds.Height),screen.Primary));
+            token.ThrowIfCancellationRequested();
+            var frame=new CapturedFrame(image,backdrop,desktop,selected,screens){Backend=Id,Handoff=overlay};
+            transferred=overlay is not null;return frame;
         }
-        if (selected.Width < 1 || selected.Height < 1) return null;
-        var backdrop = ReadFrozenBitmap(frozen);
-        using var cropped = frozen.Clone(new Rectangle(selected.X - bounds.X, selected.Y - bounds.Y, selected.Width, selected.Height), PixelFormat.Format32bppArgb);
-        var image = NativeImages.FromBitmap(ReadFrozenBitmap(cropped), region ? "区域截图.png" : "桌面截图.png");
-        var screens = new System.Collections.Generic.List<CaptureScreen>();
-        foreach (var screen in Screen.AllScreens)
-            screens.Add(new(new(screen.Bounds.X, screen.Bounds.Y, screen.Bounds.Width, screen.Bounds.Height), screen.Primary));
-        token.ThrowIfCancellationRequested();
-        return new(image, backdrop, desktop, selected, screens) { Backend = Id };
+        finally { if(!transferred){if(overlay is not null)overlay.Dispose();else frozen.Dispose();} }
     }
+    // 冻结帧直接复制 BGRA 像素，移除之前只为转换格式而重复执行的 PNG 编解码。
     private static BitmapSource ReadFrozenBitmap(Bitmap bitmap)
     {
-        using var stream = new MemoryStream(); bitmap.Save(stream, ImageFormat.Png); stream.Position = 0;
-        var source = BitmapFrame.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
-        source.Freeze(); return source;
+        var locked=bitmap.LockBits(new Rectangle(0,0,bitmap.Width,bitmap.Height),ImageLockMode.ReadOnly,PixelFormat.Format32bppArgb);
+        try
+        {
+            var stride=checked(bitmap.Width*4);var pixels=new byte[checked(stride*bitmap.Height)];
+            for(var y=0;y<bitmap.Height;y++)Marshal.Copy(IntPtr.Add(locked.Scan0,y*locked.Stride),pixels,y*stride,stride);
+            var source=BitmapSource.Create(bitmap.Width,bitmap.Height,96,96,System.Windows.Media.PixelFormats.Bgra32,null,pixels,stride);
+            source.Freeze();return source;
+        }
+        finally{bitmap.UnlockBits(locked);}
     }
 }
 
 // 原生窗口只负责首次框选，松手后将冻结图交给原位编辑器。
-internal sealed class RegionOverlay : Form
+internal sealed class RegionOverlay : Form, ICaptureHandoff
 {
     private readonly Bitmap _frozen;
     private readonly Rectangle _desktop;
@@ -72,11 +76,21 @@ internal sealed class RegionOverlay : Form
     private bool _magnifier=true;
     private readonly System.Collections.Generic.IReadOnlyList<WindowSnapTarget> _snapTargets;
     private readonly PixelRect _allowed;
-    private bool _snapEnabled,_snapClient;
+    private readonly bool _snapEnabled,_snapClient;
     private Point _down;
     private bool _startedEmpty;
     private WindowSnapTarget? HoverTarget=>_snapEnabled&&!_model.HasArea&&!_model.Dragging?CaptureTargets.AtPoint(_snapTargets,_pointer.X+_desktop.X,_pointer.Y+_desktop.Y,_allowed,_snapClient):null;
-    public PixelRect Selection { get; private set; }
+    // 选区结果与窗口存活分离，交接期间继续显示本次冻结帧，不阻塞消息循环。
+    private readonly TaskCompletionSource<PixelRect?> _selected=new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private bool _handingOff;
+    public bool IsCancelled { get; private set; }
+    public async Task<PixelRect?> SelectAsync(CancellationToken token)
+    {
+        Show();
+        try{return await _selected.Task.WaitAsync(token);}catch{Close();throw;}
+    }
+    protected override void OnFormClosed(FormClosedEventArgs e){IsCancelled=true;_selected.TrySetResult(null);base.OnFormClosed(e);}
+    protected override void Dispose(bool disposing){if(disposing&&!IsDisposed)_frozen.Dispose();base.Dispose(disposing);}
     public RegionOverlay(Bitmap frozen,Rectangle desktop,PixelRect? allowedSelection=null,System.Collections.Generic.IReadOnlyList<WindowSnapTarget>? snapTargets=null,bool snapClient=false)
     {
         _frozen=frozen;_desktop=desktop;_allowed=allowedSelection ?? new(desktop.X,desktop.Y,desktop.Width,desktop.Height);_model=new(_allowed);_snapTargets=snapTargets??Array.Empty<WindowSnapTarget>();_snapEnabled=_snapTargets.Count>0;_snapClient=snapClient;
@@ -88,13 +102,13 @@ internal sealed class RegionOverlay : Form
     {
         base.OnMouseDown(e);
         if(e.Button==MouseButtons.Right){CancelSelection();return;}
-        if(e.Button!=MouseButtons.Left)return;
+        if(e.Button!=MouseButtons.Left||_handingOff)return;
         _down=e.Location;_startedEmpty=_model.HitTest(e.X+_desktop.X,e.Y+_desktop.Y)==SelectionHandle.Create;
         _model.Begin(e.X+_desktop.X,e.Y+_desktop.Y);_pointer=e.Location;Capture=true;Invalidate();
     }
     protected override void OnMouseMove(MouseEventArgs e)
     {
-        base.OnMouseMove(e);_pointer=e.Location;_model.Update(e.X+_desktop.X,e.Y+_desktop.Y);
+        base.OnMouseMove(e);if(_handingOff)return;_pointer=e.Location;_model.Update(e.X+_desktop.X,e.Y+_desktop.Y);
         Cursor=_model.HitTest(e.X+_desktop.X,e.Y+_desktop.Y) switch {
             SelectionHandle.Move=>Cursors.SizeAll,
             SelectionHandle.Left or SelectionHandle.Right=>Cursors.SizeWE,
@@ -116,12 +130,10 @@ internal sealed class RegionOverlay : Form
     {
         base.OnKeyDown(e);
         if(e.KeyCode==Keys.Escape){CancelSelection();return;}
-        if(e.KeyCode==Keys.W){_snapEnabled=!_snapEnabled;Invalidate();e.Handled=true;return;}
-        if(e.KeyCode==Keys.C){_snapClient=!_snapClient;Invalidate();e.Handled=true;return;}
-        if(e.KeyCode==Keys.M){_magnifier=!_magnifier;Invalidate();e.Handled=true;return;}
+        if(e.KeyCode==Keys.M&&!_handingOff){_magnifier=!_magnifier;Invalidate();e.Handled=true;return;}
     }
-    private void FinishSelection() { if(!_model.HasArea||_model.Selection is not {} r)return;Selection=r;DialogResult=DialogResult.OK;Close(); }
-    private void CancelSelection() { DialogResult=DialogResult.Cancel;Close(); }
+    private void FinishSelection() { if(!_model.HasArea||_model.Selection is not {} r)return;_handingOff=true;_magnifier=false;Cursor=Cursors.Default;_selected.TrySetResult(r);Invalidate(); }
+    private void CancelSelection() { IsCancelled=true;_selected.TrySetResult(null);Close(); }
     protected override void OnPaint(PaintEventArgs e)
     {
         var g=e.Graphics;g.DrawImageUnscaled(_frozen,0,0);
@@ -139,12 +151,15 @@ internal sealed class RegionOverlay : Form
                     var handle=new RectangleF(x-diameter/2,y-diameter/2,diameter,diameter);
                     using var fill=new System.Drawing.Drawing2D.LinearGradientBrush(handle,Color.White,Color.FromArgb(215,222,233),90);
                     g.FillEllipse(fill,handle);g.DrawEllipse(pen,handle);}
-            DrawHint(g,$"{r.Width} × {r.Height} px · 松手即编辑 · W 吸附 · C 窗口/客户区",box.X,box.Y-38);
+            DrawHint(g,_handingOff?$"{r.Width} × {r.Height} px":$"{r.Width} × {r.Height} px · 松手即编辑",box.X,box.Y-38);
         }
-        else DrawHint(g,"拖动框选 / 单击吸附 · W 吸附开关 · C 窗口/客户区 · M 放大镜 · Esc / 右键取消",Math.Max(12,-_desktop.X+24),Math.Max(12,-_desktop.Y+24));
+        else DrawHint(g,"拖动框选 · M 放大镜 · Esc / 右键取消",Math.Max(12,-_desktop.X+24),Math.Max(12,-_desktop.Y+24));
         if(_magnifier)DrawMagnifier(g);
-        using var cross=new Pen(SoftClayDrawing.Color("focus"),1);
-        g.DrawLine(cross,_pointer.X-8,_pointer.Y,_pointer.X+8,_pointer.Y);g.DrawLine(cross,_pointer.X,_pointer.Y-8,_pointer.X,_pointer.Y+8);
+        if(!_handingOff)
+        {
+            using var cross=new Pen(SoftClayDrawing.Color("focus"),1);
+            g.DrawLine(cross,_pointer.X-8,_pointer.Y,_pointer.X+8,_pointer.Y);g.DrawLine(cross,_pointer.X,_pointer.Y-8,_pointer.X,_pointer.Y+8);
+        }
     }
     // 放大镜只读取本次冻结图，最近邻放大显示真实像素；不访问系统指针或再次捕获。
     private void DrawMagnifier(Graphics g)

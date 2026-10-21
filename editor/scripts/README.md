@@ -2,7 +2,7 @@
 
 当前 CI 使用以下脚本，全部只连接独立无头页面和内存桥，不连接桌面应用、系统剪贴板或真实服务：
 
-- `scripts/test-editor-lifecycle.cjs`：自动显示路径浮卡、选区移动/缩放/撤销、手势 Esc、空白点击不重新框选、裁剪失败和迟到保护，以及保存/取消/失败/收起/继续编辑、共享历史、工具位置、Esc 与窄屏。额外生成 DPR 1 / 1.5 合成页面，不等同于 Windows DPI 验收。
+- `scripts/test-editor-lifecycle.cjs`：确认布局后播放路径浮卡/工具栏入场，框内空白拖动且保留标注手势、选区移动/缩放/撤销、等待裁剪时落点与工具位置不变、手势 Esc、空白点击不重新框选、裁剪失败和迟到保护，以及保存/取消/失败/收起/继续编辑、共享历史、工具位置、Esc 与窄屏。额外生成 DPR 1 / 1.5 合成页面，不等同于 Windows DPI 验收。
 - `editor/scripts/soft-clay-audit.cjs`：原样字节、美化 2×、选中属性与撤销、源框校对、空 OCR 保护、块翻译重试/迟到取消、文字卡片、项目往返、缺模型、显示器/热键设置。
 - `editor/scripts/update-safety-audit.cjs`：设置等待期间仍可取得精确更新快照。
 - `editor/scripts/product-performance.cjs`：复用原有 12 次不可见文字编辑检查及动效属性限制；采用新浮卡 320ms 规格，不作为桌面帧率结论。
