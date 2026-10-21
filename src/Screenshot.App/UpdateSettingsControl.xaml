@@ -6,13 +6,13 @@
             <TextBlock Text="应用更新" FontSize="22" FontWeight="SemiBold"/>
             <TextBlock x:Name="CurrentVersion" Margin="0,12,0,12"/>
             <TextBlock Text="官方公开发布源 · 无需登录" FontSize="16" FontWeight="SemiBold"/>
-            <TextBlock Margin="0,8,0,16" TextWrapping="Wrap" Foreground="#425166" Text="仅匿名访问 Notesae/screenshot 官方公开 Release，不请求 GitHub 授权，不读取浏览器、Git 或开发机凭据。"/>
+            <TextBlock Margin="0,8,0,16" TextWrapping="Wrap" Foreground="{DynamicResource ClayMuted}" Text="仅匿名访问 Notesae/screenshot 官方公开 Release，不请求 GitHub 授权，不读取浏览器、Git 或开发机凭据。"/>
             <Label Content="更新通道" Target="{Binding ElementName=Channel}"/>
             <ComboBox x:Name="Channel" SelectedIndex="0" Padding="8,6" Margin="0,5,0,8" SelectionChanged="Channel_Changed">
                 <ComboBoxItem Content="仅稳定版（默认）"/>
                 <ComboBoxItem Content="稳定版及预发布（主动选择，可能不稳定）"/>
             </ComboBox>
-            <TextBlock Text="只在手动检查时访问 Notesae/screenshot 官方发布。默认仅稳定版；当前只有预发布时会明确提示。预发布需主动选择，不会自动降级或安装相同版本。" TextWrapping="Wrap" Foreground="#425166"/>
+            <TextBlock Text="只在手动检查时访问 Notesae/screenshot 官方发布。默认仅稳定版；当前只有预发布时会明确提示。预发布需主动选择，不会自动降级或安装相同版本。" TextWrapping="Wrap" Foreground="{DynamicResource ClayMuted}"/>
             <WrapPanel Margin="0,16,0,16">
                 <Button x:Name="CheckButton" Content="检查更新" Click="Check_Click"/>
                 <Button x:Name="DownloadButton" Content="下载更新" IsEnabled="False" Click="Download_Click"/>
@@ -22,8 +22,8 @@
             <TextBox x:Name="ReleaseNotes" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="170" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="新版本说明"/>
             <ProgressBar x:Name="Progress" Height="14" Minimum="0" Maximum="100" AutomationProperties.Name="更新下载进度"/>
             <TextBlock x:Name="ProgressText" Margin="0,6,0,12"/>
-            <TextBlock x:Name="UpdateStatus" TextWrapping="Wrap" Foreground="#9B2C20" AutomationProperties.LiveSetting="Polite"/>
-            <TextBlock Margin="0,14,0,14" TextWrapping="Wrap" Foreground="#425166"
+            <TextBlock x:Name="UpdateStatus" TextWrapping="Wrap" Foreground="#FFC3B6" AutomationProperties.LiveSetting="Polite"/>
+            <TextBlock Margin="0,14,0,14" TextWrapping="Wrap" Foreground="{DynamicResource ClayMuted}"
                        Text="下载将校验官方 API 的 SHA-256 和包内清单。这是完整性检查，当前便携 ZIP 没有发布者数字签名；仍信任 GitHub 官方仓库账号及 HTTPS，无法抵御发布账号失陷。"/>
             <TextBlock Margin="0,0,0,12" TextWrapping="Wrap" Text="安装会保存当前编辑至本机恢复库，然后关闭并重启应用；下次从恢复记录继续编辑。原安装目录会保留为回滚备份，用户设置、密钥及恢复库留在原数据目录。含额外文件、只读目录或被其他实例占用时，不覆盖安装。"/>
             <WrapPanel>
@@ -31,7 +31,7 @@
                 <Button x:Name="ExportButton" Content="解压到新目录…" IsEnabled="False" Click="Export_Click"/>
                 <Button x:Name="RollbackButton" Content="回滚并重启…" IsEnabled="False" Click="Rollback_Click"/>
             </WrapPanel>
-            <TextBlock x:Name="RecoveryInfo" Margin="0,12,0,0" TextWrapping="Wrap" Foreground="#425166"/>
+            <TextBlock x:Name="RecoveryInfo" Margin="0,12,0,0" TextWrapping="Wrap" Foreground="{DynamicResource ClayMuted}"/>
         </StackPanel>
     </ScrollViewer>
 </UserControl>

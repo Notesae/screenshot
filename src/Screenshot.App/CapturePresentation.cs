@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
+using System.Windows;
 using System.Windows.Media.Imaging;
 
 namespace Screenshot.App;
@@ -73,6 +74,24 @@ internal sealed class CapturePresentationState
     {
         if (IsSelecting || Mode != PresentationMode.Overlay || PendingCaptureId != captureId) return false;
         PendingCaptureId = null; return true;
+    }
+
+    // 只从本次原生冻结图裁剪；过期身份、未就绪状态及越界区域均不能读取像素。
+    public CaptureEnvelope Adjust(string captureId, PixelRect selection)
+    {
+        if (!Matches(captureId) || PendingCaptureId is not null || FrozenBackdrop is not { } frozen || Overlay is not { } overlay)
+            throw new InvalidOperationException("截图已失效，请重新截图。");
+        var bounds = overlay.DesktopBounds;
+        if (selection.Width < 2 || selection.Height < 2 || selection.Width > 16000 || selection.Height > 16000
+            || (long)selection.Width * selection.Height > 40_000_000 || selection.X < bounds.X || selection.Y < bounds.Y
+            || (long)selection.X + selection.Width > (long)bounds.X + bounds.Width || (long)selection.Y + selection.Height > (long)bounds.Y + bounds.Height)
+            throw new InvalidOperationException("选区超出冻结桌面或图片尺寸限制。");
+        var crop = new CroppedBitmap(frozen, new Int32Rect(selection.X - bounds.X, selection.Y - bounds.Y, selection.Width, selection.Height));
+        var image = NativeImages.FromBitmap(crop, "区域截图.png");
+        // 前端接受的图片最多 24 MiB，超限时保持宿主选区不变。
+        if (image.DataUrl.Length > 24 * 1024 * 1024 * 4L / 3 + 64) throw new InvalidOperationException("选区图片过大，请缩小选区。");
+        Overlay = overlay with { Selection = selection };
+        return new(image, Overlay);
     }
 
     // 只终止仍等待当前截图布局的覆盖层；旧计时器不能关闭更新的截图。

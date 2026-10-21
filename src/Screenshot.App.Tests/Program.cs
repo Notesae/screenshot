@@ -107,6 +107,13 @@ Check(presentation.Mode == PresentationMode.Overlay && ReferenceEquals(presentat
 Check(!presentation.TryAcceptReady("stale-id"), "stale layout acknowledgement cannot show current capture");
 Check(presentation.TryAcceptReady(frame.CaptureId), "current layout acknowledgement accepted once");
 Check(!presentation.TryAcceptReady(frame.CaptureId), "duplicate acknowledgement ignored");
+// 调整仅裁剪合成冻结图，既不枚举显示器也不再次捕获；失败保持原选区。
+Reject(() => presentation.Adjust("stale-id", desktopBounds), "stale capture cannot crop frozen pixels");
+Reject(() => presentation.Adjust(frame.CaptureId, new(-3, -1, 2, 2)), "out of desktop crop rejected");
+var recropped = presentation.Adjust(frame.CaptureId, desktopBounds);
+Check(recropped.Image.Width == 4 && recropped.Image.Height == 2 && recropped.Overlay.Selection == desktopBounds, "resize returns matching crop and physical geometry");
+Check(recropped.Overlay.CaptureId == frame.CaptureId && ReferenceEquals(presentation.FrozenBackdrop, backdrop), "resize keeps capture identity and frozen native pixels");
+presentation.Adjust(frame.CaptureId, selection);
 presentation.BeginCapture(); presentation.CancelCapture();
 Check(presentation.Mode == PresentationMode.Overlay && ReferenceEquals(presentation.FrozenBackdrop, backdrop), "cancelled selection preserves previous overlay and backdrop");
 var envelope = frame.ToEnvelope();
@@ -182,6 +189,7 @@ checks += EditorCheckpointTests.Run();
 checks += HotkeyTests.Run();
 checks += CaptureTargetsTests.Run();
 checks += RegionSelectionTests.Run();
+checks += SoftClayThemeTests.Run();
 checks += await CapturePipelineTests.RunAsync();
 checks += await UpdateTests.RunAsync();
 checks += await PublicUpdateTests.RunAsync();

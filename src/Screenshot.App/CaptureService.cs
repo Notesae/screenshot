@@ -62,7 +62,7 @@ public sealed class GdiCaptureBackend : ICaptureBackend
     }
 }
 
-// 在冻结图上调整选区；确认前不释放底图，也不再采集桌面。
+// 原生窗口只负责首次框选，松手后将冻结图交给原位编辑器。
 internal sealed class RegionOverlay : Form
 {
     private readonly Bitmap _frozen;
@@ -73,10 +73,9 @@ internal sealed class RegionOverlay : Form
     private readonly System.Collections.Generic.IReadOnlyList<WindowSnapTarget> _snapTargets;
     private readonly PixelRect _allowed;
     private bool _snapEnabled,_snapClient;
-    private WindowSnapTarget? _selectedSnap;
     private Point _down;
     private bool _startedEmpty;
-    private WindowSnapTarget? HoverTarget=>_snapEnabled&&!_model.CanConfirm&&!_model.Dragging?CaptureTargets.AtPoint(_snapTargets,_pointer.X+_desktop.X,_pointer.Y+_desktop.Y,_allowed,_snapClient):null;
+    private WindowSnapTarget? HoverTarget=>_snapEnabled&&!_model.HasArea&&!_model.Dragging?CaptureTargets.AtPoint(_snapTargets,_pointer.X+_desktop.X,_pointer.Y+_desktop.Y,_allowed,_snapClient):null;
     public PixelRect Selection { get; private set; }
     public RegionOverlay(Bitmap frozen,Rectangle desktop,PixelRect? allowedSelection=null,System.Collections.Generic.IReadOnlyList<WindowSnapTarget>? snapTargets=null,bool snapClient=false)
     {
@@ -90,7 +89,7 @@ internal sealed class RegionOverlay : Form
         base.OnMouseDown(e);
         if(e.Button==MouseButtons.Right){CancelSelection();return;}
         if(e.Button!=MouseButtons.Left)return;
-        _selectedSnap=null;_down=e.Location;_startedEmpty=_model.HitTest(e.X+_desktop.X,e.Y+_desktop.Y)==SelectionHandle.Create;
+        _down=e.Location;_startedEmpty=_model.HitTest(e.X+_desktop.X,e.Y+_desktop.Y)==SelectionHandle.Create;
         _model.Begin(e.X+_desktop.X,e.Y+_desktop.Y);_pointer=e.Location;Capture=true;Invalidate();
     }
     protected override void OnMouseMove(MouseEventArgs e)
@@ -105,45 +104,47 @@ internal sealed class RegionOverlay : Form
             _=>Cursors.Cross };
         Invalidate();
     }
-    // 松开后保留边界，允许再次拖动；Enter/双击才确认，Esc/右键取消。
+    // 有效框选松手即交接；点击吸附也走同一入口，不保留确认步骤。
     protected override void OnMouseUp(MouseEventArgs e)
     {
         base.OnMouseUp(e);if(e.Button!=MouseButtons.Left||!_model.Dragging)return;
         _model.Update(e.X+_desktop.X,e.Y+_desktop.Y);_model.End();
-        if(_startedEmpty&&Math.Abs(e.X-_down.X)<=3&&Math.Abs(e.Y-_down.Y)<=3&&_snapEnabled){var target=CaptureTargets.AtPoint(_snapTargets,e.X+_desktop.X,e.Y+_desktop.Y,_allowed,_snapClient);if(target is not null){_selectedSnap=System.Linq.Enumerable.First(_snapTargets,t=>t.Handle==target.Handle);_model.Set(target.Bounds);}}
-        Capture=false;Invalidate();
+        if(_startedEmpty&&Math.Abs(e.X-_down.X)<=3&&Math.Abs(e.Y-_down.Y)<=3&&_snapEnabled){var target=CaptureTargets.AtPoint(_snapTargets,e.X+_desktop.X,e.Y+_desktop.Y,_allowed,_snapClient);if(target is not null){_model.Set(target.Bounds);}}
+        Capture=false;if(_model.HasArea)FinishSelection();else Invalidate();
     }
-    protected override void OnMouseDoubleClick(MouseEventArgs e) { base.OnMouseDoubleClick(e);if(e.Button==MouseButtons.Left)ConfirmSelection(); }
-    protected override bool IsInputKey(Keys keyData) => (keyData & Keys.KeyCode) is Keys.Left or Keys.Right or Keys.Up or Keys.Down || base.IsInputKey(keyData);
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
         if(e.KeyCode==Keys.Escape){CancelSelection();return;}
-        if(e.KeyCode==Keys.Enter){ConfirmSelection();e.Handled=true;return;}
         if(e.KeyCode==Keys.W){_snapEnabled=!_snapEnabled;Invalidate();e.Handled=true;return;}
-        if(e.KeyCode==Keys.C){_snapClient=!_snapClient;if(_selectedSnap is {} selected){var area=CaptureTargets.Area(selected,_allowed,_snapClient);_model.Set(area??default);}Invalidate();e.Handled=true;return;}
+        if(e.KeyCode==Keys.C){_snapClient=!_snapClient;Invalidate();e.Handled=true;return;}
         if(e.KeyCode==Keys.M){_magnifier=!_magnifier;Invalidate();e.Handled=true;return;}
-        var step=e.Control?10:1;
-        var delta=e.KeyCode switch { Keys.Left=>(-step,0),Keys.Right=>(step,0),Keys.Up=>(0,-step),Keys.Down=>(0,step),_=>(0,0) };
-        if(delta!=(0,0)){_selectedSnap=null;_model.Nudge(delta.Item1,delta.Item2,e.Shift);e.Handled=true;e.SuppressKeyPress=true;Invalidate();}
     }
-    private void ConfirmSelection() { if(!_model.CanConfirm||_model.Selection is not {} r)return;Selection=r;DialogResult=DialogResult.OK;Close(); }
+    private void FinishSelection() { if(!_model.HasArea||_model.Selection is not {} r)return;Selection=r;DialogResult=DialogResult.OK;Close(); }
     private void CancelSelection() { DialogResult=DialogResult.Cancel;Close(); }
     protected override void OnPaint(PaintEventArgs e)
     {
         var g=e.Graphics;g.DrawImageUnscaled(_frozen,0,0);
-        using var shade=new SolidBrush(Color.FromArgb(92,0,0,0));g.FillRectangle(shade,ClientRectangle);
+        using var shade=new SolidBrush(SoftClayDrawing.Color("mask"));g.FillRectangle(shade,ClientRectangle);
         var displayed=_model.Selection??HoverTarget?.Bounds;
         if(displayed is {} r && r.Width>0 && r.Height>0)
         {
             var box=new Rectangle(r.X-_desktop.X,r.Y-_desktop.Y,r.Width,r.Height);g.DrawImage(_frozen,box,box,GraphicsUnit.Pixel);
-            using var pen=new Pen(Color.FromArgb(55,175,255),1);g.DrawRectangle(pen,box);
+            g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            var scale=DeviceDpi/96f;
+            using var glow=new Pen(Color.FromArgb(48,SoftClayDrawing.Color("accent")),6*scale);g.DrawRectangle(glow,box);
+            using var pen=new Pen(SoftClayDrawing.Color("accent"),(float)SoftClayTheme.Number("size","selectionBorder")*scale);g.DrawRectangle(pen,box);
             foreach(var x in new[]{box.Left,box.Left+box.Width/2,box.Right})foreach(var y in new[]{box.Top,box.Top+box.Height/2,box.Bottom})
-                if(x!=box.Left+box.Width/2||y!=box.Top+box.Height/2) {g.FillRectangle(Brushes.White,x-3,y-3,6,6);g.DrawRectangle(pen,x-3,y-3,6,6);}
-            DrawHint(g,$"{r.Width} × {r.Height} px · 拖动调整 · 方向键微调 · Shift 调尺寸 · Enter/双击确认 · W 吸附 · C 窗口/客户区",box.X,box.Y-38);
+                if(x!=box.Left+box.Width/2||y!=box.Top+box.Height/2) {var diameter=(float)SoftClayTheme.Number("size","handle")*scale;
+                    var handle=new RectangleF(x-diameter/2,y-diameter/2,diameter,diameter);
+                    using var fill=new System.Drawing.Drawing2D.LinearGradientBrush(handle,Color.White,Color.FromArgb(215,222,233),90);
+                    g.FillEllipse(fill,handle);g.DrawEllipse(pen,handle);}
+            DrawHint(g,$"{r.Width} × {r.Height} px · 松手即编辑 · W 吸附 · C 窗口/客户区",box.X,box.Y-38);
         }
         else DrawHint(g,"拖动框选 / 单击吸附 · W 吸附开关 · C 窗口/客户区 · M 放大镜 · Esc / 右键取消",Math.Max(12,-_desktop.X+24),Math.Max(12,-_desktop.Y+24));
         if(_magnifier)DrawMagnifier(g);
+        using var cross=new Pen(SoftClayDrawing.Color("focus"),1);
+        g.DrawLine(cross,_pointer.X-8,_pointer.Y,_pointer.X+8,_pointer.Y);g.DrawLine(cross,_pointer.X,_pointer.Y-8,_pointer.X,_pointer.Y+8);
     }
     // 放大镜只读取本次冻结图，最近邻放大显示真实像素；不访问系统指针或再次捕获。
     private void DrawMagnifier(Graphics g)
@@ -151,16 +152,20 @@ internal sealed class RegionOverlay : Form
         var source=new Rectangle(Math.Clamp(_pointer.X-7,0,Math.Max(0,_frozen.Width-15)),Math.Clamp(_pointer.Y-7,0,Math.Max(0,_frozen.Height-15)),Math.Min(15,_frozen.Width),Math.Min(15,_frozen.Height));
         var target=new Rectangle(Math.Clamp(_pointer.X+28,0,Math.Max(0,ClientSize.Width-128)),Math.Clamp(_pointer.Y+28,0,Math.Max(0,ClientSize.Height-156)),120,120);
         var state=g.Save();g.InterpolationMode=System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;g.PixelOffsetMode=System.Drawing.Drawing2D.PixelOffsetMode.Half;
-        g.DrawImage(_frozen,target,source,GraphicsUnit.Pixel);g.Restore(state);g.DrawRectangle(Pens.White,target);
+        using var clip=SoftClayDrawing.Rounded(target,(float)SoftClayTheme.Number("radius","floating"));g.SetClip(clip);g.DrawImage(_frozen,target,source,GraphicsUnit.Pixel);g.Restore(state);
+        g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;using var border=new Pen(SoftClayDrawing.Color("accent"),1.25f);g.DrawPath(border,clip);
         var px=Math.Clamp(_pointer.X,0,_frozen.Width-1);var py=Math.Clamp(_pointer.Y,0,_frozen.Height-1);
         var centerX=target.X+(px-source.X)*target.Width/source.Width;var centerY=target.Y+(py-source.Y)*target.Height/source.Height;
-        g.DrawRectangle(Pens.Red,centerX,centerY,Math.Max(1,target.Width/source.Width),Math.Max(1,target.Height/source.Height));
+        g.DrawRectangle(border,centerX,centerY,Math.Max(1,target.Width/source.Width),Math.Max(1,target.Height/source.Height));
         var color=_frozen.GetPixel(px,py);DrawHint(g,$"{px+_desktop.X}, {py+_desktop.Y} · #{color.R:X2}{color.G:X2}{color.B:X2} · M 隐藏",target.X,target.Bottom+3);
     }
+    // 尺寸和指针读数使用同一凸面胶囊；文字随窗口 DPI 缩放，截图像素保持原样。
     private void DrawHint(Graphics graphics,string text,int x,int y)
     {
-        using var font=new Font("Microsoft YaHei UI",11);var size=graphics.MeasureString(text,font);
+        using var font=new Font("Microsoft YaHei UI",10);var size=graphics.MeasureString(text,font);
         x=Math.Clamp(x,0,Math.Max(0,ClientSize.Width-(int)size.Width-16));y=Math.Clamp(y,0,Math.Max(0,ClientSize.Height-(int)size.Height-12));
-        graphics.FillRectangle(Brushes.Black,x,y,size.Width+16,size.Height+12);graphics.DrawString(text,font,Brushes.White,x+8,y+6);
+        graphics.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        SoftClayDrawing.Surface(graphics,new RectangleF(x,y,size.Width+16,size.Height+12),(float)SoftClayTheme.Number("radius","pill"));
+        using var ink=new SolidBrush(SoftClayDrawing.Color("ink"));graphics.DrawString(text,font,ink,x+8,y+6);
     }
 }

@@ -26,6 +26,13 @@ function mockHost(){
       switch(request.method){
         case 'app.updateReady': result={ready:true};break;
         case 'settings.read':case 'settings.configure':result={providers:[{id:'synthetic',name:'模拟服务',revision:'synthetic-revision',kind:'openai-compatible',baseUrl:'https://provider.invalid',model:'synthetic',hasApiKey:true}],defaultProviderId:'synthetic'};break;
+        case 'capture.adjust':{
+          if(request.payload.captureId!==state.captureId)throw Error('过期截图');
+          if(state.holdAdjust)await new Promise(resolve=>state.releaseAdjust=resolve);
+          if(state.failAdjust)throw Error('模拟选区裁剪失败');
+          const area=request.payload.selection,canvas=document.createElement('canvas');canvas.width=area.width;canvas.height=area.height;const source=new Image();source.src=sample.dataUrl;await source.decode();canvas.getContext('2d').drawImage(source,0,0);
+          result={image:{...sample,dataUrl:canvas.toDataURL(),width:area.width,height:area.height},overlay:{captureId:request.payload.captureId,desktopBounds:{x:0,y:0,width:1280,height:800},selection:area,screens:[{bounds:{x:0,y:0,width:1280,height:800},workArea:{x:0,y:0,width:1280,height:760},primary:true}]}};break;
+        }
         case 'capture.settings':result={backend:'wgc'};break;
         case 'ocr.status':result={available:true,modelVersion:'synthetic-only',message:'合成模型状态',missingFiles:[]};break;
         case 'document.preserve':await checkpoint('replace');result={saved:true};break;
@@ -71,7 +78,37 @@ async function main(){
   await click('打开图片');await page.waitForFunction(()=>!document.querySelector('button[aria-label="保存 PNG"]').disabled);
   assert.equal(await page.getByText('完整工作台',{exact:true}).count(),0);
   await page.evaluate(()=>window.__mock.capture());await page.waitForSelector('.is-overlay');
+  await page.waitForFunction(()=>window.__mock.state.requests.includes('presentation.ready'));
+  await page.getByRole('region',{name:'原样截图',exact:true}).waitFor();
   await page.screenshot({path:path.join(out,'01-raw.png')});
+  // 以下指针和键盘均在无头页面中模拟；验证松手后的调整不要求额外确认。
+  const moveSelection=page.getByRole('button',{name:'移动截图选区',exact:true});
+  await moveSelection.focus();await page.keyboard.press('ArrowRight');
+  await page.waitForFunction(()=>window.screenshotPrepareUpdate?.().document?.image?.width===560&&!document.querySelector('button[aria-label="保存 PNG"]').disabled);
+  await page.waitForFunction(()=>Math.round(document.querySelector('.clay-capture-selection').getBoundingClientRect().x)===301);
+  await click('撤销');await page.waitForFunction(()=>Math.round(document.querySelector('.clay-capture-selection').getBoundingClientRect().x)===300);
+  await click('重做');await page.waitForFunction(()=>Math.round(document.querySelector('.clay-capture-selection').getBoundingClientRect().x)===301);
+  const southeast=page.getByRole('button',{name:'调整截图选区 se',exact:true});await page.waitForFunction(()=>!document.querySelector('.clay-selection-handle.is-se').disabled);await southeast.click({trial:true});const corner=await southeast.boundingBox();
+  await page.mouse.move(corner.x+12,corner.y+12);await page.mouse.down();await page.mouse.move(corner.x+32,corner.y+22);await page.mouse.up();
+  await page.waitForFunction(()=>window.screenshotPrepareUpdate?.().document?.image?.width===580&&!document.querySelector('button[aria-label="保存 PNG"]').disabled);
+  assert.equal(await page.evaluate(()=>window.screenshotPrepareUpdate().document.image.height),310);
+  await click('撤销');await page.waitForFunction(()=>window.screenshotPrepareUpdate?.().document?.image?.width===560&&!document.querySelector('button[aria-label="保存 PNG"]').disabled);
+  const requestsBefore=await page.evaluate(()=>window.__mock.state.requests.filter(m=>m==='capture.adjust').length);
+  await page.waitForFunction(()=>!document.querySelector('.clay-selection-handle.is-se').disabled);await southeast.click({trial:true});const cancelCorner=await southeast.boundingBox();await page.mouse.move(cancelCorner.x+12,cancelCorner.y+12);await page.mouse.down();await page.mouse.move(cancelCorner.x+50,cancelCorner.y+50);await page.keyboard.press('Escape');await page.mouse.up();
+  assert.equal(await page.evaluate(()=>window.__mock.state.requests.filter(m=>m==='capture.adjust').length),requestsBefore);
+  await page.mouse.click(20,700);assert.equal(await page.locator('.is-overlay').count(),1);
+  assert.equal(await page.evaluate(()=>window.__mock.state.requests.filter(m=>m==='capture.region').length),0);
+  await page.evaluate(()=>window.__mock.state.failAdjust=true);await moveSelection.focus();await page.keyboard.press('ArrowDown');await page.getByRole('alert').waitFor();
+  assert.equal(Math.round((await page.locator('.clay-capture-selection').boundingBox()).y),180);
+  await page.evaluate(()=>window.__mock.state.failAdjust=false);await click('关闭提示');
+  await page.evaluate(()=>window.__mock.state.holdAdjust=true);await moveSelection.focus();await page.keyboard.press('ArrowRight');
+  await page.waitForFunction(()=>typeof window.__mock.state.releaseAdjust==='function');
+  const blockedHistory=await page.evaluate(()=>document.querySelector('.clay-capture-selection').getBoundingClientRect().x);await page.keyboard.press('Control+z');
+  assert.equal(await page.evaluate(()=>document.querySelector('.clay-capture-selection').getBoundingClientRect().x),blockedHistory);
+  await page.evaluate(()=>window.__mock.capture());await page.waitForFunction(()=>window.__mock.state.requests.filter(m=>m==='presentation.ready').length===2);
+  await page.evaluate(()=>{window.__mock.state.holdAdjust=false;window.__mock.state.releaseAdjust();});
+  await page.waitForFunction(()=>!document.querySelector('button[aria-label="保存 PNG"]').disabled);
+  assert.equal(Math.round((await page.locator('.clay-capture-selection').boundingBox()).x),300);
   await click('矩形标注');await page.waitForFunction(()=>window.screenshotPrepareUpdate().document.editor.annotations.length===1);
   const original=await page.evaluate(()=>window.screenshotPrepareUpdate().document.editor.annotations[0].id);
   await click('美化');await click('柔和留白');await page.waitForFunction(()=>!document.querySelector('button[aria-label="保存 PNG"]').disabled);
@@ -100,12 +137,30 @@ async function main(){
   await click('矩形标注');await click('文字');await page.locator('#compact-text').focus();
   await page.keyboard.press('Escape');assert.equal(await page.locator('#compact-text').evaluate(node=>node===document.activeElement),false);assert.equal(await page.locator('.clay-card').count(),1);
   await page.keyboard.press('Escape');assert.equal(await page.locator('.clay-card').count(),1);assert.equal(await page.evaluate(()=>window.__mock.state.hidden),false);
-  await page.keyboard.press('Escape');assert.equal(await page.locator('.clay-card').count(),0);
+  await page.keyboard.press('Escape');await page.waitForSelector('.clay-card',{state:'detached'});
   await page.keyboard.press('Escape');await page.waitForFunction(()=>window.__mock.state.hidden);await page.evaluate(()=>window.__mock.resume());
   if(await page.getByRole('button',{name:'更多操作',exact:true}).getAttribute('aria-expanded')!=='true')await click('更多操作');await click('重置工具位置');
   for(const width of [768,390]){await page.setViewportSize({width,height:800});await page.waitForTimeout(80);await page.screenshot({path:path.join(out,'responsive-'+width+'.png')});const boxes=await page.locator('.clay-rail,.clay-card').evaluateAll(nodes=>nodes.map(node=>{const r=node.getBoundingClientRect();return {x:r.x,y:r.y,right:r.right,bottom:r.bottom};}));for(const box of boxes){assert.ok(box.x>=0&&box.y>=0&&box.right<=width+1&&box.bottom<=801,JSON.stringify(box));}}
   await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await page.locator('.clay-rail button').first().evaluate(node=>getComputedStyle(node).transitionDuration),'0s');
-  assert.deepEqual(errors,[]);fs.writeFileSync(path.join(out,'report.json'),JSON.stringify({syntheticOnly:true,desktopAccess:false,checks:['shared annotation history','virtual pointer drag and keyboard adjustment','explicit OCR','text copy separation','visible text copy','panel scroll reset','failed checkpoint stays open','cancelled save stays open','completion releases backdrop','resume preserves document','four-level Escape','bounded responsive chrome','reduced motion'],screenshots:fs.readdirSync(out).filter(name=>name.endsWith('.png'))},null,2));
+  // DPR 仅验证合成页面渲染和坐标，不代表 Windows 的真实 100% / 150% DPI 验收。
+  for(const dpr of [1,1.5]){
+    const dpiContext=await browser.newContext({viewport:{width:1280,height:800},deviceScaleFactor:dpr,reducedMotion:'reduce'}),dpiPage=await dpiContext.newPage();
+    dpiPage.on('pageerror',error=>errors.push(error.message));
+    await dpiPage.route('**/*',route=>route.request().url().startsWith('http://127.0.0.1:')||route.request().url().startsWith('data:')?route.continue():route.abort());
+    await dpiPage.addInitScript(mockHost);await dpiPage.goto('http://127.0.0.1:'+server.address().port+'/index.html');
+    await dpiPage.getByRole('button',{name:'打开图片',exact:true}).waitFor();await dpiPage.evaluate(()=>window.__mock.capture());
+    await dpiPage.waitForFunction(()=>window.__mock.state.requests.includes('presentation.ready')&&!document.querySelector('button[aria-label="保存 PNG"]').disabled);
+    for(const [surface,label]of [['raw',null],['beauty','美化'],['text','文字'],['more','更多操作']]){
+      if(label)await dpiPage.getByRole('button',{name:label,exact:true}).click();
+      await dpiPage.screenshot({path:path.join(out,'mock-dpr-'+dpr+'-'+surface+'.png')});
+    }
+    const beforeMove=await dpiPage.locator('.clay-capture-selection').boundingBox();
+    await dpiPage.getByRole('button',{name:'移动截图选区',exact:true}).focus();await dpiPage.keyboard.press('ArrowRight');
+    await dpiPage.waitForFunction(()=>Math.round(document.querySelector('.clay-capture-selection').getBoundingClientRect().x)===301);
+    assert.equal(Math.round((await dpiPage.locator('.clay-capture-selection').boundingBox()).x-beforeMove.x),1);
+    await dpiContext.close();
+  }
+  assert.deepEqual(errors,[]);fs.writeFileSync(path.join(out,'report.json'),JSON.stringify({syntheticOnly:true,desktopAccess:false,checks:['automatic entry with path card','physical selection move/resize/undo','Escape cancels adjustment first','blank click does not reselect','failed recrop preserves document','stale recrop cannot replace newer capture','synthetic DPR 1 and 1.5','shared annotation history','virtual pointer drag and keyboard adjustment','explicit OCR','text copy separation','visible text copy','panel scroll reset','failed checkpoint stays open','cancelled save stays open','completion releases backdrop','resume preserves document','four-level Escape','bounded responsive chrome','reduced motion'],screenshots:fs.readdirSync(out).filter(name=>name.endsWith('.png'))},null,2));
   console.log('PASS synthetic editor lifecycle and responsive checks');await browser.close();server.close();
 }
-main().catch(async error=>{console.error(error);if(activePage){console.error(await activePage.evaluate(()=>{const s=window.__mock?.state;return {requests:s?.requests.slice(-16),completion:s?.completion,copied:s?.copied,hidden:s?.hidden,notice:document.querySelector('[role=alert]')?.textContent,snapshot:window.screenshotPrepareUpdate?.()};}).then(value=>{if(value.snapshot?.document)value.snapshot.document='synthetic document omitted';return value;}).catch(()=>({})));}await activeBrowser?.close();server.close();process.exitCode=1;});
+main().catch(async error=>{console.error(error);if(activePage){console.error(await activePage.evaluate(()=>{const s=window.__mock?.state;return {requests:s?.requests.slice(-16),completion:s?.completion,copied:s?.copied,hidden:s?.hidden,notice:document.querySelector('[role=alert]')?.textContent,handles:Array.from(document.querySelectorAll('.clay-selection-handle')).map(e=>({class:e.className,disabled:e.disabled,box:e.getBoundingClientRect().toJSON()})),snapshot:window.screenshotPrepareUpdate?.()};}).then(value=>{if(value.snapshot?.document)value.snapshot.document='synthetic document omitted';return value;}).catch(()=>({})));}await activeBrowser?.close();server.close();process.exitCode=1;});

@@ -1,5 +1,13 @@
 # Native bridge v1
 
+## 2026-10-21 松手进入编辑与选区调整
+
+区域框选有效松手立即返回同一 `CaptureEnvelope`，无用户确认阶段；编辑器同时展示动作轨与原样路径浮卡。`presentation.ready` 继续防止未完成布局的窗口闪现，不对应任何确认 UI。
+
+新增 `capture.adjust {captureId:string,selection:PixelRect}`，返回 `CaptureEnvelope`。仅匹配当前已就绪捕获、仍持有原生冻结图且不处于重新框选时才接受；尺寸至少 2px、单边最多 16000px、总面积最多 4000 万像素，并严格限制在原冻结桌面内。与捕获/本地操作共用互斥门控，失败保持原选区；不重新枚举或捕获桌面，不发送整张冻结图。返回图片沿用前端 24 MiB 限制，`captureId` 不变。
+
+编辑器拖动期间只预览几何，松手才请求裁剪。一次成功调整加入原文档撤销历史，保留样式、文字和标注；旧 crop/resize 按原有变换逻辑恢复源坐标后清除，旧 OCR 块映射清除，已有校对文字保留。几何与图片引用随本会话撤销/重做，不加入项目或恢复 schema。新图片、退出或收起使迟到响应失效。原位导入文件不允许从冻结桌面调整其内容。
+
 ## 2026-10-20 轻量编辑器与保存保护
 
 项目 schema 保持 v2。`presentation.editor` 是 `presentation.workbench` 的兼容别名；返回的内部呈现值仍使用 `workbench / overlay / hidden`。用户界面共用轻量编辑器，无第二份文档。`screens` 可带宿主提供的物理 `workArea:PixelRect`；编辑器验证其位于显示器 bounds 内，只用于限制工具位置，不改变选区、图像坐标或导出尺寸。
@@ -62,7 +70,7 @@ The default native capture backend reports `backend:"wgc", colorMode:"sdr", supp
 
 ## P0 additions
 
-Region selection retains the frozen frame after dragging: drag edges/corners or interior to adjust, arrows move one physical pixel, Shift+arrows resize, Ctrl uses ten pixels, Enter/double-click confirms, Escape/right-click cancels, M toggles the frozen-pixel magnifier. This interaction has only model validation until desktop testing resumes.
+Region selection hands off the frozen frame on valid pointer release. In-place editing exposes eight circular handles and a move grip; arrows move one physical pixel, Shift+arrows resize, Ctrl uses ten pixels. Escape cancels an active adjustment before editor dismissal; explicit reselect is available in the path card and More. Before handoff Escape/right-click cancels and M toggles the frozen-pixel magnifier. Desktop validation remains paused.
 
 `capture.screen` and `capture.region` accept `{backend?:"wgc"|"gdi",target?:{kind:"desktop"|"monitor"|"window",handle?:string,area?:"window"|"client"},timeoutMs?:number}`. Native handles are nonzero decimal or `0x` strings, never JS numbers. Desktop is the default; monitor/window require an explicit valid handle. Timeout is 100–30000 ms (default 8000). Capture overlay metadata also reports the actual `backend`, `colorMode:"sdr"`, and `supportsHdr:false`. WGC uses BGRA8; HDR fidelity is not claimed. Availability is checked on capture without enumerating targets during app.info.
 

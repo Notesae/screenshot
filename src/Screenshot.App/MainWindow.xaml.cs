@@ -78,7 +78,8 @@ public partial class MainWindow : Window
     private void ShowTerms(object sender, RoutedEventArgs e) => new TermsWindow(_terms, reviewOnly: true) { Owner = this }.ShowDialog();
     private void InitializeTray()
     {
-        var menu = new System.Windows.Forms.ContextMenuStrip();
+        var menu = new System.Windows.Forms.ContextMenuStrip { Renderer = new SoftClayMenuRenderer(), ShowImageMargin = false,
+            BackColor = SoftClayDrawing.Color("surfaceBottom"), ForeColor = SoftClayDrawing.Color("ink"), Font = new System.Drawing.Font("Microsoft YaHei UI", 10), Padding = new System.Windows.Forms.Padding(6) };
         menu.Items.Add("区域截图", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => { _ = CaptureFromHotkeyAsync(); })));
         menu.Items.Add("当前屏幕截图", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => { _ = CaptureCurrentFromTrayAsync(); })));
         menu.Items.Add("整个桌面截图", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => { _ = CaptureFromTrayAsync(CaptureRequest.Default(false) with { Backend = _captureBackend }); })));
@@ -90,6 +91,7 @@ public partial class MainWindow : Window
         menu.Items.Add("设置", null, (_, _) => Dispatcher.BeginInvoke(new Action(() => ShowEditorAction("settings"))));
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add("退出", null, (_, _) => Dispatcher.BeginInvoke(new Action(Close)));
+        foreach (System.Windows.Forms.ToolStripItem item in menu.Items) item.Padding = new System.Windows.Forms.Padding(12, 7, 12, 7);
         _trayIcon = new System.Windows.Forms.NotifyIcon
         {
             Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!), Text = "Screenshot · 截图", ContextMenuStrip = menu, Visible = true
@@ -357,7 +359,7 @@ public partial class MainWindow : Window
         _terms.RequireAccepted();
         switch (method)
         {
-            case "app.info": return new { version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "unknown", platform = "windows", presentation = _presentation.Mode.ToString().ToLowerInvariant(), capture = new { backend = _captureBackend, colorMode = "sdr", supportsHdr = false, availableBackends = new[] { "wgc", "gdi" }, targets = new[] { "desktop", "monitor", "window" }, availability = "checked-on-capture" }, capabilities = new[] { "image.open", "image.paste", "capture.screen", "capture.region", "capture.current", "capture.monitors", "capture.settings", "capture.configure", "hotkey.read", "hotkey.configure", "image.save", "image.copy", "text.copy", "project.open", "project.save", "ai.ocr", "ai.translate", "ocr.local", "ocr.cancel", "ocr.status", "ai.cancel", "ai.usage", "ai.test", "recovery.save", "recovery.list", "recovery.load", "recovery.delete", "recovery.usage", "recovery.deleteMany", "presentation.workbench", "presentation.editor", "presentation.dismiss", "presentation.ready", "presentation.complete", "document.preserve", "app.terms" } };
+            case "app.info": return new { version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "unknown", platform = "windows", presentation = _presentation.Mode.ToString().ToLowerInvariant(), capture = new { backend = _captureBackend, colorMode = "sdr", supportsHdr = false, availableBackends = new[] { "wgc", "gdi" }, targets = new[] { "desktop", "monitor", "window" }, availability = "checked-on-capture" }, capabilities = new[] { "image.open", "image.paste", "capture.adjust", "capture.screen", "capture.region", "capture.current", "capture.monitors", "capture.settings", "capture.configure", "hotkey.read", "hotkey.configure", "image.save", "image.copy", "text.copy", "project.open", "project.save", "ai.ocr", "ai.translate", "ocr.local", "ocr.cancel", "ocr.status", "ai.cancel", "ai.usage", "ai.test", "recovery.save", "recovery.list", "recovery.load", "recovery.delete", "recovery.usage", "recovery.deleteMany", "presentation.workbench", "presentation.editor", "presentation.dismiss", "presentation.ready", "presentation.complete", "document.preserve", "app.terms" } };
             case "document.preserve": await PreserveEditorAsync("replace"); return new { saved = true };
             case "image.open": await PreserveEditorAsync("replace"); return NativeImages.Open(this);
             case "image.paste": await PreserveEditorAsync("replace"); return NativeImages.Paste();
@@ -365,6 +367,9 @@ public partial class MainWindow : Window
             case "capture.current": return await CaptureAsync(CurrentMonitorRequest());
             case "capture.screen": return await CaptureAsync(ParseCaptureRequest(payload, false));
             case "capture.region": return await CaptureAsync(ParseCaptureRequest(payload, true));
+            case "capture.adjust":
+                var area = payload.GetProperty("selection");
+                return _presentation.Adjust(RequiredString(payload, "captureId"), new PixelRect(area.GetProperty("x").GetInt32(), area.GetProperty("y").GetInt32(), area.GetProperty("width").GetInt32(), area.GetProperty("height").GetInt32()));
             case "hotkey.read": return _hotkeys?.State??new HotkeyStatus(HotkeyBinding.Default,false,false,"快捷键尚未就绪。");
             case "hotkey.configure":
                 if(_hotkeys is null)throw new InvalidOperationException("快捷键尚未就绪。");

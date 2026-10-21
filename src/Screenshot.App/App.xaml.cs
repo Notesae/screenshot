@@ -43,6 +43,7 @@ public partial class App : Application
         var startupStep = "检查发行目录";
         try
         {
+            SoftClayTheme.Install(Resources);
             var instancePath = UpdateTransaction.InstancePath(InstallationDirectory);
             PortablePackage.NoLinks(instancePath);
             // 只读安装仍可正常启动；更新时会明确拒绝原地写入并提供并排导出。

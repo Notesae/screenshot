@@ -1,5 +1,13 @@
 # Screenshot：范围与来源
 
+## 2026-10-21 框选与视觉修复
+
+本次用户提供修复说明并要求修改：以 main `6d7b678` 新建 `codex/fix-selection-soft-clay`，保持 .NET / WPF / WebView2 / React 架构和原有编辑内核。框选松手即交接原位编辑，不再要求 Enter、双击或按钮；编辑态继续支持八个手柄、整体移动、分层 Esc 和明确重新框选。宿主从同次冻结图裁剪，不新增屏幕捕获或自动 AI 请求。
+
+共享设计来源为 `design/soft-clay.tokens.json`，覆盖 React、原生框选层、托盘、Toast 和原生设置控件。核心圆角与尺寸按本次修复说明的 12px / 约 40px 适配，材质与动效参照已有 Figma。原始设计记录中的“框选确认”交互由本条取代，`presentation.ready` 仍只是内部布局握手。
+
+附件要求实机验收，但没有解除之前明确的桌面交互暂停；本次只做后台编辑、构建、单元及合成宿主验证。实际 Windows 100% / 150%、原生焦点、热键、托盘和截图对照继续明确未测。
+
 ## 2026-10-20 原位编辑改版授权
 
 用户明确授权从最新 main 新建 `codex/soft-clay-editor`，依次完成入口、保存保护及收起恢复闭环，再实施 Soft Clay Capsule v2 视觉与动效；完成后创建 draft PR，不合并。现有 OCR 试验提交与工作区改动保留在原目录，不纳入本分支。具体实现与 Figma 来源见 `REDESIGN-IMPLEMENTATION.md`。

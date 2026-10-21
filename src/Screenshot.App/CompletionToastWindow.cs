@@ -1,27 +1,32 @@
 using System;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
-using System.Windows.Media.Effects;
 using System.Windows.Threading;
 
 namespace Screenshot.App;
 
-// 独立提示不持有截图像素；主编辑层隐藏后仍能通过明确按钮继续同一份文档。
+// 独立提示只包含结果与继续动作；键盘焦点暂停自动消失，不持有截图或凭据。
 internal sealed class CompletionToastWindow : Window
 {
-    private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(10) };
+    private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(SoftClayTheme.Number("motion", "toastHold")) };
+    private bool _closing;
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
+
+    // 用户显式输出完成后使提示可获焦点，Enter/空格和 Ctrl+Enter 均可继续编辑。
     public CompletionToastWindow(string message, Action resume, PixelRect area)
     {
-        Width = 430; Height = 112; WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
-        ShowActivated = false; ShowInTaskbar = false; Topmost = true; AllowsTransparency = true; Background = Brushes.Transparent;
-        WindowStartupLocation = WindowStartupLocation.Manual;
-        // 工作区用物理像素定位；进入目标屏幕后再按该窗口 DPI 校正尺寸，不套用主屏坐标。
+        Width = 400; Height = 110; WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
+        ShowActivated = true; ShowInTaskbar = false; Topmost = true; AllowsTransparency = true; Background = Brushes.Transparent;
+        WindowStartupLocation = WindowStartupLocation.Manual; UseLayoutRounding = true; SnapsToDevicePixels = true;
+        FontFamily = new FontFamily("Segoe UI Variable, Segoe UI, Microsoft YaHei UI");
+        // 目标工作区为物理像素；窗口跨入目标屏幕后用其实际 DPI 重新放置。
         void Place()
         {
             var handle = new WindowInteropHelper(this).Handle;
@@ -32,37 +37,45 @@ internal sealed class CompletionToastWindow : Window
             SetWindowPos(handle, IntPtr.Zero, Math.Max(area.X, area.X + area.Width - width - margin), Math.Max(area.Y, area.Y + area.Height - height - margin), width, height, 0x0010 | 0x0004);
         }
         SourceInitialized += (_, _) => Place();
-        var panel = new DockPanel { LastChildFill = true, Margin = new Thickness(18, 14, 18, 14) };
-        var button = new Button { Content = "继续编辑", Margin = new Thickness(12, 0, 0, 0), FontSize = 13,
-            Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, MinHeight = 40 };
-        // 固定原生模板避免系统主题把蓝色动作按钮改成默认灰边框。
-        var face = new FrameworkElementFactory(typeof(Border));
-        face.SetValue(Border.CornerRadiusProperty, new CornerRadius(14));
-        face.SetValue(Border.PaddingProperty, new Thickness(14, 10, 14, 10));
-        face.SetValue(Border.BackgroundProperty, new LinearGradientBrush(Color.FromRgb(59, 130, 246), Color.FromRgb(29, 78, 216), 90));
-        var content = new FrameworkElementFactory(typeof(ContentPresenter));
-        content.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center); face.AppendChild(content);
-        button.Template = new ControlTemplate(typeof(Button)) { VisualTree = face };
-        button.RenderTransformOrigin = new Point(.5, .5); button.RenderTransform = new ScaleTransform(1, 1);
-        button.IsEnabledChanged += (_, _) => button.Opacity = button.IsEnabled ? 1 : .4;
-        button.Click += (_, _) => { Close(); resume(); };
+        var panel = new DockPanel { LastChildFill = true, Margin = new Thickness(14) };
+        var button = new Button { Content = "继续编辑", Background = SoftClayTheme.Surface(true), Style = SoftClayTheme.ButtonStyle(), Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, IsDefault = true, Focusable = true };
+        System.Windows.Automation.AutomationProperties.SetHelpText(button, "按 Enter、空格或 Ctrl+Enter 继续编辑，聚焦时提示保持显示。");
+        button.Click += (_, _) => { if (_closing) return; button.IsEnabled = false; Close(); resume(); };
         DockPanel.SetDock(button, Dock.Right); panel.Children.Add(button);
-        panel.Children.Add(new TextBlock { Text = message + "\n可编辑内容已保留", Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, FontSize = 13 });
-        Content = new Border { Margin = new Thickness(14), Background = new LinearGradientBrush(Color.FromRgb(74, 70, 66), Color.FromRgb(42, 39, 36), 90),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(50, 255, 255, 255)), BorderThickness = new Thickness(0, 1, 0, 0),
-            Effect = new DropShadowEffect { BlurRadius = 20, ShadowDepth = 8, Opacity = .55 }, CornerRadius = new CornerRadius(24), Child = panel };
+        var labels = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        labels.Children.Add(new TextBlock { Text = message, Foreground = SoftClayTheme.Brush("ink"), FontSize = 14, FontWeight = FontWeights.SemiBold });
+        labels.Children.Add(new TextBlock { Text = "Enter 继续 · 离开焦点后自动收起", Foreground = SoftClayTheme.Brush("muted"), FontSize = 11, Margin = new Thickness(0, 3, 0, 0) });
+        panel.Children.Add(labels);
+        Content = new Border { Margin = new Thickness(14), Background = SoftClayTheme.Surface(), Effect = SoftClayTheme.Shadow(), CornerRadius = new CornerRadius(SoftClayTheme.Number("radius", "toast")), Child = panel };
         _timer.Tick += (_, _) => Close(); Closed += (_, _) => _timer.Stop();
-        MouseEnter += (_, _) => _timer.Stop(); MouseLeave += (_, _) => _timer.Start();
+        MouseEnter += (_, _) => _timer.Stop();
+        MouseLeave += (_, _) => { if (!IsKeyboardFocusWithin) _timer.Start(); };
+        GotKeyboardFocus += (_, _) => _timer.Stop();
+        LostKeyboardFocus += (_, _) => { if (!IsKeyboardFocusWithin && !IsMouseOver) _timer.Start(); };
+        PreviewKeyDown += (_, e) => { if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); } else if (e.Key == Key.Escape) { e.Handled = true; Close(); } };
         Loaded += (_, _) =>
         {
-            Place();
+            Place(); button.Focus();
             if (SystemParameters.ClientAreaAnimation)
             {
-                BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180)));
-                var move = new TranslateTransform(0, 10); ((Border)Content).RenderTransform = move;
-                move.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(10, 0, TimeSpan.FromMilliseconds(280)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+                var duration = TimeSpan.FromMilliseconds(SoftClayTheme.Number("motion", "toast"));
+                BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, duration));
+                var move = new TranslateTransform(0, 16); ((Border)Content).RenderTransform = move;
+                move.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(16, 0, duration) { EasingFunction = SoftClayTheme.Spring() });
             }
-            _timer.Start();
+            if (!IsKeyboardFocusWithin) _timer.Start();
         };
+    }
+
+    // 自动收起和显式关闭共用退出动画；系统减少动态效果时直接关闭。
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        if (!_closing && SystemParameters.ClientAreaAnimation)
+        {
+            e.Cancel = true; _closing = true; _timer.Stop(); IsHitTestVisible = false;
+            var fade = new DoubleAnimation(0, TimeSpan.FromMilliseconds(SoftClayTheme.Number("motion", "exit")));
+            fade.Completed += (_, _) => Close(); BeginAnimation(OpacityProperty, fade);
+        }
+        base.OnClosing(e);
     }
 }

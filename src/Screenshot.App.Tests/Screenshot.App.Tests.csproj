@@ -5,4 +5,12 @@
   <ItemGroup><Compile Include="../Screenshot.App/Updates/UpdateSession.cs" Link="Updates/UpdateSession.cs"/></ItemGroup>
   <ItemGroup><Compile Include="../Screenshot.App/Updates/UpdateSourceIdentity.cs" Link="Updates/UpdateSourceIdentity.cs"/></ItemGroup>
   <ItemGroup><Compile Include="../Screenshot.App/EditorCheckpoint.cs" Link="EditorCheckpoint.cs"/></ItemGroup>
+  <!-- 仅装载资源及模板，不创建原生窗口、焦点或系统输入。 -->
+  <PropertyGroup><UseWindowsForms>true</UseWindowsForms></PropertyGroup>
+  <ItemGroup>
+    <Using Remove="System.Drawing"/><Using Remove="System.Windows.Forms"/>
+    <Compile Include="../Screenshot.App/SoftClayTheme.cs" Link="SoftClayTheme.cs"/>
+    <Page Include="../Screenshot.App/SoftClayControls.xaml" Link="SoftClayControls.xaml"/>
+    <EmbeddedResource Include="../../design/soft-clay.tokens.json" LogicalName="Screenshot.SoftClayTokens"/>
+  </ItemGroup>
 </Project>
