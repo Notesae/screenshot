@@ -14,6 +14,8 @@ public partial class MainWindow
     // CompositionControl 的路由输入在当前窗口内处理；不读取全局指针、不增加原生钩子。
     private void InitializeBackdropMotion()
     {
+        Editor.RenderTransform = FrozenBackdrop.MotionTransform;
+        System.Windows.Media.RenderOptions.SetBitmapScalingMode(Editor, System.Windows.Media.BitmapScalingMode.LowQuality);
         AddHandler(PreviewMouseMoveEvent, new MouseEventHandler((_, e) =>
         {
             if (e.StylusDevice is null) FrozenBackdrop.Move(e.GetPosition(FrozenBackdrop));

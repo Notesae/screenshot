@@ -62,6 +62,16 @@ internal static class BackdropMotionTests
         }
         var neutral = Render(surface);
         Check(neutral.SequenceEqual(pixels), "handoff-neutral background preserves every source pixel: " + string.Join(',', neutral.Take(12)));
+        // 真实外壳不设置背景的 Width/Height，并在隐藏时先赋图，不能只测显式尺寸。
+        var automatic = new FrozenBackdropSurface { Visibility = Visibility.Collapsed };
+        var shell = new Grid { Width = 80, Height = 60, Background = Brushes.Black };
+        shell.Children.Add(automatic);
+        shell.Measure(new Size(80, 60)); shell.Arrange(new Rect(0, 0, 80, 60)); Render(shell);
+        automatic.Source = source; automatic.Visibility = Visibility.Visible;
+        Check(Render(shell).SequenceEqual(pixels), "collapsed automatic backdrop paints on first reveal without black shell");
+        automatic.Visibility = Visibility.Collapsed; Render(shell); automatic.Source = null;
+        automatic.Source = source; automatic.Visibility = Visibility.Visible;
+        Check(Render(shell).SequenceEqual(pixels), "same-sized repeated capture restores automatic backdrop");
         foreach (var pose in new[] { new BackdropFrame(6, 4, 12, 8, 1), new BackdropFrame(-6, -4, -12, -8, 1), new BackdropFrame(0, 3, 0, 0, 0) })
         {
             surface.ApplyFrame(pose); var actual = Render(surface);
@@ -69,13 +79,25 @@ internal static class BackdropMotionTests
         }
         var original = new byte[pixels.Length]; source.CopyPixels(original, 80 * 4, 0);
         Check(original.SequenceEqual(pixels) && ReferenceEquals(surface.Source, source), "motion never rewrites capture source");
+        surface.ApplyFrame(new BackdropFrame(0, 0, 0, 0, 1)); var aligned = Render(surface);
+        surface.ApplyFrame(new BackdropFrame(.5, 0, 0, 0, 1)); var halfPixel = Render(surface);
+        surface.ApplyFrame(new BackdropFrame(1, 0, 0, 0, 1)); var wholePixel = Render(surface);
+        var sample = (10 * 80 + 10) * 4;
+        Check(halfPixel[sample] != aligned[sample] && halfPixel[sample] != wholePixel[sample], "subpixel motion interpolates instead of nearest-neighbor pixel steps");
         var container = new Grid { Width = 80, Height = 60 };
         container.Children.Add(surface);
-        container.Children.Add(new Border { Width = 30, Height = 20, Background = Brushes.White });
+        var editor = new Grid { RenderTransform = surface.MotionTransform };
+        editor.Children.Add(new Border { Width = 30, Height = 20, Background = Brushes.White });
+        container.Children.Add(editor);
         container.Measure(new Size(80, 60)); container.Arrange(new Rect(0, 0, 80, 60));
-        var before = Render(container); surface.ApplyFrame(new BackdropFrame(-6, -4, -12, -8, 1)); var after = Render(container);
-        Check(Enumerable.Range(20, 20).All(y => Enumerable.Range(25, 30).All(x => before[(y * 80 + x) * 4] == after[(y * 80 + x) * 4])), "stationary screenshot layer stays independent of backdrop transform");
+        Render(container); surface.ApplyFrame(new BackdropFrame(6, 4, 12, 8, 1));
+        Check(container.IsMeasureValid && container.IsArrangeValid && surface.IsMeasureValid && surface.IsArrangeValid, "motion frame preserves layout validity instead of remeasuring full viewport");
+        var after = Render(container);
+        Check(editor.TransformToAncestor(container).Transform(new Point(25, 20)) == new Point(31, 24), "screenshot frame shares the exact native backdrop transform");
+        Check(container.TranslatePoint(new Point(36, 29), editor) == new Point(30, 25), "WPF inverse hit mapping preserves original editor coordinates");
+        Check(after[(24 * 80 + 31) * 4] == 255 && after[(20 * 80 + 25) * 4] != 255, "screenshot pixels move with their frame in the same composition");
         surface.Suspend(); Check(Render(surface).SequenceEqual(pixels), "suspend clears settled native transform");
+        Check(editor.TransformToAncestor(container).Transform(new Point(25, 20)) == new Point(25, 20), "handoff/reset returns both layers to source alignment");
         surface.Source = null; Check(Render(surface).All(value => value == 0), "releasing source clears center and edge drawings");
         return checks;
     }

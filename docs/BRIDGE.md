@@ -1,5 +1,9 @@
 # Native bridge v1
 
+## 2026-10-22 框内同步轻移
+
+桥字段与原图权限不变。冻结图和 WebView 在宿主内引用同一位移变换，避免逐帧 JS/native 消息造成不同步；输入由 WPF 映射回原 WebView 坐标，框选/首次交接仍归零。按下期间即使网页发来禁用许可也先保持当前姿态，松开后回正，避免选区手势的坐标系在拖动中变化。显示平移不写入 CaptureEnvelope、项目、图像或导出。
+
 ## 2026-10-22 冻结背景运动许可
 
 新增 `presentation.background {captureId:string,sequence:number,enabled:boolean}`，返回 `{accepted:boolean}`。仅当前 Overlay、已接受 painted 且 captureId 匹配时可更新；sequence 为 0..Number.MAX_SAFE_INTEGER 的严格递增整数，同一捕获拒绝重复和迟到消息。重新框选时只记录旧文档的最新许可，运动仍由原生就绪门关闭，取消后可恢复；新捕获成功/收起时重置许可。消息绕过耗时操作锁，使任务过程中也能及时停用装饰；不能触发截图、上传、系统输入或业务完成。
