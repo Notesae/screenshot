@@ -182,3 +182,21 @@ export function liquidBridge(a: MotionRect, b: MotionRect, neck = motionTokens.b
   return 'M' + x1 + ' ' + (y1 - radius) + 'C' + middle + ' ' + (y1 + neck) + ' ' + middle + ' ' + (y2 + neck) + ' ' + x2 + ' ' + (y2 - radius) +
     'L' + x2 + ' ' + (y2 + radius) + 'C' + middle + ' ' + (y2 - neck) + ' ' + middle + ' ' + (y1 - neck) + ' ' + x1 + ' ' + (y1 + radius) + 'Z';
 }
+
+/** 主浮卡的近邻连接支持上下左右，只跨空隙，不穿过按钮或卡片正文。 */
+export function panelBridge(source:MotionRect,box:MotionRect){
+  const candidates:{x1:number;y1:number;x2:number;y2:number}[]=[];
+  const sx=source.x+source.width/2,sy=source.y+source.height/2;
+  const bx=clamp(sx,box.x+Math.min(12,box.width/2),box.x+box.width-Math.min(12,box.width/2));
+  const by=clamp(sy,box.y+Math.min(12,box.height/2),box.y+box.height-Math.min(12,box.height/2));
+  if(source.y+source.height<=box.y)candidates.push({x1:sx,y1:source.y+source.height,x2:bx,y2:box.y});
+  if(box.y+box.height<=source.y)candidates.push({x1:sx,y1:source.y,x2:bx,y2:box.y+box.height});
+  if(source.x+source.width<=box.x)candidates.push({x1:source.x+source.width,y1:sy,x2:box.x,y2:by});
+  if(box.x+box.width<=source.x)candidates.push({x1:source.x,y1:sy,x2:box.x+box.width,y2:by});
+  const gap=(p:typeof candidates[number])=>Math.hypot(p.x2-p.x1,p.y2-p.y1);
+  const p=candidates.sort((a,b)=>gap(a)-gap(b))[0];if(!p)return '';
+  const length=gap(p);if(length<1||length>motionTokens.bridge.panelMaxGap)return '';
+  const nx=-(p.y2-p.y1)/length,ny=(p.x2-p.x1)/length;
+  const r=Math.min(7,source.width/4,source.height/4,box.width/4,box.height/4),mx=(p.x1+p.x2)/2,my=(p.y1+p.y2)/2;
+  return `M${p.x1+nx*r} ${p.y1+ny*r}C${mx+nx*r*.4} ${my+ny*r*.4} ${mx+nx*r*.4} ${my+ny*r*.4} ${p.x2+nx*r} ${p.y2+ny*r}L${p.x2-nx*r} ${p.y2-ny*r}C${mx-nx*r*.4} ${my-ny*r*.4} ${mx-nx*r*.4} ${my-ny*r*.4} ${p.x1-nx*r} ${p.y1-ny*r}Z`;
+}

@@ -36,17 +36,19 @@ public partial class MainWindow
     }
     private void RefreshBackdropMotion()
     {
-        var ready = IsVisible && IsActive && !_backdropAdjusting && !_presentation.IsSelecting
+        var ready = IsVisible && IsActive && !_presentation.IsSelecting
             && _presentation.Mode == PresentationMode.Overlay && _presentation.PendingCaptureId is null;
-        FrozenBackdrop.SetPolicy(ready, _backdropGate.Enabled, !SystemParameters.ClientAreaAnimation || Environment.ProcessorCount <= 2);
+        FrozenBackdrop.SetPolicy(ready, _backdropGate.Enabled, !SystemParameters.ClientAreaAnimation || Environment.ProcessorCount <= 2,
+            _backdropAdjusting || _backdropGate.Holding);
     }
     private object UpdateBackdropMotion(JsonElement payload)
     {
         var captureId = RequiredString(payload, "captureId");
         var sequence = payload.GetProperty("sequence").GetInt64(); var enabled = payload.GetProperty("enabled").GetBoolean();
+        var holding = payload.TryGetProperty("holding", out var hold) && hold.GetBoolean();
         // 重新框选时仍记住旧文档的最新许可；实际运动由 ready 门关闭，取消后不会丢掉恢复消息。
         var accepted = _presentation.Mode == PresentationMode.Overlay && _presentation.PendingCaptureId is null
-            && _presentation.Overlay?.CaptureId == captureId && _backdropGate.Apply(captureId, sequence, enabled);
+            && _presentation.Overlay?.CaptureId == captureId && _backdropGate.Apply(captureId, sequence, enabled, holding);
         if (accepted) RefreshBackdropMotion();
         return new { accepted };
     }

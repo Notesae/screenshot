@@ -485,7 +485,8 @@ public partial class MainWindow : Window
             case "capture.region": return await CaptureAsync(ParseCaptureRequest(payload, true));
             case "capture.adjust":
                 var area = payload.GetProperty("selection");
-                _backdropAdjusting = true; FrozenBackdrop.Suspend();
+                // 同一冻结桌面的裁剪只保持当前姿态；清零位移和暗角会让整个画面闪一下。
+                _backdropAdjusting = true; RefreshBackdropMotion();
                 try { return await _presentation.AdjustAsync(RequiredString(payload, "captureId"), new PixelRect(area.GetProperty("x").GetInt32(), area.GetProperty("y").GetInt32(), area.GetProperty("width").GetInt32(), area.GetProperty("height").GetInt32()),_lifetime.Token); }
                 finally { _backdropAdjusting = false; RefreshBackdropMotion(); }
             case "hotkey.read": return _hotkeys?.State??new HotkeyStatus(HotkeyBinding.Default,false,false,"快捷键尚未就绪。");

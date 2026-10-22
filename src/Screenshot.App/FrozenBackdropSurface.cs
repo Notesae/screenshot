@@ -17,7 +17,7 @@ public sealed class FrozenBackdropSurface : Grid
     private readonly BackdropMotion _motion = new();
     private readonly Func<double, bool> _advance;
     private BitmapSource? _source;
-    private bool _ready, _allowed, _reduced, _entered, _animating, _holding;
+    private bool _ready, _allowed, _reduced, _entered, _animating, _holding, _pointerHeld, _interactionHeld;
 
     // WebView 与底图引用同一变换；无需跨进程逐帧消息，也不会出现内外相位差。
     internal TranslateTransform MotionTransform => _shift;
@@ -82,30 +82,43 @@ public sealed class FrozenBackdropSurface : Grid
     }
 
     // 就绪门之前不位移、不加暗角，首次交接仍使用原始像素对齐。
-    internal void SetPolicy(bool ready, bool allowed, bool reduced)
+    internal void SetPolicy(bool ready, bool allowed, bool reduced, bool holding = false)
     {
         _ready = ready && Source is not null; _allowed = allowed; _reduced = reduced;
         if (!_ready || reduced) { StopAndReset(); return; }
+        _interactionHeld = holding;
         if (allowed && !_entered) { _entered = true; _motion.Enter(); }
-        if (!allowed && !_motion.Held) _motion.Center();
+        if (_pointerHeld || _interactionHeld) { Freeze(); return; }
+        if (_motion.Held) _motion.Release();
+        if (!allowed) _motion.Center();
         Wake();
     }
     internal void Suspend() { _ready = _allowed = false; StopAndReset(); }
     internal void Move(Point point)
     {
-        if (!_ready || !_allowed || _reduced || ActualWidth <= 0 || ActualHeight <= 0) return;
+        if (!_ready || (!_allowed && !_motion.Held) || _reduced || ActualWidth <= 0 || ActualHeight <= 0) return;
         _motion.Move(point.X / ActualWidth * 2 - 1, point.Y / ActualHeight * 2 - 1); Wake();
     }
     internal void Hold()
     {
         if (!_ready || _reduced) return;
+        _pointerHeld = true; Freeze();
+    }
+    private void Freeze()
+    {
         // 转发按下给编辑器之前冻结共用变换，整段手势的指针与画布映射不漂移。
         _holding = true; SoftClayMotion.StopTimeline(this); _holding = false; _animating = false;
         _motion.Hold(); ApplyFrame(_motion.Frame);
     }
-    internal void Release() { if (!_motion.Held) return; _motion.Release(); if (!_allowed) _motion.Center(); Wake(); }
+    internal void Release()
+    {
+        _pointerHeld = false;
+        // 鼠标松手早于裁剪、解码与画布提交；网页的保持许可负责覆盖这一段等待。
+        if (_interactionHeld || !_motion.Held) return;
+        _motion.Release(); if (!_allowed) _motion.Center(); Wake();
+    }
     internal void Leave() { _motion.Leave(); Wake(); }
-    private void StopAndReset() { SoftClayMotion.StopTimeline(this); _animating = false; _motion.Reset(); ApplyFrame(_motion.Frame); }
+    private void StopAndReset() { SoftClayMotion.StopTimeline(this); _animating = _pointerHeld = _interactionHeld = false; _motion.Reset(); ApplyFrame(_motion.Frame); }
     private void Wake()
     {
         if (!_ready || _reduced) { StopAndReset(); return; }

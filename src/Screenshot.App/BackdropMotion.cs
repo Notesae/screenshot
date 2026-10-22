@@ -67,10 +67,11 @@ internal sealed class BackdropMotionGate
     private string? _captureId;
     private long _sequence = -1;
     public bool Enabled { get; private set; }
-    public void Reset(string? captureId) { _captureId = captureId; _sequence = -1; Enabled = false; }
-    public bool Apply(string captureId, long sequence, bool enabled)
+    public bool Holding { get; private set; }
+    public void Reset(string? captureId) { _captureId = captureId; _sequence = -1; Enabled = Holding = false; }
+    public bool Apply(string captureId, long sequence, bool enabled, bool holding = false)
     {
         if (_captureId is null || _captureId != captureId || sequence < 0 || sequence > 9_007_199_254_740_991 || sequence <= _sequence) return false;
-        _sequence = sequence; Enabled = enabled; return true;
+        _sequence = sequence; Enabled = enabled; Holding = holding; return true;
     }
 }

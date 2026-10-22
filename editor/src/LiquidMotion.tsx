@@ -1,7 +1,8 @@
 import { useLayoutEffect, useRef, type ComponentPropsWithRef, type RefObject } from 'react';
-import { clamp, liquidBridge, motionTokens as T, MotionClock, MotionSpring, type MotionRect } from './motion';
+import { clamp, liquidBridge, panelBridge, motionTokens as T, MotionClock, MotionSpring, type MotionRect } from './motion';
 import { ControlFeedback } from './ControlMotion';
 import { SurfaceTransition } from './surfaceTransition';
+import { paintSurface } from './surfacePaint';
 
 /** 固定语义槽位承接输入，材质与图文各自变形，避免按钮追着光标改变命中区。 */
 export function MotionButton({ children, group = 'end', ...props }: ComponentPropsWithRef<'button'> & { group?: string }) {
@@ -306,6 +307,8 @@ export class LiquidMotion {
   }
   /** 浮卡仅缩放材质，正文单独淡入；快速切换从正在显示的矩形续接。 */
   panel(element: HTMLElement, source: HTMLElement | null, open: boolean, contentKey: string) {
+    // 点击另一种工具可能先关闭旧卡；旧卡仍回到自己的按钮，新卡再接入新来源。
+    if(!open&&this.panelSource?.isConnected)source=this.panelSource;
     this.panelSource = source;
     if (this.panelElement !== element) {
       if (this.panelElement) this.resize.unobserve(this.panelElement);
@@ -318,33 +321,28 @@ export class LiquidMotion {
     const content = element.querySelector<HTMLElement>('.liquid-panel-content')!;
     const origin = this.panelRect ?? (source ? rect(source.getBoundingClientRect()) : target);
     const surface = this.panelTransition ??= new SurfaceTransition(origin, this.panelOpacity, this.panelMaterial, .35);
-    // 关闭只向来源回收少量距离，不把整张大浮卡拖过截图再挤回按钮。
-    const directionX = sourceRect ? clamp((sourceRect.x - origin.x) / Math.max(1, origin.width), -1, 1) : 0;
-    const directionY = sourceRect && sourceRect.y < origin.y ? -1 : 1;
     if (open) surface.open(target, this.panelContent !== contentKey);
-    else surface.close(directionX, directionY);
+    else if(sourceRect)surface.closeTo(sourceRect);
+    else surface.close();
     if (open) this.panelContent = contentKey;
     const advance = (elapsed: number, finish: boolean) => {
       const actual = rect(element.getBoundingClientRect());
+      const anchor=source?.isConnected?rect(source.getBoundingClientRect()):null;
       if (open) surface.redirect(actual);
+      else if(anchor)surface.redirect(anchor);
       if (finish) surface.finish(); else surface.step(elapsed);
       const box = this.panelRect = surface.box; this.panelOpacity = surface.alpha;
-      skin.style.transform = 'translate(' + (box.x - actual.x) + 'px,' + (box.y - actual.y) + 'px) scale(' + Math.max(.01, box.width / actual.width) + ',' + Math.max(.01, box.height / actual.height) + ')';
       // 材质和正文各自续接，提前关闭或切换不会跳亮或重新从透明开始。
       this.panelMaterial = surface.material;
-      skin.style.opacity = String(this.panelMaterial);
-      content.style.opacity = String(this.panelOpacity);
+      paintSurface(skin,content,box,actual,this.panelOpacity,this.panelMaterial);
       // 连接只短暂存在于按钮与浮卡的近邻间隙，不跨过正文或远距离拖动。
       if(link){
         let d='';
-        if(open&&sourceRect&&!this.clock.reduced&&!this.economy&&!this.root.dataset.motionDragging&&performance.now()-started<T.duration.bridge){
-          const above=sourceRect.y>box.y+box.height;
-          const gap=above?sourceRect.y-box.y-box.height:box.y-sourceRect.y-sourceRect.height;
-          const x1=sourceRect.x+sourceRect.width/2,x2=clamp(x1,box.x+12,box.x+box.width-12);
-          const y1=above?sourceRect.y:sourceRect.y+sourceRect.height,y2=above?box.y+box.height:box.y;
-          if(gap>=0&&Math.hypot(gap,x1-x2)<=T.bridge.panelMaxGap){const mid=(y1+y2)/2;d='M'+(x1-7)+' '+y1+'C'+(x1-4)+' '+mid+' '+(x2-4)+' '+mid+' '+(x2-9)+' '+y2+'L'+(x2+9)+' '+y2+'C'+(x2+4)+' '+mid+' '+(x1+4)+' '+mid+' '+(x1+7)+' '+y1+'Z';}
+        if(anchor&&!this.clock.reduced&&!this.economy&&!this.root.dataset.motionDragging&&performance.now()-started<T.duration.bridge){
+          d=panelBridge(anchor,box);
         }
         link.setAttribute('d',d);
+        link.style.opacity=String(this.panelMaterial);
       }
       return surface.moving;
     };
@@ -443,5 +441,5 @@ export function useLiquidMotion(root: RefObject<HTMLDivElement | null>, rail: Re
     let cancelled = false;
     void controller.current.panel(element, source.current, Boolean(panel), visiblePanel ?? '').then(completed => { if (completed && !cancelled && !panel) onClosed(); });
     return () => { cancelled = true; controller.current?.clock.cancel('panel'); };
-  }, [panel, visiblePanel, position.x, position.y, position.width, presented]);
+  }, [panel, visiblePanel, source.current, position.x, position.y, position.width, presented]);
 }

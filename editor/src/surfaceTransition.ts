@@ -13,6 +13,7 @@ export class SurfaceTransition {
   private from!: MotionRect;
   private fromAlpha = 0;
   private fromMaterial = 0;
+  private returning = false;
   alpha: number;
   material: number;
 
@@ -29,13 +30,19 @@ export class SurfaceTransition {
       this.fromAlpha = newContent ? 0 : this.alpha; this.fromMaterial = this.material;
       this.alpha = this.fromAlpha; this.progress.snap(0); this.progress.to = 1;
     }
-    this.opening = true; this.closing = false; this.redirect(target);
+    this.opening = true; this.closing = this.returning = false; this.redirect(target);
   }
   redirect(target: MotionRect) { for (const axis of axes) this.geometry[axis].to = target[axis]; }
   close(directionX = 0, directionY = 1, duration = 170) {
+    const box=this.box;
+    this.startClose({ ...box, x: box.x + clamp(directionX, -1, 1) * 6, y: box.y + clamp(directionY, -1, 1) * 6, width: box.width * .98, height: box.height * .97 },duration,false);
+  }
+  /** 主浮卡回收到对应按钮；正文提前淡出，避免缩小时挤压文字。 */
+  closeTo(target:MotionRect,duration=170){this.startClose(target,duration,true);}
+  private startClose(target:MotionRect,duration:number,returning:boolean){
     if (this.closing || !this.opening && this.alpha === 0 && this.material === 0) return;
     this.from = this.box; this.fromAlpha = this.alpha; this.fromMaterial = this.material;
-    this.redirect({ ...this.from, x: this.from.x + clamp(directionX, -1, 1) * 6, y: this.from.y + clamp(directionY, -1, 1) * 6, width: this.from.width * .98, height: this.from.height * .97 });
+    this.redirect(target);this.returning=returning;
     this.elapsed = 0; this.duration = Math.max(0, duration); this.opening = false; this.closing = true;
   }
   /** 手动布局或系统归位允许清零速度；普通目标变化只改弹簧目标。 */
@@ -63,7 +70,7 @@ export class SurfaceTransition {
         const spring = this.geometry[axis], distance = spring.to - this.from[axis];
         spring.x = this.from[axis] + distance * p; spring.v = distance * speed;
       }
-      this.alpha = this.fromAlpha * (1 - p); this.material = this.fromMaterial * (1 - p);
+      this.alpha = this.fromAlpha * (1 - (this.returning?clamp(p*2):p)); this.material = this.fromMaterial * (1 - p);
       if (t === 1) this.finish();
     }
   }

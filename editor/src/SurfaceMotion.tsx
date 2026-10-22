@@ -2,9 +2,10 @@ import { useId, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { presentationMotion } from './LiquidMotion';
 import { MotionClock, type MotionRect } from './motion';
 import { SurfaceTransition } from './surfaceTransition';
+import { paintSurface } from './surfacePaint';
 import { motionSuspended, observeMotionScope } from './motionScope';
 
-/** 小弹层保留到退场结束；只形变材质，正文和交互矩形始终使用最终布局。 */
+/** 小弹层保留到退场结束；正文随材质平移，但不拉伸文字或控件。 */
 export function useSurfaceMotion(open: boolean, element: RefObject<HTMLElement | null>, origin: HTMLElement | null = null, geometry = '') {
   const [mounted, setMounted] = useState(open), id = useId();
   const transition = useRef<SurfaceTransition | null>(null), wasOpen = useRef(false), manualPlacement = useRef(false);
@@ -50,23 +51,25 @@ export function useSurfaceMotion(open: boolean, element: RefObject<HTMLElement |
     const first = anchor ? { x: anchor.left, y: anchor.top, width: anchor.width, height: anchor.height } : { ...target, y: target.y - 6, width: target.width * .96, height: target.height * .94 };
     const surface = transition.current ??= new SurfaceTransition(first);
     if (open) surface.open(target);
-    else surface.close(0, anchor && anchor.top < surface.box.y ? -1 : 1);
-    /** 仅给材质写 transform/opacity，内容独立淡入，不缩放输入或长文字。 */
+    else if(anchor)surface.closeTo({x:anchor.left,y:anchor.top,width:anchor.width,height:anchor.height});
+    else surface.close();
+    /** 正文随材质平移但不缩放，动态尺寸和切换不会先跳到最终位置。 */
     const paint = (actual: MotionRect) => {
       const current = surface.box;
-      skin.style.transform = 'translate(' + (current.x - actual.x) + 'px,' + (current.y - actual.y) + 'px) scale(' + Math.max(.01, current.width / Math.max(1, actual.width)) + ',' + Math.max(.01, current.height / Math.max(1, actual.height)) + ')';
-      skin.style.opacity = String(surface.material); content.style.opacity = String(surface.alpha);
+      paintSurface(skin,content,current,actual,surface.alpha,surface.material);
     };
     /** 手动移动或展开内容时随真实矩形更新，不能从形变后的材质反推布局。 */
     const settled = () => {
       surface.snap(box(), open);
       skin.style.transform = 'none'; skin.style.opacity = content.style.opacity = open ? '1' : '0';
+      content.style.transform='none';content.style.clipPath='none';
     };
     const run = () => {
       node.dataset.motionPhase = open ? 'entering' : 'closing';
       const advance = (elapsed: number, finish: boolean) => {
         const actual = box();
         if (open) surface.redirect(actual);
+        else if(origin?.isConnected){const anchor=origin.getBoundingClientRect();surface.redirect({x:anchor.x,y:anchor.y,width:anchor.width,height:anchor.height});}
         if (finish) surface.finish(); else surface.step(elapsed);
         paint(actual); return surface.moving;
       };

@@ -20,7 +20,7 @@ import { native, type Settings, type PresentationResult } from './bridge';
 import { overlayLayout, type OverlayMetadata } from './overlay';
 import { overlayKeyAction } from './keyboard';
 import { AnnotationPalette, HistoryButtons, TransformPanel } from './EditControls';
-import { placeTools, type ToolPositions, type Point } from './toolPlacement';
+import { boundTool, placeTools, type ToolPositions, type Point } from './toolPlacement';
 import { CaptureSelection } from './CaptureSelection';
 import type { PixelRect } from './overlay';
 import { ImageTranslationReader, translationReaderPlacement } from './ImageTranslationReader';
@@ -88,6 +88,7 @@ export function CompactOverlay(props:Props) {
   // 拖动只预览工具避让，松手才请求裁剪，避免逐帧传输截图。
   const [selectionPreview,setSelectionPreview]=useState<PixelRect|null>(null);
   const selectionDragging=useRef(false);
+  const selectionTools=useRef<{area:PixelRect;next:PixelRect;rail:Point;card?:Point;above:boolean}|null>(null);
   // 只在新的截图会话重置位置，选区移动或缩放不覆盖用户的手动摆放。
   useEffect(()=>{setPositions({});setReaderBounds(null);},[metadata?.captureId]);
   const [chromeVisible,setChromeVisible]=useState(!metadata||props.skipReady);
@@ -99,6 +100,7 @@ export function CompactOverlay(props:Props) {
   // 首次渲染必须给选区映射有效尺寸，随后由内容实测替换；CSS 仍按内容收缩。
   const [railSize,setRailSize]=useState({width:1,height:52}),[canvasReady,setCanvasReady]=useState(false);
   const trigger=useRef<HTMLButtonElement|null>(null),railRef=useRef<HTMLDivElement>(null),readySent=useRef(false),composing=useRef(false);
+  const [,refreshPanelOrigin]=useState(0);
   const drag=useRef<{kind:'rail'|'card';pointer:number;start:Point;origin:Point}|null>(null);
   const cardContent=useRef<HTMLDivElement>(null);
   const latest=useRef({props,panel,reading,readingFull:false});
@@ -116,7 +118,8 @@ export function CompactOverlay(props:Props) {
   const railBounds=railRef.current?.getBoundingClientRect();
   const sourceBounds=trigger.current&&railRef.current?.contains(trigger.current)?trigger.current.getBoundingClientRect():null;
   const sourceOffset=sourceBounds&&railBounds?{x:sourceBounds.x+sourceBounds.width/2-railBounds.x,y:sourceBounds.y+sourceBounds.height/2-railBounds.y}:undefined;
-  const tools=placeTools(screen,mapped?.frame??null,railSize,{width:panelWidth,height:panelHeight},positions,sourceOffset);
+  const following=selectionPreview?followSelection(selectionPreview):null;
+  const tools=placeTools(screen,mapped?.frame??null,railSize,{width:panelWidth,height:panelHeight},following??positions,sourceOffset);
   useLiquidMotion(rootRef,railRef,chromeVisible&&!props.suspended,panel,visiblePanel,trigger,tools.card,tools.rail,mapped?.frame??null,()=>setVisiblePanel(null));
   const automaticReader=editor.imageTranslation&&editor.mode!=='reflow'?translationReaderPlacement(screen,mapped?.frame??null,tools.rail):null;
   // 手动移动/缩放后固定窗口矩形；允许用户移到截图旁边，不因工具避让或重开而跳回。
@@ -124,22 +127,45 @@ export function CompactOverlay(props:Props) {
   const readerMounted=useSurfaceMotion(reading&&!!automaticReader,readerRoot,readerTrigger.current,JSON.stringify(reader?.box));
   const noticeTop=tools.rail.y<screen.y+110?screen.y+screen.height-100:screen.y+18;
   const noticeMounted=useSurfaceMotion(!!props.notice,noticeRoot,null,noticeTop+':'+screen.width);
-  const currentTask=(!adjusting&&busy||aiBusy||hasContent&&props.renderStatus==='loading')?{text:busy||aiBusy||'画布更新中',cancel:aiBusy?'ocr':busy==='完成截图'?'complete':null}:null;
+  const currentTask=(!adjusting&&busy||aiBusy||!selectionPreview&&hasContent&&props.renderStatus==='loading')?{text:busy||aiBusy||'画布更新中',cancel:aiBusy?'ocr':busy==='完成截图'?'complete':null}:null;
   const retainedTask=useRef(currentTask),task=currentTask??retainedTask.current;
   useLayoutEffect(()=>{if(currentTask)retainedTask.current=currentTask;},[currentTask]);
   const taskOpen=!!currentTask&&chromeVisible&&!props.suspended;
   const statusMounted=useSurfaceMotion(taskOpen,statusRoot,null,screen.x+':'+screen.y+':'+screen.width);
   const fullReading=Boolean(readerMounted&&reader?.full);
-  useBackdropMotion(rootRef, metadata?.captureId, chromeVisible && !props.suspended && !props.locked && !busy && !aiBusy && !readerMounted && !selectionPreview && canvasSettled);
+  useBackdropMotion(rootRef, metadata?.captureId, chromeVisible && !props.suspended && !props.locked && !busy && !aiBusy && !readerMounted && !selectionPreview && canvasSettled,Boolean(selectionPreview)&&props.renderStatus!=='error');
   // 完整阅读退场后再恢复工具焦点，防止把焦点交给仍隐藏的主轨。
   useLayoutEffect(()=>{if(reading)restoreReaderFocus.current=false;else if(!readerMounted&&restoreReaderFocus.current){restoreReaderFocus.current=false;readerTrigger.current?.focus({preventScroll:true});}},[reading,readerMounted]);
   latest.current={props,panel,reading,readingFull:fullReading};
   function closeReader(){restoreReaderFocus.current=true;setReading(false);}
   function closePanel(){setPanel(null);trigger.current?.focus();}
-  function openPanel(next:Panel,button?:HTMLButtonElement){if(button)trigger.current=button;setPanel(current=>current===next?null:next);}
-  useEffect(()=>{if(props.requestedPanel)setPanel(props.requestedPanel.kind);},[props.requestedPanel]);
+  function panelOrigin(button:HTMLButtonElement|null){if(trigger.current!==button){trigger.current=button;refreshPanelOrigin(value=>value+1);}}
+  function openPanel(next:Panel,button?:HTMLButtonElement){if(button)panelOrigin(button);setPanel(current=>current===next?null:next);}
+  function beginSelectionFollow(){
+    if(!metadata||selectionTools.current)return;
+    selectionTools.current={area:metadata.selection,next:metadata.selection,rail:{x:tools.rail.x,y:tools.rail.y},card:positions.card,above:tools.rail.y<(mapped?.frame.y??0)};
+  }
+  /** 相对手势起点平移轨道，避免自动避让在拖动途中上下换边；手动卡片保持相对偏移。 */
+  function followSelection(area:PixelRect):ToolPositions|null {
+    const start=selectionTools.current;if(!start||!metadata)return null;
+    const dx=(area.x+area.width/2-start.area.x-start.area.width/2)*viewport.width/metadata.desktopBounds.width;
+    const dy=(area.y-start.area.y+(start.above?0:area.height-start.area.height))*viewport.height/metadata.desktopBounds.height;
+    const rail=boundTool({x:start.rail.x+dx,y:start.rail.y+dy},railSize,{x:24,y:24,width:Math.max(1,viewport.width-48),height:Math.max(1,viewport.height-48)});
+    return {rail,card:start.card?{x:start.card.x+rail.x-start.rail.x,y:start.card.y+rail.y-start.rail.y}:undefined};
+  }
+  function previewSelection(area:PixelRect|null){
+    if(area){beginSelectionFollow();if(selectionTools.current)selectionTools.current.next=area;}
+    else {
+      const next=selectionTools.current?.next,committed=metadata?.selection;
+      // 新画布提交后沿用落点；取消/失败则仍使用手势前的位置。
+      if(next&&committed&&next.x===committed.x&&next.y===committed.y&&next.width===committed.width&&next.height===committed.height){const placement=followSelection(next);if(placement)setPositions(placement);}
+      selectionTools.current=null;
+    }
+    setSelectionPreview(area);
+  }
+  useEffect(()=>{if(props.requestedPanel){panelOrigin(railRef.current?.querySelector<HTMLButtonElement>('[data-panel-trigger="more"]')??null);setPanel(props.requestedPanel.kind);}},[props.requestedPanel]);
   useEffect(()=>{if(cardContent.current)cardContent.current.scrollTop=0;},[panel]);
-  useEffect(()=>{if(props.selection)setPanel('properties');},[props.selection?.id]);
+  useEffect(()=>{if(props.selection){panelOrigin(railRef.current?.querySelector<HTMLButtonElement>(`[data-annotation-kind="${props.selection.type}"]`)??null);setPanel('properties');}},[props.selection?.id]);
   // resize 回调同步提交整组布局；选区、画布和工具不能各使用不同一帧的视口。
   useLayoutEffect(()=>{
     const resize=()=>flushSync(()=>setViewport(readPresentationViewport()));
@@ -215,7 +241,7 @@ export function CompactOverlay(props:Props) {
   }
   const title=visiblePanel==='beauty'?'美化截图':visiblePanel==='text'?'识别与校对':visiblePanel==='properties'?'标注属性':visiblePanel==='recovery'?'历史记录':'更多操作';
   return <div ref={rootRef} data-editor-root className={'clay-editor '+(metadata?'is-overlay':'is-neutral')+(chromeVisible?' is-presented':' is-awaiting')+(preparing?' is-preparing':'')+(props.suspended?' is-suspended':'')+(fullReading?' is-reading':'')} inert={props.locked} onKeyDownCapture={event=>{const target=event.target;if(event.key==='Escape'&&!event.nativeEvent.isComposing&&!composing.current&&target instanceof HTMLElement&&target.matches('input,textarea,select')&&!target.closest('.clay-color-popover')){event.preventDefault();event.stopPropagation();target.blur();}}} onDragOver={event=>{if(Array.from(event.dataTransfer.types).includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();void props.onFiles(event.dataTransfer.files);}}>
-    <CaptureSelection viewport={viewport} metadata={metadata} disabled={!!busy||!!aiBusy||props.locked||!canvasSettled} settled={canvasSettled&&!busy} onAdjust={props.onAdjustCapture} onPreview={setSelectionPreview} onDragging={active=>{selectionDragging.current=active;}} hitAnnotation={event=>canvasRef.current?.hasAnnotationAt(event)??false} onBegin={()=>canvasRef.current?.exitSelection()}>
+    <CaptureSelection viewport={viewport} metadata={metadata} disabled={!!busy||!!aiBusy||props.locked||!canvasSettled} settled={canvasSettled&&!busy} onAdjust={props.onAdjustCapture} onPreview={previewSelection} onDragging={active=>{selectionDragging.current=active;if(active)beginSelectionFollow();}} hitAnnotation={event=>canvasRef.current?.hasAnnotationAt(event)??false} onBegin={()=>canvasRef.current?.exitSelection()}>
     <div className={metadata?'clay-canvas-fixed':'clay-canvas-stage'} inert={!!busy} style={mapped?{visibility:selectionPreview?'hidden':undefined,left:mapped.frame.x,top:mapped.frame.y,width:mapped.frame.width,height:mapped.frame.height}:undefined}>
       {hasContent?<EditorCanvas ref={canvasRef} showViewControls={visiblePanel!=='recovery'} document={doc} onDrawingToolChange={setDrawingTool} onSelection={props.onSelection} onRenderStatus={props.onRenderStatus} fixedDisplayScale={mapped?.scale} onReady={()=>{setCanvasReady(true);setPaintedImage(doc.image);}} onAnnotations={(annotations,group)=>update({annotations},group)} onError={props.onError}/>:<div className="clay-launcher"><Frame size={32} aria-hidden="true"/><h1>截图，接着编辑。</h1><p>从托盘或快捷键开始，也可以打开本机文件。</p><ControlButton className="clay-primary" disabled={!!busy} onClick={()=>props.onCapture('capture.region')}>区域截图</ControlButton><ControlButton disabled={!!busy} onClick={props.onOpenImage}>打开图片</ControlButton><ControlButton disabled={!!busy} onClick={props.onOpenProject}>打开项目</ControlButton></div>}
     </div>
@@ -234,9 +260,9 @@ export function CompactOverlay(props:Props) {
         </div>
         {editor.imageTranslation?.blocks.length&&editor.mode!=='reflow'?<MotionButton ref={readerTrigger} data-tooltip="放大阅读完整译文，不改变截图排版" aria-label="阅读完整译文" aria-expanded={reading} disabled={!!aiBusy||props.renderStatus!=='ready'} onClick={()=>{setPanel(null);canvasRef.current?.exitSelection();setReading(value=>!value);}}><BookOpen aria-hidden="true"/>阅读译文</MotionButton>:null}
         <HistoryButtons canUndo={props.canUndo} canRedo={props.canRedo} undo={props.undo} redo={props.redo}/>
-        {([{kind:'text',label:'文字标注',icon:Type},{kind:'rect',label:'矩形标注',icon:Frame},{kind:'arrow',label:'箭头标注',icon:ArrowUpRight},{kind:'highlight',label:'高亮标注',icon:Highlighter},{kind:'cover',label:'实色遮盖',icon:Shield}] as const).map(item=><MotionButton group="draw" key={item.kind} data-tooltip={item.label} aria-label={item.label} aria-pressed={drawingTool===item.kind} disabled={!hasContent||props.renderStatus!=='ready'} onClick={event=>{trigger.current=event.currentTarget;setPanel(null);canvasRef.current?.add(item.kind);}}><item.icon aria-hidden="true"/></MotionButton>)}
+        {([{kind:'text',label:'文字标注',icon:Type},{kind:'rect',label:'矩形标注',icon:Frame},{kind:'arrow',label:'箭头标注',icon:ArrowUpRight},{kind:'highlight',label:'高亮标注',icon:Highlighter},{kind:'cover',label:'实色遮盖',icon:Shield}] as const).map(item=><MotionButton group="draw" key={item.kind} data-annotation-kind={item.kind} data-tooltip={item.label} aria-label={item.label} aria-pressed={drawingTool===item.kind} disabled={!hasContent||props.renderStatus!=='ready'} onClick={event=>{panelOrigin(event.currentTarget);setPanel(null);canvasRef.current?.add(item.kind);}}><item.icon aria-hidden="true"/></MotionButton>)}
         <MotionButton data-motion-action="done" className="clay-primary" aria-label="完成" data-tooltip="完成并复制到剪贴板" disabled={!hasContent||props.renderStatus!=='ready'} onClick={props.onComplete}><Check aria-hidden="true"/>完成</MotionButton>
-        <MotionButton aria-label="更多操作" aria-expanded={panel==='more'} onClick={event=>openPanel('more',event.currentTarget)}><MoreHorizontal aria-hidden="true"/></MotionButton><MotionButton aria-label="收起编辑，保留文档" data-tooltip="收起编辑" onClick={()=>props.onPresentation('hidden')}><X aria-hidden="true"/></MotionButton>
+        <MotionButton data-panel-trigger="more" aria-label="更多操作" aria-expanded={panel==='more'} onClick={event=>openPanel('more',event.currentTarget)}><MoreHorizontal aria-hidden="true"/></MotionButton><MotionButton aria-label="收起编辑，保留文档" data-tooltip="收起编辑" onClick={()=>props.onPresentation('hidden')}><X aria-hidden="true"/></MotionButton>
       </div>
       {visiblePanel&&<section id="clay-active-panel" aria-hidden={!panel} inert={!panel} className={'clay-card liquid-panel '+(visiblePanel==='more'?'clay-drawer ':'')+(!panel?'is-closing':'')} role="region" aria-label={title} style={{left:tools.card.x,top:tools.card.y,width:tools.card.width,maxHeight:tools.card.height}}>
         <span className="liquid-panel-skin" aria-hidden="true"/><div className="liquid-panel-content">
