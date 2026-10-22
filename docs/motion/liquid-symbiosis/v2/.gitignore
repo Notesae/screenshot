@@ -1,0 +1,14 @@
+Screenshot-Liquid-v2.html
+Review.html
+previews/
+*.mp4
+*.webm
+*.zip
+SHA256SUMS.txt
+__pycache__/
+tests/results-*.json
+tests/final-validation.json
+tests/*.png
+tests/*.liquid.json
+tests/invalid.json
+finish_delivery.py
