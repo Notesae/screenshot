@@ -9,6 +9,26 @@ function frames() {
   return { source, pending, advance(ms = 1000 / 60) { time += ms; const batch = [...pending.values()]; pending.clear(); batch.forEach(frame => frame(time)); } };
 }
 describe('v2 物理弹簧与生命周期', () => {
+  it('页面已经挂起后才开始的过渡也立即到终态，不排新帧', async () => {
+    const f = frames(), clock = new MotionClock(f.source); clock.setSuspended(true);
+    let panel = 0, menu = 0, terminal = false;
+    expect(await clock.spring('panel', value => { panel = value; }, 0, 4)).toBe(true);
+    expect(await clock.tween('menu', 170, value => { menu = value; })).toBe(true);
+    expect(await clock.animate('geometry', (_, finish) => { terminal = finish; return !finish; })).toBe(true);
+    clock.wake(); clock.setReduced(false);
+    expect(panel).toBe(4); expect(menu).toBe(1); expect(terminal).toBe(true);
+    expect(clock.activeTracks).toBe(0); expect(f.pending.size).toBe(0);
+    clock.setSuspended(false); clock.wake(); f.advance(); expect(clock.frames).toBe(1); clock.dispose();
+  });
+  it('多轴轨道可被同名替换，挂起前先取消的完成意图不会复活', async () => {
+    const f = frames(), clock = new MotionClock(f.source); let finished = 0;
+    const old = clock.animate('surface', (_, terminal) => { if (terminal) finished++; return !terminal; });
+    const current = clock.animate('surface', (_, terminal) => { if (terminal) finished++; return !terminal; });
+    const completion = clock.tween('exit', 360, () => {});
+    clock.cancel('exit'); clock.setSuspended(true);
+    expect(await old).toBe(false); expect(await current).toBe(true); expect(await completion).toBe(false);
+    expect(finished).toBe(1); expect(f.pending.size).toBe(0); clock.dispose();
+  });
   it('手动摆放只结束指定表现过渡，不推进正在等待的完成链', async () => {
     const f = frames(), clock = new MotionClock(f.source); let panel = 0, exit = 0;
     const opening = clock.spring('panel', value => { panel = value; });

@@ -21,6 +21,7 @@
     <Compile Include="../Screenshot.App/SoftClayNoticeWindow.cs" Link="SoftClayNoticeWindow.cs"/>
     <Compile Include="../Screenshot.App/NativeCloseGate.cs" Link="NativeCloseGate.cs"/>
     <Compile Include="../Screenshot.App/NativeSurfaceTransition.cs" Link="NativeSurfaceTransition.cs"/>
+    <Compile Include="../Screenshot.App/NativeNoticeSequence.cs" Link="NativeNoticeSequence.cs"/>
     <Compile Include="../Screenshot.App/SoftClayDisclosure.cs" Link="SoftClayDisclosure.cs"/>
     <Compile Include="../Screenshot.App/OverlayScrollbars.cs" Link="OverlayScrollbars.cs"/>
     <Page Include="../Screenshot.App/SoftClayControls.xaml" Link="SoftClayControls.xaml"/>

@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, type ComponentPropsWithRef, type RefObject } from 'react';
 import { clamp, liquidBridge, motionTokens as T, MotionClock, MotionSpring, type MotionRect } from './motion';
 import { ControlFeedback } from './ControlMotion';
+import { SurfaceTransition } from './surfaceTransition';
 
 /** 固定语义槽位承接输入，材质与图文各自变形，避免按钮追着光标改变命中区。 */
 export function MotionButton({ children, group = 'end', ...props }: ComponentPropsWithRef<'button'> & { group?: string }) {
@@ -11,7 +12,7 @@ export function MotionButton({ children, group = 'end', ...props }: ComponentPro
 type Surface = { el: HTMLButtonElement; skin: HTMLElement; glyph: HTMLElement; group: string; rect: MotionRect; x: MotionSpring; y: MotionSpring; attention: MotionSpring; press: MotionSpring; birth: MotionSpring; due: number; faceX: number; faceY: number; radius: number };
 /** 仅指向当前挂载的编辑外壳；卸载会使旧完成链取消，不接触文档或系统能力。 */
 let currentMotion: LiquidMotion | null = null;
-export function presentationMotion() { return currentMotion; }
+export function presentationMotion(node?: Node | null) { return currentMotion && (!node || currentMotion.owns(node)) ? currentMotion : null; }
 const rect = (box: DOMRect): MotionRect => ({ x: box.left, y: box.top, width: box.width, height: box.height });
 
 /** v2 的局部表现控制器：共享帧循环、稳定命中、短液桥和可中断退场。 */
@@ -35,6 +36,8 @@ export class LiquidMotion {
   private panelRect: MotionRect | null = null;
   private panelOpacity = 0;
   private panelMaterial = 0;
+  private panelTransition: SurfaceTransition | null = null;
+  private panelSource: HTMLElement | null = null;
   private panelElement: HTMLElement | null = null;
   private panelVersion = 0;
   private panelContent = '';
@@ -59,11 +62,18 @@ export class LiquidMotion {
   constructor(private root: HTMLElement, private rail: HTMLElement) {
     root.classList.add('liquid-motion');
     root.dataset.motionEconomy = String(this.economy);
+    root.dataset.motionHidden = String(document.hidden); this.clock.setSuspended(true);
     this.clock.onIdle = () => { root.dataset.motionState = 'sleep'; };
     this.clock.listen((dt, time) => this.paint(dt, time));
     this.controls = new ControlFeedback(root, this.clock);
     const invalidate = () => { this.dirty = true; this.wake(); };
-    this.resize = new ResizeObserver(invalidate); this.resize.observe(rail); this.resize.observe(root);
+    this.resize = new ResizeObserver(entries => {
+      // 同一布局帧内补偿材质比例，内容展开时不能先按新尺寸拉伸一帧再追赶。
+      if (this.panelElement && !this.panelElement.classList.contains('is-closing') && entries.some(entry => entry.target === this.panelElement)) {
+        void this.panel(this.panelElement, this.panelSource, true, this.panelContent);
+      }
+      invalidate();
+    }); this.resize.observe(rail); this.resize.observe(root);
     this.mutation = new MutationObserver(invalidate);
     this.mutation.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'inert', 'aria-pressed', 'aria-expanded'] });
     const listen = (target: EventTarget, name: string, fn: EventListener, capture = false) => {
@@ -103,8 +113,8 @@ export class LiquidMotion {
       root.dataset.motionHidden = String(document.hidden);
       if (document.hidden) {
         // 先取消业务退出，再结束表现过渡，避免隐藏时误发完成或留下半张浮卡。
-        this.restore(); this.controls.present(false); this.clock.finish(); this.resetField(); this.clock.stop();
-      } else { this.controls.present(this.active); invalidate(); }
+        this.restore(); this.controls.present(false); this.clock.setSuspended(true); this.resetField();
+      } else { this.clock.setSuspended(!this.active); this.controls.present(this.active); invalidate(); }
     });
     listen(root, 'keydown', ((event: KeyboardEvent) => {
       if (event.key === 'Escape' && root.dataset.motionExit) { event.preventDefault(); event.stopImmediatePropagation(); this.restore(); }
@@ -119,11 +129,13 @@ export class LiquidMotion {
     updateReduced();
   }
   invalidate(){this.dirty=true;this.wake();}
+  owns(node: Node) { return this.root.contains(node); }
   /** 只结束浮卡轨道；键盘的下一次位置提交需即时，拖动由手势作用域接管。 */
   placePanel(immediate = false) {
     const panel = this.root.querySelector<HTMLElement>('.clay-card:not(.is-closing)');
     if (!panel) return;
     this.clock.finish('panel'); this.panelRect = rect(panel.getBoundingClientRect()); this.manualPanel = immediate;
+    this.panelTransition?.snap(this.panelRect, true);
   }
   private wake() { if (!this.destroyed && this.active && !document.hidden) { this.root.dataset.motionState = 'awake'; this.clock.wake(); } }
   /** 只在宿主真正撤挡后入场；挂起旧截图时取消时间线，不提前消费动画。 */
@@ -131,8 +143,10 @@ export class LiquidMotion {
     if (this.active === presented) return;
     this.active = presented;
     this.controls.present(presented && !document.hidden);
-    if (!presented) { this.restore(); this.clock.finish(); this.resetField(); this.clock.stop(); return; }
+    if (!presented) { this.restore(); this.clock.setSuspended(true); this.resetField(); return; }
+    this.clock.setSuspended(document.hidden);
     this.measure();
+    if (document.hidden) { this.resetField(); return; }
     this.body.snap(this.clock.reduced ? 1 : .06); this.body.to = 1;
     const now = performance.now();
     for (const [index, node] of this.nodes.entries()) {
@@ -278,7 +292,13 @@ export class LiquidMotion {
       if (progress === 1) this.bridge = null; else moving = true;
     } else { path.setAttribute('d', ''); this.bridge = null; }
     const panel=this.root.querySelector<HTMLElement>('.clay-card:not(.is-closing)');
-    if(panel&&!this.clock.has('panel'))this.panelRect=rect(panel.getBoundingClientRect());
+    if(panel&&!this.clock.has('panel')) {
+      this.panelRect=rect(panel.getBoundingClientRect());
+      if(this.panelTransition) {
+        this.panelTransition.redirect(this.panelRect);
+        if(this.panelTransition.moving)void this.panel(panel,this.panelSource,true,this.panelContent);
+      }
+    }
     const size = this.root.querySelector<HTMLElement>('.clay-selection-size');
     for (const spring of [this.sizeX,this.sizeY]) { if(reduced)spring.snap(0);else spring.step(dt,'neighbor');moving=spring.moving||moving; }
     if(size)size.style.transform='translate('+this.sizeX.x+'px,'+this.sizeY.x+'px)';
@@ -286,6 +306,7 @@ export class LiquidMotion {
   }
   /** 浮卡仅缩放材质，正文单独淡入；快速切换从正在显示的矩形续接。 */
   panel(element: HTMLElement, source: HTMLElement | null, open: boolean, contentKey: string) {
+    this.panelSource = source;
     if (this.panelElement !== element) {
       if (this.panelElement) this.resize.unobserve(this.panelElement);
       this.panelElement = element; this.resize.observe(element);
@@ -296,19 +317,21 @@ export class LiquidMotion {
     const target = rect(element.getBoundingClientRect()), skin = element.querySelector<HTMLElement>('.liquid-panel-skin')!;
     const content = element.querySelector<HTMLElement>('.liquid-panel-content')!;
     const origin = this.panelRect ?? (source ? rect(source.getBoundingClientRect()) : target);
+    const surface = this.panelTransition ??= new SurfaceTransition(origin, this.panelOpacity, this.panelMaterial, .35);
     // 关闭只向来源回收少量距离，不把整张大浮卡拖过截图再挤回按钮。
     const directionX = sourceRect ? clamp((sourceRect.x - origin.x) / Math.max(1, origin.width), -1, 1) : 0;
     const directionY = sourceRect && sourceRect.y < origin.y ? -1 : 1;
-    const destination = open ? target : { ...origin, x: origin.x + directionX * 6, y: origin.y + directionY * 6, width: origin.width * .98, height: origin.height * .97 };
-    const alpha = open && this.panelContent !== contentKey ? 0 : this.panelOpacity, material = this.panelMaterial;
+    if (open) surface.open(target, this.panelContent !== contentKey);
+    else surface.close(directionX, directionY);
     if (open) this.panelContent = contentKey;
-    this.clock.cancel('panel');
-    const paint = (value: number) => {
-      const p = clamp(value), box = { x: origin.x + (destination.x - origin.x) * p, y: origin.y + (destination.y - origin.y) * p, width: origin.width + (destination.width - origin.width) * p, height: origin.height + (destination.height - origin.height) * p };
-      this.panelRect = box; this.panelOpacity = open ? alpha + (1 - alpha) * clamp((p - .35) / .65) : alpha * (1 - p);
-      skin.style.transform = 'translate(' + (box.x - target.x) + 'px,' + (box.y - target.y) + 'px) scale(' + Math.max(.01, box.width / target.width) + ',' + Math.max(.01, box.height / target.height) + ')';
+    const advance = (elapsed: number, finish: boolean) => {
+      const actual = rect(element.getBoundingClientRect());
+      if (open) surface.redirect(actual);
+      if (finish) surface.finish(); else surface.step(elapsed);
+      const box = this.panelRect = surface.box; this.panelOpacity = surface.alpha;
+      skin.style.transform = 'translate(' + (box.x - actual.x) + 'px,' + (box.y - actual.y) + 'px) scale(' + Math.max(.01, box.width / actual.width) + ',' + Math.max(.01, box.height / actual.height) + ')';
       // 材质和正文各自续接，提前关闭或切换不会跳亮或重新从透明开始。
-      this.panelMaterial = open ? material + (1 - material) * clamp(p * 4) : material * (1 - p);
+      this.panelMaterial = surface.material;
       skin.style.opacity = String(this.panelMaterial);
       content.style.opacity = String(this.panelOpacity);
       // 连接只短暂存在于按钮与浮卡的近邻间隙，不跨过正文或远距离拖动。
@@ -323,23 +346,25 @@ export class LiquidMotion {
         }
         link.setAttribute('d',d);
       }
+      return surface.moving;
     };
     const settled = (completed: boolean) => {
       if (version !== this.panelVersion) return;
       link?.setAttribute('d', '');
       if (completed && !open) {
-        this.panelRect = null; this.panelOpacity = this.panelMaterial = 0;
+        this.panelRect = null; this.panelTransition = null; this.panelOpacity = this.panelMaterial = 0;
         this.resize.unobserve(element); this.panelElement = null;
       }
     };
-    if(this.root.dataset.motionDragging || this.manualPanel){this.manualPanel=false;paint(1);settled(true);return Promise.resolve(true);}
-    const result = open ? this.clock.spring('panel', paint, 0, 1, 'panel') : this.clock.tween('panel', 170, paint);
+    if(this.root.dataset.motionDragging || this.manualPanel){this.manualPanel=false;surface.snap(target,open);advance(0,true);settled(true);return Promise.resolve(true);}
+    const result = this.clock.animate('panel', advance);
     void result.then(settled);
     return result;
   }
   /** 只有已确认业务成功的调用者才能请求成功收束；副本来自现有画布，绝不改写导出。 */
   async exit(kind: 'complete' | 'dismiss') {
-    if (this.destroyed || !this.active) return !this.destroyed;
+    // 迟到的复制确认不能在不可见/尚未揭示时借“立即归位”提交成功隐藏。
+    if (this.destroyed || !this.active || document.hidden) return false;
     this.restore();
     const sequence = ++this.exitSequence;
     this.root.dataset.motionExit = kind;
@@ -412,7 +437,7 @@ export function useLiquidMotion(root: RefObject<HTMLDivElement | null>, rail: Re
   useLayoutEffect(()=>controller.current?.invalidate(),[railPosition.x,railPosition.y,position.x,position.y]);
   useLayoutEffect(()=>{controller.current?.selection(selection);},[selection?.x,selection?.y,selection?.width,selection?.height]);
   useLayoutEffect(() => {
-    if(!presented)return;
+    if(!presented&&panel)return;
     const element = root.current?.querySelector<HTMLElement>('.clay-card');
     if (!element || !controller.current || panel && panel !== visiblePanel) return;
     let cancelled = false;

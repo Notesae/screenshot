@@ -35,7 +35,7 @@ export class MotionSpring {
 /** 可注入帧源，便于用确定时钟验证中断和休眠，不依赖真实桌面。 */
 export type MotionFrames = { now: () => number; request: (frame: (time: number) => void) => number; cancel: (id: number) => void };
 /** 命名时间线的取消返回 false；调用者据此阻止迟到退出或关闭新浮卡。 */
-type Track = { paint: (value: number, velocity: number) => void; resolve: (completed: boolean) => void; start: number; duration: number; spring?: MotionSpring; preset: SpringPreset };
+type Track = { paint: (value: number, velocity: number) => void; resolve: (completed: boolean) => void; start: number; duration: number; spring?: MotionSpring; preset: SpringPreset; advance?: (elapsed: number, finish: boolean) => boolean };
 
 /** 同一个外壳共用帧循环；连续五帧静止后休眠，输入或布局变化才唤醒。 */
 export class MotionClock {
@@ -49,13 +49,14 @@ export class MotionClock {
   private disposed = false;
   frames = 0;
   reduced = false;
+  private suspended = false;
   onIdle?: () => void;
   constructor(private source: MotionFrames = { now: () => performance.now(), request: callback => requestAnimationFrame(callback), cancel: id => cancelAnimationFrame(id) }) {}
   has(key:string){return this.tracks.has(key);}
   get activeTracks() { return this.tracks.size; }
   listen(listener: (elapsed: number, time: number) => boolean) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   wake() {
-    if (this.disposed) return;
+    if (this.disposed || this.suspended) return;
     this.quiet = 0;
     if (!this.frame) {
       if (!this.ticking) this.last = this.source.now();
@@ -73,7 +74,7 @@ export class MotionClock {
     const spring = new MotionSpring(previous?.x ?? from); spring.v = previous?.v ?? 0; spring.to = to;
     this.cancel(key);
     return new Promise<boolean>(resolve => {
-      if (this.reduced) { paint(to, 0); resolve(true); return; }
+      if (this.reduced || this.suspended) { paint(to, 0); resolve(true); return; }
       const track = { paint, resolve, spring, preset, start: this.source.now(), duration: 1600 };
       this.tracks.set(key, track); paint(spring.x, spring.v);
       if (this.tracks.get(key) === track) this.wake();
@@ -84,11 +85,30 @@ export class MotionClock {
     if (this.disposed) return Promise.resolve(false);
     this.cancel(key);
     return new Promise<boolean>(resolve => {
-      if (this.reduced) { paint(1, 0); resolve(true); return; }
+      if (this.reduced || this.suspended) { paint(1, 0); resolve(true); return; }
       const track: Track = { paint, resolve, start: this.source.now(), duration, preset: 'exit' };
       this.tracks.set(key, track); paint(0, 0);
       if (this.tracks.get(key) === track) this.wake();
     });
+  }
+  /** 多轴表面沿用同一命名轨道；每帧一次绘制，状态由调用者保留以连续重定向。 */
+  animate(key: string, advance: (elapsed: number, finish: boolean) => boolean) {
+    if (this.disposed) return Promise.resolve(false);
+    this.cancel(key);
+    return new Promise<boolean>(resolve => {
+      if (this.reduced || this.suspended) { advance(0, true); resolve(true); return; }
+      const track: Track = { paint: () => {}, advance, resolve, start: this.source.now(), duration: 1600, preset: 'panel' };
+      this.tracks.set(key, track);
+      const moving = advance(0, false);
+      if (this.tracks.get(key) !== track) return;
+      if (!moving) { this.tracks.delete(key); resolve(true); } else this.wake();
+    });
+  }
+  /** 挂起后到达的异步更新也直接到语义终态，不能在不可见页面重新排帧。 */
+  setSuspended(suspended: boolean) {
+    if (this.suspended === suspended) return;
+    this.suspended = suspended;
+    if (suspended) { this.finish(); this.stop(); } else this.wake();
   }
   /** 系统偏好变化时立刻归到终态，不能留下半透明弹层或继续退出的旧计时器。 */
   setReduced(reduced: boolean) {
@@ -101,7 +121,9 @@ export class MotionClock {
     for (const [key, track] of [...this.tracks]) {
       if (only !== undefined && key !== only) continue;
       if (this.tracks.get(key) !== track) continue;
-      this.tracks.delete(key); track.paint(track.spring?.to ?? 1, 0); track.resolve(true);
+      this.tracks.delete(key);
+      if (track.advance) track.advance(0, true); else track.paint(track.spring?.to ?? 1, 0);
+      track.resolve(true);
     }
   }
   stop() {
@@ -127,7 +149,8 @@ export class MotionClock {
       for (const [key, track] of [...this.tracks]) {
         if (this.tracks.get(key) !== track) continue;
         let done = false;
-        if (track.spring) {
+        if (track.advance) done = !track.advance(elapsed, time - track.start >= track.duration);
+        else if (track.spring) {
           track.spring.step(elapsed, track.preset);
           done = !track.spring.moving || time - track.start >= track.duration;
           if (done) track.spring.snap(track.spring.to);

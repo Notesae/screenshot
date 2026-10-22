@@ -10,6 +10,7 @@ internal static class NativeExitTests
     public static int Run(ResourceDictionary resources)
     {
         var checks = 0;
+        checks += NativeNoticeSequenceTests.Run();
         void Check(bool value, string label) { if (!value) throw new Exception(label); checks++; }
         foreach (var rate in new[] { 30, 60, 144 })
         foreach (var duration in new[] { NativeSurfaceTransition.WindowExitSeconds, NativeSurfaceTransition.PopupExitSeconds })
@@ -38,6 +39,8 @@ internal static class NativeExitTests
         reverse.Close(.17); reverse.Step(.05); var partial = reverse.Frame;
         reverse.Open(); Check(reverse.Frame == partial, "quick reopen preserves partial exit alpha and geometry");
         reverse.Step(.016); Check(reverse.Frame.Material >= partial.Material && reverse.Frame.Content >= partial.Content, "quick reopen returns toward visible without a fade reset");
+        reverse.Close(.17); reverse.Step(.02); var velocity = reverse.Velocity; partial = reverse.Frame;
+        reverse.Open(); Check(reverse.Frame == partial && reverse.Velocity == velocity, "native reopen preserves geometry velocity as well as position");
         reverse.Close(.17); reverse.Step(double.PositiveInfinity);
         Check(reverse.Frame.Material == 0 && reverse.Frame.Content == 0 && !reverse.Moving, "reduced motion completes close instead of reopening");
         reverse.Open(); reverse.Step(double.PositiveInfinity);

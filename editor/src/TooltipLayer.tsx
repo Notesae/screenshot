@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSurfaceMotion } from './SurfaceMotion';
 import { motionTokens } from './motion';
+import { motionSuspended, observeMotionScope } from './motionScope';
 
 /** 统一鼠标与键盘提示；关闭立即解除说明关系，材质保留到退场结束。 */
 export function TooltipLayer() {
@@ -21,8 +22,12 @@ export function TooltipLayer() {
     const show = (event: Event) => {
       const element = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-tooltip]') : null;
       if (!element || !root.contains(element)) return;
+      if (motionSuspended(root) || element.matches(':disabled') || element.closest('[inert]')) { clear(); return; }
       keyboard = event.type === 'focusin';
-      clearTimeout(timer); timer = setTimeout(() => setTarget(element), event.type === 'focusin' ? 0 : motionTokens.duration.tooltip);
+      clearTimeout(timer); timer = setTimeout(() => {
+        if (motionSuspended(root) || !element.isConnected || element.matches(':disabled') || element.closest('[inert]')) clear();
+        else setTarget(element);
+      }, event.type === 'focusin' ? 0 : motionTokens.duration.tooltip);
     };
     const leave = (event: Event) => {
       if (event.type === 'pointerout' && keyboard) return;
@@ -32,7 +37,8 @@ export function TooltipLayer() {
     root.addEventListener('pointerover', show); root.addEventListener('focusin', show);
     root.addEventListener('pointerout', leave); root.addEventListener('focusout', leave); root.addEventListener('pointerdown', clear); root.addEventListener('keydown', clear);
     window.addEventListener('resize', clear); window.addEventListener('scroll', clear, true);
-    return () => { clearTimeout(timer); root.removeEventListener('pointerover', show); root.removeEventListener('focusin', show); root.removeEventListener('pointerout', leave); root.removeEventListener('focusout', leave); root.removeEventListener('pointerdown', clear); root.removeEventListener('keydown', clear); window.removeEventListener('resize', clear); window.removeEventListener('scroll', clear, true); };
+    const stopScope = observeMotionScope(root, suspended => { if (suspended) clear(); });
+    return () => { stopScope(); clearTimeout(timer); root.removeEventListener('pointerover', show); root.removeEventListener('focusin', show); root.removeEventListener('pointerout', leave); root.removeEventListener('focusout', leave); root.removeEventListener('pointerdown', clear); root.removeEventListener('keydown', clear); window.removeEventListener('resize', clear); window.removeEventListener('scroll', clear, true); };
   }, []);
   useLayoutEffect(() => {
     if (!target || !popup.current) return;

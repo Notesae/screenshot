@@ -19,6 +19,7 @@ public partial class MainWindow
     private bool _startingInTray;
     private Window? _startupNotice; // 仅错误或用户在预热期间操作时显示的小型提示。
     private SoftClayNoticeWindow? _transientNotice; // 托盘通知不激活工作台，错误保留到明确关闭。
+    private readonly NativeNoticeSequence _noticeSequence = new();
     private ProviderSettingsWindow? _settingsWindow; // 托盘与编辑器共用单个设置窗口，不恢复历史图片。
 
     // 屏外无边框宿主只负责 WebView 预热，用户桌面不展示主窗口或加载黑底。
@@ -116,23 +117,28 @@ public partial class MainWindow
         finally { lease?.Dispose(); }
     }
 
-    private void ShowEditorNotice(string text, bool error = true)
+    // 同步界面回调可发出通知；异步等待旧窗口的真实 Closed，连续提示只留下最后一条。
+    private async void ShowEditorNotice(string text, bool error = true)
     {
         // 冻结帧取得前不叠加重复操作提示；实际捕获错误在取消选区后再报告。
-        if (_presentation.IsSelecting) return;
+        if (_presentation.IsSelecting || _lifetime.IsCancellationRequested || Dispatcher.HasShutdownStarted) return;
         // 可见时就地提示；驻留托盘时保持原呈现，不为展示错误唤起工作台。
-        if (_ready && IsVisible) Post(new { @event = "editor.action", payload = new { action = "notice", text, error } });
-        else
+        await _noticeSequence.ReplaceAsync(async () => { await ClearNativeNoticeAsync(cancelPending: false); }, () =>
         {
-            _transientNotice?.Close();
-            var notice=new SoftClayNoticeWindow(text,error);
-            notice.Closed+=(_,_)=>{if(ReferenceEquals(_transientNotice,notice))_transientNotice=null;};
-            _transientNotice=notice;notice.Show();
-        }
+            if (_presentation.IsSelecting || _lifetime.IsCancellationRequested || Dispatcher.HasShutdownStarted) return;
+            if (_ready && IsVisible) Post(new { @event = "editor.action", payload = new { action = "notice", text, error } });
+            else
+            {
+                var notice=new SoftClayNoticeWindow(text,error);
+                notice.Closed+=(_,_)=>{if(ReferenceEquals(_transientNotice,notice))_transientNotice=null;};
+                _transientNotice=notice;notice.Show();
+            }
+        });
     }
     // 新截图必须等旧通知及其关闭槽位退场，不能把本进程提示带进冻结帧。
-    private async Task<bool> ClearNativeNoticeAsync()
+    private async Task<bool> ClearNativeNoticeAsync(bool cancelPending = true)
     {
+        if (cancelPending) _noticeSequence.Cancel();
         if (_transientNotice is not { } notice) return false;
         notice.Close(); await notice.ClosedTask; return true;
     }

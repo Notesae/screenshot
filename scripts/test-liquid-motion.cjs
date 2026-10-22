@@ -103,6 +103,58 @@ async function closeGrowingMenu(){
     assert.ok(after&&after.width<=before.width+.1&&after.height<=before.height+.1,'提前退出材质只能从当前可见体积收拢');
   }finally{await page.clock.resume();}
 }
+/** 改变真实布局后先等 ResizeObserver，尚未推进下一动效帧时也不能跳大材质。 */
+async function resizeEnteringPanel(){
+  await page.clock.pauseAt(await page.evaluate(()=>Date.now()+100));
+  try{
+    await page.evaluate(()=>document.querySelector('[aria-label="美化图片"]').click());
+    await page.clock.runFor(64);
+    const result=await page.evaluate(()=>new Promise(resolve=>{
+      const panel=document.querySelector('.clay-card'),skin=panel.querySelector('.liquid-panel-skin');
+      const before=skin.getBoundingClientRect().width,original=panel.style.width;
+      const observer=new ResizeObserver(()=>{
+        observer.disconnect();const after=skin.getBoundingClientRect().width;panel.style.width=original;resolve({before,after});
+      });
+      observer.observe(panel);panel.style.width='440px';
+    }));
+    assert.ok(Math.abs(result.after-result.before)<.1,'内容尺寸变化不能先拉大材质一帧');
+    await page.clock.runFor(1200);
+  }finally{await page.clock.resume();}
+}
+/** 模拟已经隐藏后才到达的异步提示/关闭，验证不依赖下一次 visibilitychange。 */
+async function alreadyHiddenUpdates(){
+  await page.clock.pauseAt(await page.evaluate(()=>Date.now()+100));
+  try{
+    await visibility(true);const before=await page.locator('[data-editor-root]').getAttribute('data-motion-frames');
+    await page.evaluate(()=>window.__motionTest.notice('隐藏后迟到的合成通知',true));
+    assert.equal(await page.locator('.clay-notice').evaluate(el=>el.dataset.motionPhase==='open'&&el.querySelector('.liquid-surface-skin').style.opacity==='1'),true);
+    await page.locator('.clay-notice button').evaluate(el=>el.click());
+    assert.equal(await page.locator('.clay-notice').count(),0,'已隐藏时关闭仍应清理保留层');
+    const details=page.locator('details').filter({has:page.locator('summary').filter({hasText:'细调外观'})});
+    await details.locator('summary').evaluate(el=>el.click());
+    assert.equal(await details.evaluate(el=>el.open&&!el.style.height&&!el.style.overflow),true);
+    await details.locator('summary').evaluate(el=>el.click());
+    assert.equal(await details.evaluate(el=>!el.open&&!el.style.height&&!el.style.overflow),true);
+    assert.equal(await page.locator('[data-editor-root]').getAttribute('data-motion-frames'),before,'隐藏的新请求不得重新排主轨帧');
+    await clickHiddenClose();
+    assert.equal(await page.locator('.clay-card').count(),0,'隐藏期间到达的主浮卡关闭也要完成卸载');
+  }finally{await visibility(false);await page.clock.resume();}
+  async function clickHiddenClose(){await page.getByRole('button',{name:'关闭浮卡',exact:true}).evaluate(el=>el.click());}
+}
+async function suspendedDisclosure(click){
+  await click('美化图片');
+  await page.clock.pauseAt(await page.evaluate(()=>Date.now()+100));
+  const details=page.locator('details').filter({has:page.locator('summary').filter({hasText:'细调外观'})});
+  try{
+    await details.locator('summary').evaluate(el=>el.click());await page.clock.runFor(48);
+    assert.equal(await details.evaluate(el=>!!el.style.height),true);
+    await page.locator('[data-editor-root]').evaluate(el=>el.classList.add('is-suspended'));
+    assert.equal(await details.evaluate(el=>el.open&&!el.style.height),true,'宿主挂起也应释放折叠高度');
+    await details.locator('summary').evaluate(el=>el.click());
+    assert.equal(await details.evaluate(el=>!el.open&&!el.style.height),true,'挂起后到达的新折叠动作直接归位');
+  }finally{await page.locator('[data-editor-root]').evaluate(el=>el.classList.remove('is-suspended'));await page.clock.resume();}
+  await click('关闭浮卡');await page.waitForSelector('.clay-card',{state:'detached'});
+}
 /** 直接操作生产组件；滑杆、控件反馈和文档历史共用同一合成页面。 */
 async function componentChecks(click,load){
   const document=()=>page.evaluate(()=>window.screenshotPrepareUpdate().document);
@@ -175,6 +227,9 @@ async function main(){
   const click=name=>page.getByRole('button',{name,exact:true}).click();
   await load();
   const original=await page.locator('canvas.lower-canvas').evaluate(canvas=>canvas.toDataURL());
+  await resizeEnteringPanel();checks.push('panel-layout-resize-preserves-current-material');
+  await alreadyHiddenUpdates();checks.push('already-hidden-late-surfaces-finish-without-frames');
+  await suspendedDisclosure(click);checks.push('host-suspension-finishes-and-gates-disclosure');
   const earlyClose=await interruptPanel('关闭浮卡');
   assert.ok(earlyClose.after<=earlyClose.before+.1,'主浮卡提前关闭不能跳亮');
   await page.waitForSelector('.clay-card',{state:'detached'});checks.push('early-panel-close-preserves-material-opacity');
@@ -204,6 +259,12 @@ async function main(){
   await page.waitForFunction(()=>!document.querySelector('fieldset').disabled);
   assert.equal(await page.evaluate(()=>window.__motionTest.state.completed),0,'隐藏只取消收束，不能确认完成');
   assert.equal(await page.locator('[data-motion-exit]').count(),0);assert.equal(await page.locator('canvas.lower-canvas').count(),1);checks.push('hidden-exit-does-not-send-stale-completion');
+  await page.evaluate(()=>{window.__motionTest.state.holdCopy=true;window.__motionTest.state.releaseCopy=null;});await click('完成');
+  await page.waitForFunction(()=>typeof window.__motionTest.state.releaseCopy==='function');await visibility(true);
+  await page.evaluate(()=>{const s=window.__motionTest.state;s.holdCopy=false;s.releaseCopy();});
+  await page.waitForFunction(()=>!document.querySelector('fieldset').disabled);
+  assert.equal(await page.evaluate(()=>window.__motionTest.state.completed),0,'隐藏后才到达的复制确认不得自动提交完成');
+  assert.equal(await page.locator('canvas.lower-canvas').count(),1);await visibility(false);checks.push('already-hidden-copy-ack-keeps-document');
   await componentChecks(click,load);
   const rectTool=page.getByRole('button',{name:'矩形标注',exact:true}),arrowTool=page.getByRole('button',{name:'箭头标注',exact:true});
   await rectTool.focus();await page.keyboard.down('Space');
@@ -281,6 +342,14 @@ async function main(){
   await rectTool.evaluate(el=>el.blur());assert.equal(await rectTool.getAttribute('aria-describedby'),null);
   await arrowTool.focus();await page.waitForFunction(()=>document.querySelector('.clay-tooltip')?.textContent==='箭头标注'&&document.querySelector('.clay-tooltip')?.dataset.motionPhase==='open');
   assert.equal(await page.locator('.clay-tooltip').count(),1);await arrowTool.evaluate(el=>el.blur());await page.waitForSelector('.clay-tooltip',{state:'detached'});checks.push('tooltip-reopen-and-description-lifecycle');
+  await arrowTool.focus();await page.getByRole('tooltip').waitFor();await page.clock.pauseAt(await page.evaluate(()=>Date.now()+100));
+  try{
+    await visibility(true);await page.waitForSelector('.clay-tooltip',{state:'detached'});
+    assert.equal(await arrowTool.getAttribute('aria-describedby'),null);
+    await arrowTool.evaluate(el=>el.dispatchEvent(new FocusEvent('focusin',{bubbles:true})));await page.clock.runFor(300);
+    assert.equal(await page.locator('.clay-tooltip').count(),0,'隐藏后到达的延迟提示不得显示');
+  }finally{await visibility(false);await page.clock.resume();}
+  await arrowTool.evaluate(el=>el.blur());checks.push('tooltip-hidden-clear-and-late-timer-rejection');
   await page.mouse.move(8,8);await page.waitForFunction(()=>document.querySelector('[data-editor-root]')?.dataset.motionState==='sleep');
   const frames=await page.locator('[data-editor-root]').getAttribute('data-motion-frames');await page.waitForTimeout(140);assert.equal(await page.locator('[data-editor-root]').getAttribute('data-motion-frames'),frames);
   assert.equal(await page.locator('canvas.lower-canvas').evaluate(canvas=>canvas.toDataURL()),original,'UI 动效不得进入画布');checks.push('sleep-and-image-pixels-preserved');
