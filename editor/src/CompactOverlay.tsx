@@ -1,6 +1,7 @@
 import { ControlButton } from './ControlMotion';
 import { MotionDetails } from './MotionDetails';
 import { useSurfaceMotion } from './SurfaceMotion';
+import { useBackdropMotion } from './BackdropMotion';
 import { MotionButton, presentationMotion, useLiquidMotion } from './LiquidMotion';
 import { Select } from './Select';
 import { ColorField } from './ColorField';
@@ -105,6 +106,7 @@ export function CompactOverlay(props:Props) {
   const taskOpen=!!currentTask&&chromeVisible&&!props.suspended;
   const statusMounted=useSurfaceMotion(taskOpen,statusRoot,null,screen.x+':'+screen.y+':'+screen.width);
   const fullReading=Boolean(readerMounted&&reader?.full);
+  useBackdropMotion(rootRef, metadata?.captureId, chromeVisible && !props.suspended && !props.locked && !busy && !aiBusy && !readerMounted && !selectionPreview && canvasSettled);
   // 完整阅读退场后再恢复工具焦点，防止把焦点交给仍隐藏的主轨。
   useLayoutEffect(()=>{if(reading)restoreReaderFocus.current=false;else if(!readerMounted&&restoreReaderFocus.current){restoreReaderFocus.current=false;readerTrigger.current?.focus({preventScroll:true});}},[reading,readerMounted]);
   latest.current={props,panel,reading,readingFull:fullReading};

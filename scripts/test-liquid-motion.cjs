@@ -10,12 +10,13 @@ const server=http.createServer((req,res)=>{
 });
 /** 所有业务结果均由夹具控制，便于检查复制确认前后和迟到回调的区别。 */
 function mockHost(){
+  Object.defineProperty(navigator,'hardwareConcurrency',{configurable:true,value:8});
   const listeners=new Set(),emit=message=>listeners.forEach(fn=>fn({data:message}));
   const canvas=document.createElement('canvas');canvas.width=560;canvas.height=300;
   const ctx=canvas.getContext('2d');ctx.fillStyle='#e9e5e0';ctx.fillRect(0,0,560,300);ctx.fillStyle='#3b424b';ctx.font='24px sans-serif';ctx.fillText('合成动效回归',28,48);
   for(let i=0;i<5;i++){ctx.fillStyle=i%2?'#abb9ca':'#c7ccd2';ctx.fillRect(28,85+i*35,420-i*30,15);}
   const image={dataUrl:canvas.toDataURL(),width:560,height:300,name:'合成.png'};
-  const state={sequence:0,captureId:null,copied:0,completed:0,hidden:false,failCopy:false,holdCopy:false,rejectComplete:false,rejectDismiss:false,requests:[],exitAtComplete:null};
+  const state={sequence:0,captureId:null,copied:0,completed:0,hidden:false,failCopy:false,holdCopy:false,rejectComplete:false,rejectDismiss:false,requests:[],background:[],exitAtComplete:null};
   const load=(fileOnly=false)=>{if(fileOnly){state.captureId=null;state.hidden=false;document.querySelector('[data-editor-root]')?.style.removeProperty('visibility');emit({event:'image.loaded',payload:image});return;}state.captureId='motion-'+(++state.sequence);state.hidden=false;document.querySelector('[data-editor-root]')?.style.removeProperty('visibility');emit({event:'image.loaded',payload:{image,overlay:{captureId:state.captureId,desktopBounds:{x:0,y:0,width:1280,height:800},selection:{x:300,y:180,width:560,height:300},screens:[{bounds:{x:0,y:0,width:1280,height:800},workArea:{x:0,y:0,width:1280,height:760},primary:true}]}}});};
   window.__motionTest={state,load,notice:(text,error)=>emit({event:'editor.action',payload:{action:'notice',text,error}}),resume:()=>{state.hidden=false;document.querySelector('[data-editor-root]').style.removeProperty('visibility');emit({event:'presentation.changed',payload:{presentation:'workbench',reason:'user_editor'}});}};
   Object.assign(window.chrome||={}, {webview:{addEventListener:(_,fn)=>listeners.add(fn),removeEventListener:(_,fn)=>listeners.delete(fn),postMessage:async request=>{
@@ -27,6 +28,7 @@ function mockHost(){
         case 'capture.settings':result={backend:'wgc'};break;
         case 'ocr.status':result={available:false,modelVersion:'synthetic',message:'测试不加载模型',missingFiles:[]};break;
         case 'presentation.ready':result={accepted:request.payload.captureId===state.captureId,presentation:'overlay',captureId:state.captureId};break;
+        case 'presentation.background':state.background.push(request.payload);result={accepted:request.payload.captureId===state.captureId};break;
         case 'image.copy':
           if(state.holdCopy)await new Promise(resolve=>state.releaseCopy=resolve);
           if(state.failCopy)throw Error('合成复制失败');
@@ -55,6 +57,7 @@ function mockHost(){
 }
 let browser,page;
 const checks=[];
+const backdrop=enabled=>page.waitForFunction(enabled=>window.__motionTest.state.background.at(-1)?.enabled===enabled,enabled);
 /** 仅替换合成页面的可见性读数，不切换桌面窗口或浏览器焦点。 */
 async function visibility(hidden){
   await page.evaluate(hidden=>{
@@ -212,6 +215,20 @@ async function componentChecks(click,load){
   await click('撤销');assert.deepEqual((await document()).editor,first.editor,'下一次紧接的键盘手势必须单独撤销');
   checks.push('range-pressure-and-one-undo-per-gesture');
   await load();
+  await backdrop(true);
+  const messages=await page.evaluate(()=>window.__motionTest.state.background.length);
+  await page.mouse.move(100,100);await page.mouse.move(1200,700);await page.mouse.move(640,400);
+  assert.equal(await page.evaluate(()=>window.__motionTest.state.background.length),messages,'指针逐帧不进入桥');
+  await visibility(true);await backdrop(false);await visibility(false);await backdrop(true);
+  await page.emulateMedia({reducedMotion:'reduce'});await backdrop(false);
+  await page.emulateMedia({reducedMotion:'no-preference'});await backdrop(true);
+  await page.evaluate(()=>document.querySelector('[data-editor-root]').dataset.motionExit='dismiss');await backdrop(false);
+  await page.evaluate(()=>delete document.querySelector('[data-editor-root]').dataset.motionExit);await backdrop(true);
+  const background=await page.evaluate(()=>window.__motionTest.state.background);
+  assert.ok(background.every((item,index)=>item.captureId.startsWith('motion-')&&Number.isSafeInteger(item.sequence)&&(!index||item.sequence>background[index-1].sequence)));
+  assert.equal(background.at(-1).captureId,await page.evaluate(()=>window.__motionTest.state.captureId));
+  assert.deepEqual(Object.keys(background.at(-1)).sort(),['captureId','enabled','sequence']);
+  checks.push('native-background-state-only-bridge-hidden-reduced-exit-and-identity');
 }
 /** 在正式构建页面中验证表现层与真实业务入口的先后顺序。 */
 async function main(){
@@ -368,6 +385,7 @@ async function main(){
   await page.evaluate(()=>{const s=window.__motionTest.state;s.failCopy=false;s.holdCopy=true;});await click('完成');
   await page.waitForFunction(()=>typeof window.__motionTest.state.releaseCopy==='function');
   assert.equal(await page.locator('[data-motion-exit]').count(),0,'复制确认前不收束');
+  await backdrop(false);checks.push('native-background-centers-during-task');
   await page.evaluate(()=>{const s=window.__motionTest.state;s.holdCopy=false;s.releaseCopy();});
   await page.waitForSelector('.liquid-image-copy');await load();
   await page.waitForTimeout(450);assert.equal(await page.evaluate(()=>window.__motionTest.state.completed),0);assert.equal(await page.locator('[data-motion-exit]').count(),0);checks.push('new-capture-interrupts-old-success');

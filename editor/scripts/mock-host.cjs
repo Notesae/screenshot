@@ -57,7 +57,9 @@ async function installMock(page, options = {}) {
         if (request.method === 'recovery.load') result = window.__recoveries[request.payload.documentId];
         if (request.method === 'recovery.delete') { delete window.__recoveries[request.payload.documentId]; result = { deleted:true }; }
 
-        if (request.method.startsWith('presentation.')) {
+        // 背景许可不改变呈现或捕获身份，不能落入旧夹具的默认收起分支。
+        if (request.method === 'presentation.background') result = { accepted: request.payload.captureId === window.__currentCaptureId };
+        if (request.method.startsWith('presentation.') && request.method !== 'presentation.background') {
           // 旧能力审计刻意保持输出后的编辑层；新的生命周期套件单独验证原生收起。
           if(request.method==='presentation.complete'){setTimeout(()=>window.__emit({id:request.id,ok:true,result:{accepted:false}}),0);return;}
           const active = window.__currentCaptureId;

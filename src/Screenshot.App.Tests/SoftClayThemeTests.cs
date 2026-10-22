@@ -14,6 +14,7 @@ internal static class SoftClayThemeTests
             try
             {
                 void Check(bool value,string name){if(!value)throw new Exception(name);checks++;}
+                checks += BackdropMotionTests.Run();
                 foreach (var rate in new[] { 30, 60, 144 })
                 {
                     var disclosure = new DisclosureTransition(); disclosure.Redirect(1);
