@@ -28,6 +28,25 @@ import { ImageTranslationReader, translationReaderPlacement } from './ImageTrans
 
 
 type Panel = 'beauty'|'text'|'more'|'properties'|'recovery';
+
+/** 用未裁切的正文高度贴近导轨；展开折叠区时只重新摆放，不读取动效的缩放矩形。 */
+function usePanelHeight(content:RefObject<HTMLDivElement|null>,panel:Panel|null,width:number,maximum:number) {
+  const [measured,setMeasured]=useState<{panel:Panel;width:number;height:number}|null>(null);
+  useLayoutEffect(()=>{
+    const body=content.current,heading=body?.previousElementSibling;
+    if(!panel||!body||!(heading instanceof HTMLElement))return;
+    const measure=()=>{
+      const height=Math.min(maximum,Math.ceil(heading.offsetHeight+body.scrollHeight));
+      if(height>0)setMeasured(current=>current?.panel===panel&&current.width===width&&current.height===height?current:{panel,width,height});
+    };
+    const resize=new ResizeObserver(()=>flushSync(measure));
+    const observe=()=>{resize.disconnect();resize.observe(body);resize.observe(heading);for(const child of body.children)resize.observe(child);measure();};
+    const changes=new MutationObserver(observe);changes.observe(body,{childList:true,subtree:true,characterData:true});
+    observe();return()=>{resize.disconnect();changes.disconnect();};
+  },[content,panel,width,maximum]);
+  return measured?.panel===panel&&measured.width===width?measured.height:maximum;
+}
+
 type Props = {
   suspended?:boolean;
   selection:CanvasSelection|null;onSelection:(selection:CanvasSelection|null)=>void;
@@ -92,7 +111,12 @@ export function CompactOverlay(props:Props) {
   const adjusting=busy==='调整截图选区',canvasSettled=props.renderStatus==='ready'&&paintedImage===doc.image;
   const mapped=metadata?overlayLayout(selectionPreview?{...metadata,selection:selectionPreview}:metadata,viewport,previewOutput,editor.mode==='beauty'?editor.padding:0,{...railSize,statusHeight:0},selectionPreview||editor.mode==='reflow'?undefined:editor.crop||(editor.resize?{x:0,y:0}:undefined)):null;
   const screen=mapped?.screen??{x:0,y:0,...viewport};
-  const tools=placeTools(screen,mapped?.frame??null,railSize,{width:visiblePanel==='text'?420:360,height:visiblePanel==='properties'?400:620},positions);
+  const panelWidth=visiblePanel==='text'?420:360;
+  const panelHeight=usePanelHeight(cardContent,visiblePanel,panelWidth,visiblePanel==='properties'?400:620);
+  const railBounds=railRef.current?.getBoundingClientRect();
+  const sourceBounds=trigger.current&&railRef.current?.contains(trigger.current)?trigger.current.getBoundingClientRect():null;
+  const sourceOffset=sourceBounds&&railBounds?{x:sourceBounds.x+sourceBounds.width/2-railBounds.x,y:sourceBounds.y+sourceBounds.height/2-railBounds.y}:undefined;
+  const tools=placeTools(screen,mapped?.frame??null,railSize,{width:panelWidth,height:panelHeight},positions,sourceOffset);
   useLiquidMotion(rootRef,railRef,chromeVisible&&!props.suspended,panel,visiblePanel,trigger,tools.card,tools.rail,mapped?.frame??null,()=>setVisiblePanel(null));
   const automaticReader=editor.imageTranslation&&editor.mode!=='reflow'?translationReaderPlacement(screen,mapped?.frame??null,tools.rail):null;
   // 手动移动/缩放后固定窗口矩形；允许用户移到截图旁边，不因工具避让或重开而跳回。
@@ -180,14 +204,14 @@ export function CompactOverlay(props:Props) {
     presentationMotion()?.placePanel();
     // 开始手动操作即固定两组当前位置，关闭自动避让；拖动允许跨屏和与其他面板重叠。
     if(rootRef.current)rootRef.current.dataset.motionDragging=kind;
-    setPositions({rail:{x:tools.rail.x,y:tools.rail.y},card:{x:tools.card.x,y:tools.card.y}});
+    setPositions(value=>({rail:{x:tools.rail.x,y:tools.rail.y},card:visiblePanel?{x:tools.card.x,y:tools.card.y}:value.card}));
     const origin=kind==='rail'?tools.rail:tools.card;drag.current={kind,pointer:event.pointerId,start:{x:event.clientX,y:event.clientY},origin};event.currentTarget.setPointerCapture(event.pointerId);event.preventDefault();
   }
   function moveDrag(event:PointerEvent<HTMLElement>){const current=drag.current;if(!current||current.pointer!==event.pointerId)return;const point={x:current.origin.x+event.clientX-current.start.x,y:current.origin.y+event.clientY-current.start.y};setPositions(value=>({...value,[current.kind]:point}));}
   function endDrag(){drag.current=null;if(rootRef.current)delete rootRef.current.dataset.motionDragging;}
   function moveByKey(kind:'rail'|'card',event:KeyboardEvent<HTMLElement>){
     const delta=event.shiftKey?24:8,directions:Record<string,Point>={ArrowLeft:{x:-delta,y:0},ArrowRight:{x:delta,y:0},ArrowUp:{x:0,y:-delta},ArrowDown:{x:0,y:delta}};
-    const direction=directions[event.key];if(!direction)return;event.preventDefault();presentationMotion()?.placePanel(kind==='card');const current=tools[kind];setPositions(value=>({...value,rail:value.rail??{x:tools.rail.x,y:tools.rail.y},card:value.card??{x:tools.card.x,y:tools.card.y},[kind]:{x:current.x+direction.x,y:current.y+direction.y}}));
+    const direction=directions[event.key];if(!direction)return;event.preventDefault();presentationMotion()?.placePanel(kind==='card');const current=tools[kind];setPositions(value=>({...value,rail:value.rail??{x:tools.rail.x,y:tools.rail.y},card:value.card??(visiblePanel?{x:tools.card.x,y:tools.card.y}:undefined),[kind]:{x:current.x+direction.x,y:current.y+direction.y}}));
   }
   const title=visiblePanel==='beauty'?'美化截图':visiblePanel==='text'?'识别与校对':visiblePanel==='properties'?'标注属性':visiblePanel==='recovery'?'历史记录':'更多操作';
   return <div ref={rootRef} data-editor-root className={'clay-editor '+(metadata?'is-overlay':'is-neutral')+(chromeVisible?' is-presented':' is-awaiting')+(preparing?' is-preparing':'')+(props.suspended?' is-suspended':'')+(fullReading?' is-reading':'')} inert={props.locked} onKeyDownCapture={event=>{const target=event.target;if(event.key==='Escape'&&!event.nativeEvent.isComposing&&!composing.current&&target instanceof HTMLElement&&target.matches('input,textarea,select')&&!target.closest('.clay-color-popover')){event.preventDefault();event.stopPropagation();target.blur();}}} onDragOver={event=>{if(Array.from(event.dataTransfer.types).includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();void props.onFiles(event.dataTransfer.files);}}>

@@ -17,19 +17,19 @@ internal static class BackdropMotionTests
             for (var i = 0; i < rate * 3; i++)
             {
                 motion.Step(1d / rate); var frame = motion.Frame;
-                Check(frame.X >= 0 && frame.X <= 6.001 && frame.Y >= 0 && frame.Y <= 7.001, "bounded background plus entry at " + rate);
+                Check(frame.X >= 0 && frame.X <= 18.001 && frame.Y >= 0 && frame.Y <= 15.001, "bounded background plus entry at " + rate);
             }
-            Check(motion.Frame == new BackdropFrame(6, 4, 12, 8, 1) && !motion.Step(1d / rate), "background settles and sleeps at " + rate);
+            Check(motion.Frame == new BackdropFrame(18, 12, 24, 16, 1) && !motion.Step(1d / rate), "background settles and sleeps at " + rate);
             motion.Move(-1, -1); motion.Step(.05); var previous = motion.Frame; var velocity = motion.VelocityX;
             motion.Move(1, 1); Check(motion.Frame == previous && motion.VelocityX == velocity && velocity < 0, "background reversal retains position and velocity");
             motion.Hold(); previous = motion.Frame; motion.Move(-1, -1);
             Check(!motion.Step(1) && motion.Frame == previous, "press freezes visible pose even after long frame");
             motion.Release(); for (var i = 0; i < rate * 3; i++) motion.Step(1d / rate);
-            Check(motion.Frame.X == -6 && motion.Frame.Y == -4, "release targets last held pointer");
+            Check(motion.Frame.X == -18 && motion.Frame.Y == -12, "release targets last held pointer");
             motion.Center(); for (var i = 0; i < rate * 3; i++) motion.Step(1d / rate);
             Check(motion.Frame == new BackdropFrame(0, 0, 0, 0, 1), "reading and task center without changing content");
             motion.Move(100, -100); motion.Step(20);
-            Check(double.IsFinite(motion.Frame.X) && Math.Abs(motion.Frame.X) <= 6 && Math.Abs(motion.Frame.Y) <= 4, "invalid range and long frame remain bounded");
+            Check(double.IsFinite(motion.Frame.X) && Math.Abs(motion.Frame.X) <= 18 && Math.Abs(motion.Frame.Y) <= 12, "invalid range and long frame remain bounded");
             motion.Step(double.PositiveInfinity);
             Check(motion.Frame == new BackdropFrame(0, 0, 0, 0, 1), "hidden/reduced/handoff reset immediately");
             motion.Move(double.NaN, double.PositiveInfinity); motion.Step(.01);

@@ -25,7 +25,7 @@
   const focusedTask = () => !$('#modalRoot').hidden || !$('#reader').hidden ||
     window.demo.state.phase !== 'editing';
 
-  // 原尺寸桌面四周复制 16px 边缘；跟手不需要放大、模糊或每帧重绘图像。
+  // 原尺寸桌面按参数复制边缘；跟手不需要放大、模糊或每帧重绘图像。
   function rebuildTexture() {
     bounds = stage.getBoundingClientRect();
     const source = window.demo.state.source, w = stage.clientWidth, h = stage.clientHeight, p = T.edgePadding;

@@ -3,10 +3,11 @@ import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, typ
 import { GripVertical, Minus, Plus, RotateCcw, X } from 'lucide-react';
 import type { ImageTranslationDocument } from './imageTranslationLayout';
 import type { PixelRect } from './overlay';
+import { boundTool } from './toolPlacement';
 
 /** 阅读卡只放在截图外；没有足够空白时进入临时阅读视图，关闭后恢复同一画布。 */
 export function translationReaderPlacement(screen:PixelRect,frame:PixelRect|null,rail:PixelRect) {
-  const area={x:screen.x+16,y:screen.y+16,width:Math.max(1,screen.width-32),height:Math.max(1,screen.height-32)};
+  const area={x:screen.x+24,y:screen.y+24,width:Math.max(1,screen.width-48),height:Math.max(1,screen.height-48)};
   const candidates:PixelRect[]=[];
   if(frame){
     const spaces=[
@@ -26,10 +27,14 @@ export function translationReaderPlacement(screen:PixelRect,frame:PixelRect|null
       );
     }
   }
+  const anchor={x:rail.x+rail.width/2,y:rail.y+rail.height/2};
+  // 保留截图外阅读的约束，但在可用空白内靠近导轨，不再固定到空白区域顶端。
+  const distance=(box:PixelRect)=>Math.hypot(Math.max(box.x-anchor.x,anchor.x-box.x-box.width,0),Math.max(box.y-anchor.y,anchor.y-box.y-box.height,0));
   const available=candidates.filter(rect=>rect.width>=300&&rect.height>=200&&rect.x>=area.x&&rect.y>=area.y&&rect.x+rect.width<=area.x+area.width+.01&&rect.y+rect.height<=area.y+area.height+.01)
-    .sort((a,b)=>Math.min(b.width,680)*Math.min(b.height,720)-Math.min(a.width,680)*Math.min(a.height,720))[0];
+    .map(space=>{const size={width:Math.min(680,space.width),height:Math.min(720,space.height)};return {...boundTool({x:anchor.x-size.width/2,y:anchor.y-size.height/2},size,space),...size};})
+    .sort((a,b)=>distance(a)-distance(b)||(b.width*b.height-a.width*a.height))[0];
   const width=Math.min(860,area.width),height=Math.min(720,area.height);
-  return available?{box:{...available,width:Math.min(680,available.width),height:Math.min(720,available.height)},full:false}
+  return available?{box:available,full:false}
     :{box:{x:area.x+(area.width-width)/2,y:area.y+(area.height-height)/2,width,height},full:true};
 }
 

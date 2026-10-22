@@ -7,31 +7,36 @@ export function boundTool(point:Point,size:{width:number;height:number},area:Pix
 }
 const overlap=(a:PixelRect,b:PixelRect)=>Math.max(0,Math.min(a.x+a.width,b.x+b.width)-Math.max(a.x,b.x))*Math.max(0,Math.min(a.y+a.height,b.y+b.height)-Math.max(a.y,b.y));
 /** 自动摆放只用于尚未手动定位的工具；手动坐标不钳制、不参与避让重排。 */
-export function placeTools(screen:PixelRect,frame:PixelRect|null,railSize:{width:number;height:number},cardSize:{width:number;height:number},manual:ToolPositions={}) {
-  const margin=Math.min(16,screen.width/8,screen.height/8),area={x:screen.x+margin,y:screen.y+margin,width:Math.max(1,screen.width-margin*2),height:Math.max(1,screen.height-margin*2)};
+export function placeTools(screen:PixelRect,frame:PixelRect|null,railSize:{width:number;height:number},cardSize:{width:number;height:number},manual:ToolPositions={},sourceOffset?:Point) {
+  // 预留背景整体跟随的最大位移，自动摆放的工具不会随平面移出视口。
+  const margin=Math.min(24,screen.width/8,screen.height/8),area={x:screen.x+margin,y:screen.y+margin,width:Math.max(1,screen.width-margin*2),height:Math.max(1,screen.height-margin*2)};
   const rail={width:Math.min(railSize.width,area.width),height:Math.min(railSize.height,area.height)};
   const origin=frame?{x:frame.x+(frame.width-rail.width)/2,y:frame.y+frame.height+16}:{x:area.x+(area.width-rail.width)/2,y:area.y+area.height-rail.height};
   if(frame&&origin.y+rail.height>area.y+area.height)origin.y=frame.y-rail.height-16;
   const railBox={...(manual.rail??boundTool(origin,rail,area)),...rail};
   const card={width:Math.min(cardSize.width,area.width),height:Math.min(cardSize.height,area.height)};
-  const anchor=frame??{x:area.x,y:area.y,width:area.width,height:area.height};
-  const candidates=[{x:anchor.x+anchor.width+16,y:anchor.y},{x:anchor.x-card.width-16,y:anchor.y},{x:anchor.x,y:anchor.y-card.height-16},{x:area.x+area.width-card.width,y:area.y},{x:railBox.x,y:railBox.y-card.height-48},{x:railBox.x,y:railBox.y+rail.height+48},{x:railBox.x-card.width-48,y:railBox.y},{x:railBox.x+rail.width+48,y:railBox.y}].map(p=>({...boundTool(p,card,area),...card}));
-  const apart=(r:PixelRect)=>r.x+r.width+48<=railBox.x||railBox.x+railBox.width+48<=r.x||r.y+r.height+48<=railBox.y||railBox.y+railBox.height+48<=r.y;
-  candidates.sort((a,b)=>Number(!apart(a))-Number(!apart(b))||overlap(a,railBox)-overlap(b,railBox)||(frame?overlap(a,frame)-overlap(b,frame):0));
-  let automatic=candidates[0];
-  if(!manual.card&&overlap(automatic,railBox)>0){
-    // 窄显示器放不下整张浮卡时缩短可滚动内容区，不能用卡片盖住“完成”等导轨操作。
-    const gap=16,spaces=[
-      {x:area.x,y:area.y,width:railBox.x-area.x-gap,height:area.height},
-      {x:railBox.x+railBox.width+gap,y:area.y,width:area.x+area.width-railBox.x-railBox.width-gap,height:area.height},
-      {x:area.x,y:area.y,width:area.width,height:railBox.y-area.y-gap},
-      {x:area.x,y:railBox.y+railBox.height+gap,width:area.width,height:area.y+area.height-railBox.y-railBox.height-gap},
-    ];
-    const fitting=spaces.filter(space=>space.width>=Math.min(240,card.width)&&space.height>=Math.min(80,card.height))
-      .map(space=>{const size={width:Math.min(card.width,space.width),height:Math.min(card.height,space.height)};return {...boundTool(automatic,size,space),...size};})
-      .filter(box=>box.x>=area.x&&box.y>=area.y&&box.x+box.width<=area.x+area.width&&box.y+box.height<=area.y+area.height)
-      .sort((a,b)=>b.width*b.height-a.width*a.height||(frame?overlap(a,frame)-overlap(b,frame):0));
-    if(fitting[0])automatic=fitting[0];
-  }
+  const anchor={x:railBox.x+clamp(sourceOffset?.x??rail.width/2,0,rail.width),y:railBox.y+clamp(sourceOffset?.y??rail.height/2,0,rail.height)};
+  const gap=16,right=area.x+area.width,bottom=area.y+area.height;
+  // 四个候选都紧贴导轨；正文太长时缩短滚动区，不再跳到截图或屏幕右上角。
+  const spaces=[
+    {x:area.x,y:area.y,width:area.width,height:Math.min(bottom,railBox.y-gap)-area.y},
+    {x:area.x,y:Math.max(area.y,railBox.y+rail.height+gap),width:area.width,height:bottom-Math.max(area.y,railBox.y+rail.height+gap)},
+    {x:area.x,y:area.y,width:Math.min(right,railBox.x-gap)-area.x,height:area.height},
+    {x:Math.max(area.x,railBox.x+rail.width+gap),y:area.y,width:right-Math.max(area.x,railBox.x+rail.width+gap),height:area.height},
+  ];
+  const candidates=spaces.flatMap((space,side)=>{
+    if(space.width<=0||space.height<=0)return [];
+    const size={width:Math.min(card.width,space.width),height:Math.min(card.height,space.height)};
+    const point=side<2?{x:anchor.x-size.width/2,y:side===0?railBox.y-gap-size.height:railBox.y+rail.height+gap}
+      :{x:side===2?railBox.x-gap-size.width:railBox.x+rail.width+gap,y:anchor.y-size.height/2};
+    return [{...boundTool(point,size,space),...size}];
+  });
+  const distance=(box:PixelRect)=>Math.hypot(Math.max(box.x-anchor.x,anchor.x-box.x-box.width,0),Math.max(box.y-anchor.y,anchor.y-box.y-box.height,0));
+  // 靠近来源优先；同样近时倾向完整尺寸与较少遮住截图，保留可读的最小窗口。
+  const score=(box:PixelRect)=>distance(box)+(card.width-box.width)+(card.height-box.height)*.25+(frame?overlap(box,frame)/(box.width*box.height)*24:0);
+  const readable=candidates.filter(box=>box.width>=Math.min(240,card.width)&&box.height>=Math.min(120,card.height));
+  const automatic=readable.sort((a,b)=>score(a)-score(b))[0]
+    ??candidates.sort((a,b)=>b.width*b.height-a.width*a.height||distance(a)-distance(b))[0]
+    ??{...boundTool({x:anchor.x-card.width/2,y:anchor.y-card.height-gap},card,area),...card};
   return {rail:railBox,card:manual.card?{...manual.card,...card}:automatic,area};
 }
