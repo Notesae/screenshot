@@ -1,6 +1,6 @@
 # 给 Codex：Soft Clay G 融合动效实施
 
-你在 **Notesae/screenshot** 上实现一整套 Soft Clay 动效。从 main 最新提交拉新分支，开 **draft PR**，不要 merge。技术栈不变（.NET / WPF / WebView2 / React），不改产品流程和编辑内核。
+你在 **Notesae/screenshot** 上实现一整套 Soft Clay 动效。从 `docs/soft-clay-motion-plan` 分支最新提交拉出实现用新分支（例如 `feat/soft-clay-motion`），不要从 main 拉（docs/motion/ 只在这个分支上）。先读 docs/motion/ 里的文档再动手，开 **draft PR**，不要 merge。技术栈不变（.NET / WPF / WebView2 / React），不改产品流程和编辑内核。
 
 ## 先读
 - `docs/motion/MOTION-PLAN.md`（阶段与缺口）
