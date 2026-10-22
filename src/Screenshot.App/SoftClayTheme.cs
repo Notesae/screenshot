@@ -144,17 +144,31 @@ internal static class SoftClayDrawing
 // 托盘菜单复用软泥浮卡与线性图标，命令行为仍交由宿主，保留菜单原生键盘导航。
 internal static class SoftClayTrayMenu
 {
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ContextMenu, DeferredNativeAction> Pending = new();
     public static ContextMenu Create()
     {
         var menu=new ContextMenu{Placement=System.Windows.Controls.Primitives.PlacementMode.MousePoint,StaysOpen=false,HasDropShadow=false,FontFamily=SoftClayTheme.Font};
         SoftClayTheme.Install(menu.Resources);menu.Style=(Style)menu.Resources["ClayTrayMenu"];
+        var pending = Pending.GetOrCreateValue(menu);
+        menu.Opened += (_, _) => pending.Cancel();
+        menu.Closed += (_, _) =>
+        {
+            // Closed 在真实 Popup HWND 销毁之后触发，截图/对话框命令不能抢在退场前执行。
+            if (pending.Take() is { } action) menu.Dispatcher.BeginInvoke(action);
+        };
         return menu;
     }
     public static MenuItem Command(string label,string geometry,Action action,string shortcut="")
     {
         var icon=new System.Windows.Shapes.Path{Data=Geometry.Parse(geometry),Stroke=SoftClayTheme.Brush("ink"),StrokeThickness=1.8,StrokeStartLineCap=PenLineCap.Round,StrokeEndLineCap=PenLineCap.Round,StrokeLineJoin=PenLineJoin.Round};
         var item=new MenuItem{Header=label,InputGestureText=shortcut,Icon=new Viewbox{Width=16,Height=16,Child=new Canvas{Width=24,Height=24,Children={icon}}}};
-        item.Click+=(_,_)=>action();return item;
+        item.Click+=(_,_)=>
+        {
+            if (ItemsControl.ItemsControlFromItemContainer(item) is ContextMenu menu && menu.IsVisible && Pending.TryGetValue(menu, out var pending))
+            { pending.Set(action); menu.SetCurrentValue(ContextMenu.IsOpenProperty, false); }
+            else action();
+        };
+        return item;
     }
     public static Separator Divider(ContextMenu menu)=>new(){Style=(Style)menu.Resources["ClayTraySeparator"]};
 }

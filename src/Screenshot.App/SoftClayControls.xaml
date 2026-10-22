@@ -83,6 +83,7 @@
         <local:SoftClaySurface x:Name="Face" IsHitTestVisible="False" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}" Material="Floating" Effect="{DynamicResource ClayShadow}"/>
         <ContentPresenter x:Name="Glyph" Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
       </Grid>
+      <ControlTemplate.Triggers><Trigger Property="IsClosing" Value="True"><Setter Property="IsHitTestVisible" Value="False"/></Trigger></ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>
   </Style>
   <Style TargetType="ToolTip" BasedOn="{StaticResource ClayControl}">

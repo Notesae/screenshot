@@ -53,7 +53,7 @@ public partial class MainWindow
     private void ShowStartupNotice(string text,string actionText="关闭提示",Action? action=null)
     {
         _startupNotice?.Close();
-        var notice=new Window{FontFamily=SoftClayTheme.Font,FontSize=SoftClayTheme.Number("type","body"),Width=440,SizeToContent=SizeToContent.Height,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,ShowInTaskbar=false,Topmost=true,AllowsTransparency=true,Background=Brushes.Transparent,WindowStartupLocation=WindowStartupLocation.CenterScreen};
+        var notice=new SoftClayWindow{FontFamily=SoftClayTheme.Font,FontSize=SoftClayTheme.Number("type","body"),Width=440,SizeToContent=SizeToContent.Height,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,ShowInTaskbar=false,Topmost=true,AllowsTransparency=true,Background=Brushes.Transparent,WindowStartupLocation=WindowStartupLocation.CenterScreen};
         var panel=new StackPanel{Margin=new Thickness(18)};
         panel.Children.Add(new TextBlock{Text="Screenshot",FontSize=SoftClayTheme.Number("type","title"),FontWeight=FontWeights.SemiBold,Foreground=SoftClayTheme.Brush("ink")});
         panel.Children.Add(new TextBlock{Text=text,TextWrapping=TextWrapping.Wrap,Foreground=SoftClayTheme.Brush("muted"),Margin=new Thickness(0,10,0,16)});
@@ -95,7 +95,7 @@ public partial class MainWindow
     // 设置直接在原生层打开；隐藏宿主不作为 Owner，避免模态窗口顺带唤起旧编辑画面。
     private void OpenSettingsWindow(string section = "capture")
     {
-        if (_settingsWindow is not null) { _settingsWindow.Activate(); return; }
+        if (_settingsWindow is not null) { _settingsWindow.ResumePresentation(); _settingsWindow.Activate(); return; }
         var window = new ProviderSettingsWindow(_ai, SaveBeforeUpdateAsync, ExecuteAsync,
             owner => new TermsWindow(_terms, reviewOnly: true) { Owner = owner }.ShowDialog(), section);
         if (IsVisible) window.Owner = this;
@@ -108,7 +108,7 @@ public partial class MainWindow
     // 托盘入口仍受本地操作互斥保护，和网页设置共享行为但不经过 ShowWorkbenchFromTray。
     private void ShowSettingsFromTray()
     {
-        if (_settingsWindow is not null) { _settingsWindow.Activate(); return; }
+        if (_settingsWindow is not null) { _settingsWindow.ResumePresentation(); _settingsWindow.Activate(); return; }
         if (_presentation.IsSelecting) return;
         if (!_requests.TryEnter("settings.configure", out var lease)) { ShowEditorNotice("正在处理另一项操作，请稍后打开设置。"); return; }
         try { _terms.RequireAccepted(); OpenSettingsWindow(); }
@@ -124,7 +124,7 @@ public partial class MainWindow
         {
             _transientNotice?.Close();
             var area=SystemParameters.WorkArea;
-            var notice=new Window{FontFamily=SoftClayTheme.Font,FontSize=SoftClayTheme.Number("type","body"),Width=Math.Min(440,area.Width-32),SizeToContent=SizeToContent.Height,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,ShowActivated=false,ShowInTaskbar=false,Topmost=true,AllowsTransparency=true,Background=Brushes.Transparent,IsHitTestVisible=false};
+            var notice=new SoftClayWindow{FontFamily=SoftClayTheme.Font,FontSize=SoftClayTheme.Number("type","body"),Width=Math.Min(440,area.Width-32),SizeToContent=SizeToContent.Height,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,ShowActivated=false,ShowInTaskbar=false,Topmost=true,AllowsTransparency=true,Background=Brushes.Transparent,IsHitTestVisible=false};
             notice.Content=new SoftClayPopupSurface{Style=(Style)FindResource(typeof(SoftClayPopupSurface)),Margin=new Thickness(16),Padding=new Thickness(16,12,16,12),Content=new TextBlock{Text=text,TextWrapping=TextWrapping.Wrap,Foreground=SoftClayTheme.Brush("ink"),FontSize=SoftClayTheme.Number("type","body")}};
             var timer=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromSeconds(4)};
             timer.Tick+=(_,_)=>notice.Close();

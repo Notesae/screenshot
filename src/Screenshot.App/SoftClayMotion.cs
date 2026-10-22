@@ -20,7 +20,7 @@ internal static class SoftClayMotion
     private static JsonElement Motion => Tokens.RootElement.GetProperty("motion");
     // 弱表保留重定向状态；只有尚未停稳的控件进入活动帧列表。
     private static readonly ConditionalWeakTable<Button, SurfaceState> Buttons = new();
-    private static readonly ConditionalWeakTable<FrameworkElement, SurfaceState> Surfaces = new();
+    private static readonly ConditionalWeakTable<FrameworkElement, FloatingSurface> Surfaces = new();
     private static readonly List<WeakReference<SurfaceState>> Known = new();
     private static readonly Dictionary<FrameworkElement, SurfaceState> Active = new();
     private static readonly Dictionary<FrameworkElement, Func<double, bool>> Timelines = new();
@@ -83,26 +83,39 @@ internal static class SoftClayMotion
         Wake(state);
     }
 
-    /// <summary>所有原生浮卡沿用同一个材质/正文入口，关闭仍由原生生命周期决定。</summary>
+    /// <summary>同一表面重开时取消旧退场，从当前材质、正文与矩形继续。</summary>
     public static void EnterSurface(FrameworkElement owner, FrameworkElement face, FrameworkElement glyph)
     {
-        StopSurface(owner); Surfaces.Remove(owner);
-        var state = new SurfaceState(owner, face, glyph) { Floating = true };
-        Surfaces.Add(owner, state); Known.RemoveAll(reference => !reference.TryGetTarget(out _)); Known.Add(new WeakReference<SurfaceState>(state));
-        state.Y.Snap(6); state.Y.To = 0; state.Alpha.Snap(0); state.Alpha.To = 1;
-        state.ScaleX.Snap(.96); state.ScaleX.To = 1; state.ScaleY.Snap(.94); state.ScaleY.To = 1;
-        state.Paint(); Wake(state);
+        if (!Surfaces.TryGetValue(owner, out var state) || state.Face != face || state.Glyph != glyph)
+        {
+            StopSurface(owner); state = new FloatingSurface(face, glyph); Surfaces.Add(owner, state);
+        }
+        state.Transition.Open(); state.Paint();
+        Animate(owner, dt => { state.Transition.Step(dt); state.Paint(); return state.Transition.Moving; });
+    }
+    public static void ExitSurface(FrameworkElement owner, double duration, double directionX, double directionY, Action? completed = null)
+    {
+        if (!Surfaces.TryGetValue(owner, out var state)) { completed?.Invoke(); return; }
+        state.Transition.Close(duration, directionX, directionY);
+        Animate(owner, dt =>
+        {
+            state.Transition.Step(dt); state.Paint();
+            if (state.Transition.Moving) return true;
+            completed?.Invoke(); return false;
+        });
     }
     public static void StopSurface(FrameworkElement owner)
     {
-        Active.Remove(owner); if (Surfaces.TryGetValue(owner, out var state)) state.Reset(); SleepIfSettled();
+        Timelines.Remove(owner);
+        if (Surfaces.TryGetValue(owner, out var state)) { state.Paint(NativeSurfaceFrame.Open); Surfaces.Remove(owner); }
+        SleepIfSettled();
     }
     /// <summary>折叠等局部布局过渡共用合成订阅，隐藏/卸载或减少动态时归到语义终态。</summary>
     public static void Animate(FrameworkElement owner, Func<double, bool> advance)
     {
         Timelines.Remove(owner);
         if (!owner.IsLoaded || !owner.IsVisible || !SystemParameters.ClientAreaAnimation) { advance(double.PositiveInfinity); SleepIfSettled(); return; }
-        if (!advance(0)) return;
+        if (!advance(0)) { SleepIfSettled(); return; }
         Timelines[owner] = advance; StartRendering();
     }
     public static void StopTimeline(FrameworkElement owner)
@@ -135,10 +148,10 @@ internal static class SoftClayMotion
         {
             var state = pair.Value;
             if (!state.Owner.IsLoaded || !state.Owner.IsVisible || !SystemParameters.ClientAreaAnimation) { state.Reset(); Active.Remove(pair.Key); continue; }
-            var config = Motion.GetProperty("spring").GetProperty(state.Floating ? "panel" : state.Pressed ? "press" : "attention");
+            var config = Motion.GetProperty("spring").GetProperty(state.Pressed ? "press" : "attention");
             var moving = false;
-            foreach (var spring in new[] { state.X, state.Y, state.Alpha }) moving = spring.Step(elapsed, config) || moving;
-            var press = state.Floating ? config : Motion.GetProperty("spring").GetProperty("press");
+            foreach (var spring in new[] { state.X, state.Y }) moving = spring.Step(elapsed, config) || moving;
+            var press = Motion.GetProperty("spring").GetProperty("press");
             moving = state.ScaleX.Step(elapsed, press) || moving;
             moving = state.ScaleY.Step(elapsed, press) || moving;
             state.Paint();
@@ -174,18 +187,16 @@ internal static class SoftClayMotion
     private sealed class SurfaceState
     {
         public readonly FrameworkElement Owner;
-        public readonly SpringState X = new(), Y = new(), ScaleX = new(1), ScaleY = new(1), Alpha = new(1);
+        public readonly SpringState X = new(), Y = new(), ScaleX = new(1), ScaleY = new(1);
         public readonly TranslateTransform Shift = new();
         private readonly ScaleTransform _scale = new(1, 1);
         private readonly TranslateTransform _glyphShift = new();
-        private readonly FrameworkElement? _face, _glyph;
-        public bool Pressed, Floating;
+        public bool Pressed;
 
         // 命中网格不参与变换；材质与图文分别挂接到模板零件。
         public SurfaceState(FrameworkElement owner, FrameworkElement? face, FrameworkElement? glyph)
         {
             Owner = owner;
-            _face = face; _glyph = glyph;
             if (face != null)
             {
                 face.RenderTransformOrigin = new Point(.5, .5);
@@ -200,16 +211,35 @@ internal static class SoftClayMotion
             _scale.ScaleX = ScaleX.Value; _scale.ScaleY = ScaleY.Value;
             var ratio = Motion.GetProperty("field").GetProperty("iconRatio").GetDouble();
             _glyphShift.X = X.Value * ratio; _glyphShift.Y = Y.Value * ratio;
-            if (Floating)
-            {
-                if (_face != null) _face.Opacity = Math.Clamp(Alpha.Value * 4, 0, 1);
-                if (_glyph != null) _glyph.Opacity = Math.Clamp((Alpha.Value - .25) / .75, 0, 1);
-            }
         }
 
         public void Reset()
         {
-            X.Snap(0); Y.Snap(0); ScaleX.Snap(1); ScaleY.Snap(1); Alpha.Snap(1); Pressed = false; Paint();
+            X.Snap(0); Y.Snap(0); ScaleX.Snap(1); ScaleY.Snap(1); Pressed = false; Paint();
+        }
+    }
+
+    // 浮层和按钮共用同一帧调度；浮层额外保留独立透明度，提前退出不重新点亮材质。
+    private sealed class FloatingSurface
+    {
+        public readonly FrameworkElement Face, Glyph;
+        public readonly NativeSurfaceTransition Transition = new();
+        private readonly ScaleTransform _scale = new(1, 1);
+        private readonly TranslateTransform _shift = new(), _glyphShift = new();
+        public FloatingSurface(FrameworkElement face, FrameworkElement glyph)
+        {
+            Face = face; Glyph = glyph;
+            face.RenderTransformOrigin = new Point(.5, .5);
+            face.RenderTransform = new TransformGroup { Children = { _scale, _shift } };
+            glyph.RenderTransform = _glyphShift;
+        }
+        public void Paint() => Paint(Transition.Frame);
+        public void Paint(NativeSurfaceFrame frame)
+        {
+            _shift.X = frame.X; _shift.Y = frame.Y; _scale.ScaleX = frame.ScaleX; _scale.ScaleY = frame.ScaleY;
+            var ratio = Motion.GetProperty("field").GetProperty("iconRatio").GetDouble();
+            _glyphShift.X = frame.X * ratio; _glyphShift.Y = frame.Y * ratio;
+            Face.Opacity = frame.Material; Glyph.Opacity = frame.Content;
         }
     }
 

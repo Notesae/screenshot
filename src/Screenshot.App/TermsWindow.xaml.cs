@@ -8,7 +8,7 @@ using System.Windows.Documents;
 namespace Screenshot.App;
 
 // 独立本地条款窗口；创建时没有WebView、捕获后端、热键、剪贴板或HTTP服务。
-public partial class TermsWindow : Window
+public partial class TermsWindow : SoftClayWindow
 {
     private readonly TermsStartup _startup;
     private bool _documentError;

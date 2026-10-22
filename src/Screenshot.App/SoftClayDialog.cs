@@ -21,7 +21,7 @@ internal static class SoftClayDialog
         var result = buttons == MessageBoxButton.OK ? MessageBoxResult.OK
             : buttons == MessageBoxButton.YesNo ? MessageBoxResult.No : MessageBoxResult.Cancel;
         if (defaultResult == MessageBoxResult.None) defaultResult = result;
-        var dialog = new Window
+        var dialog = new SoftClayWindow
         {
             Title = title, Width = Math.Min(520, SystemParameters.WorkArea.Width - 32),
             MaxHeight = Math.Max(240, SystemParameters.WorkArea.Height - 32), SizeToContent = SizeToContent.Height,

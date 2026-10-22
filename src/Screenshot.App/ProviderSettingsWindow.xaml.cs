@@ -12,7 +12,7 @@ using Screenshot.App.Updates;
 namespace Screenshot.App;
 
 /// <summary>原生服务商设置窗口，编辑密钥时不会向前端或网络发送配置。</summary>
-public partial class ProviderSettingsWindow : Window
+public partial class ProviderSettingsWindow : SoftClayWindow
 {
     private readonly AiService _service;
     private string? _selectedId;

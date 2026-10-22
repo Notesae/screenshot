@@ -41,6 +41,7 @@ internal static class SoftClayThemeTests
                 Check(Math.Abs(dip.OffsetX*1.5)<=7.5&&Math.Abs(dip.OffsetY*1.5)<=6,"DPI only scales decorative offset");
                 dip.Step(8);Check(double.IsFinite(dip.OffsetX)&&double.IsFinite(dip.HandleScale),"capture long frame bounded by shared solver");
                 var resources=new ResourceDictionary();SoftClayTheme.Install(resources);
+                checks += NativeExitTests.Run(resources);
                 var surface = new SoftClayPopupSurface { Content = new TextBlock { Text = "不缩放的正文" } };
                 surface.Resources.MergedDictionaries.Add(resources); surface.Style = (Style)resources[typeof(SoftClayPopupSurface)];
                 Check(surface.ApplyTemplate(), "native shared popup template loads without a window");

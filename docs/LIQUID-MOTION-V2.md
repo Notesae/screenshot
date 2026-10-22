@@ -2,7 +2,25 @@
 
 日期：2026-10-22。基于 design/liquid-symbiosis 的 e478516，在 codex/liquid-motion-v2 实现。参考 docs/motion/liquid-symbiosis/v2 的 DESIGN、MOTION-SPEC、tokens 和 demo/engine.js；原型本身保留。
 
+## 2026-10-22 WPF 窗口与 Popup 退场
+
+设置、条款、确认框、启动/错误提示改用共享 `SoftClayWindow`。先执行原有 Closing 保护，再保留约 170ms 的退出表面，材质短移 6 DIP、横纵轻收，正文只平移和淡出；退出立即停止内容命中和键盘操作。关闭重复请求不会重启时长，合成帧暂停时有 220ms 的一次性兜底，不留下常驻轮询。
+
+模态结果在退出前保存，第二次提交 Close 时恢复明确的 true/false；用户拒绝、Esc 或关闭不能变成同意。实际关闭时再次执行原有保护，更新交接期间仍可阻止关闭。显式重开设置或 Closing 取消，会作废旧代次并从当前表面恢复。窗口真正 Closed 后才释放模态及原有资源；应用强制退出/所有者销毁仍服从 WPF 生命周期，不依赖动画阻止关闭。
+
+菜单、文本菜单、下拉和工具提示保留现有 Popup、绑定、命令与键盘路由。适配器在公共视觉根上移除框架整层淡出，独立材质/正文在原生销毁前完成约 140ms 回收；WPF Fade 模式提供约 150ms 的 HWND 保留期并负责立即释放命中/鼠标捕获。快速重开从当前透明度和位移续接，不重设亮度；隐藏/卸载或系统减少动态立即到正确终态并清理订阅。该原生时间适配不宣称与网页 170ms 逐毫秒相同。
+
+以上框架行为核对自 [.NET WPF Popup](https://github.com/dotnet/wpf/blob/main/src/Microsoft.DotNet.Wpf/src/PresentationFramework/System/Windows/Controls/Primitives/Popup.cs)、[PopupRoot](https://github.com/dotnet/wpf/blob/main/src/Microsoft.DotNet.Wpf/src/PresentationFramework/System/Windows/Controls/Primitives/PopupRoot.cs) 与 [Window](https://github.com/dotnet/wpf/blob/main/src/Microsoft.DotNet.Wpf/src/PresentationFramework/System/Windows/Window.cs) 的公开源码；不反射私有字段，不创建快照替代窗口，不截取屏幕。
+
+托盘选中命令后先关闭菜单，等实际 Closed 再排入命令，避免主动截图和新对话框抢在旧菜单退场之前；重开菜单或新命令会作废旧回调，每个意图最多执行一次。系统文件/目录选择框保持系统原生行为，本轮不为其增加应用动画。
+
+本轮完整 .NET Release 构建零警告/零错误；1800 项原生边界断言（含 30/60/144Hz 逐帧状态）、条款 28、更新 103、公开更新源 55 项通过。检查覆盖提前关闭不跳亮、短距/缩放上限、反向重开、重复关闭不延时、减少动态到正确终态、模态结果及关闭保护、旧回调失效、托盘命令最多执行一次，以及真实模板中的禁用/恢复与正文无缩放。
+
+测试仅在内存中 ApplyTemplate、Measure/Arrange 并推进纯状态。ComboBox 模板的 Popup 和普通 Popup 仅构造且始终 IsOpen=false；菜单/工具提示仅装载模板，不伪造其私有宿主，不创建或显示 Window。真实 Popup 打开/关闭事件、焦点、DPI、WebView2 合成及 GPU 效果仍未验收。网页代码未变，前批网页回归证据保留，不将其写成本轮 WPF 实机验证。
+
 ## 2026-10-22 控件与浮卡衔接补齐
+
+本节为前批记录；原生退场缺口由上节续作补齐。
 
 继续按 v2 第 6、8、9 节接入生产控件。面板、菜单、取色器、阅读窗口、画布缩放与任务操作中的普通按钮使用固定语义槽位，独立材质按压/迎向，长标签只平移；滑杆只形变凸面滑块，复选框只形变底材。全部复用主轨时钟，禁用、卸载、隐藏、减少动态时复位，停稳不保留活动帧。字段之间转移焦点不会误触发窗口失焦复位。
 
@@ -49,6 +67,8 @@ WPF 托盘/文本菜单、下拉、提示、设置、条款、确认框和启动
 - editor/src/MotionDetails.tsx：原生 details 语义下可中断折叠。
 - src/Screenshot.App/SoftClayMotion.cs：WPF 材质/图文反馈、浮层入场及网页同源求解器。
 - src/Screenshot.App/SoftClayPopupSurface.cs、SoftClayDisclosure.cs：原生共享浮层材质/正文与可反向折叠。
+- src/Screenshot.App/SoftClayWindow.cs、SoftClayPopupMotion.cs：原生关闭保留、模态结果与 Popup 退场适配。
+- src/Screenshot.App/NativeSurfaceTransition.cs、NativeCloseGate.cs：无窗口可验证的表面状态、关闭代次与延后命令。
 - src/Screenshot.App/CaptureMotion.cs 与 CaptureService.cs：原生首次框选的纯装饰状态和有限脏区绘制，不修改选区模型。
 - 原有 App/CompactOverlay 与 WPF 主题仅增加表现衔接；Fabric、项目格式、AI 和原生捕获权限不变。
 
@@ -74,7 +94,7 @@ WPF 托盘/文本菜单、下拉、提示、设置、条款、确认框和启动
 | 3. 液态共生 B | 主轨短液桥、曲率与追光 | 同组短桥与双轴追光、合成预览；未做真机帧率验收 |
 | 4. 按压与选择 | 主轨、ControlMotion、WPF 按钮 | 图文无缩放、点击才选择、普通按钮/滑杆/复选框反馈 |
 | 5. 入场、脉冲与光 | 宿主揭示门槛、CaptureMotion | 5 组视口/9 组连续交接，原生胶囊有界纯状态 |
-| 6. 浮卡 | LiquidMotion、SurfaceMotion、SoftClayPopupSurface | 当前矩形续接、正文后入、短回收、手动即时；原生仅入口/清理已接入 |
+| 6. 浮卡 | LiquidMotion、SurfaceMotion、SoftClayPopupSurface、SoftClayWindow、SoftClayPopupMotion | 当前状态续接、正文后入、短回收、手动即时；WPF 窗口/Popup 已接入退出保留，真实合成仍未验收 |
 | 7. 完成与取消 | App 完成任务戳及表现控制器 | 复制失败、迟到回复、宿主拒绝、取消等待与退出恢复；系统复制使用替身 |
 | 8. 基础交互 | ControlMotion、MotionDetails、SoftClayDisclosure | 长滑杆手势单步撤销、颜色草稿、可反向折叠、通知点击穿透；WPF 为内存模板验证 |
 | 9. 减少动态与低开销 | 网页共享帧钟、原生有限帧循环 | 运行中减少动态、隐藏/卸载归位及停稳休眠；实际 GPU/DPI 未测 |

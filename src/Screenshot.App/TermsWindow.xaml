@@ -1,4 +1,4 @@
-<Window x:Class="Screenshot.App.TermsWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:Screenshot.App"
+<local:SoftClayWindow x:Class="Screenshot.App.TermsWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:Screenshot.App"
         Icon="Assets/Screenshot.ico" Title="Screenshot · 使用条款" Width="860" Height="690" MinWidth="620" MinHeight="460"
         WindowStartupLocation="CenterScreen" WindowStyle="None" AllowsTransparency="True" ResizeMode="CanResizeWithGrip"
         Background="Transparent" Foreground="{DynamicResource ClayInk}" FontFamily="{DynamicResource ClayFont}" FontSize="{DynamicResource ClayBodySize}">
@@ -26,4 +26,4 @@
       <ResizeGrip Grid.Row="6" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-18,-18" Width="16" Height="16"/>
     </Grid>
   </local:SoftClayPopupSurface>
-</Window>
+</local:SoftClayWindow>
