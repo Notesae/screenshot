@@ -1,0 +1,205 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Text.Json;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+
+namespace Screenshot.App;
+
+/// <summary>原生控件只复用 v2 运动语义，颜色和尺寸仍来自生产主题。</summary>
+internal static class SoftClayMotion
+{
+    private static readonly JsonDocument Tokens = JsonDocument.Parse(typeof(SoftClayMotion).Assembly.GetManifestResourceStream("Screenshot.LiquidMotionTokens")
+        ?? throw new InvalidOperationException("缺少共享动效参数。"));
+    private static JsonElement Motion => Tokens.RootElement.GetProperty("motion");
+    // 弱表保留重定向状态；只有尚未停稳的控件进入活动帧列表。
+    private static readonly ConditionalWeakTable<Button, SurfaceState> Buttons = new();
+    private static readonly List<WeakReference<SurfaceState>> Known = new();
+    private static readonly Dictionary<FrameworkElement, SurfaceState> Active = new();
+    private static bool _installed, _rendering;
+    private static long _last;
+
+    /// <summary>仅安装视觉事件，不创建窗口、读取剪贴板或注册系统快捷键。</summary>
+    public static void Install()
+    {
+        if (_installed) return;
+        _installed = true;
+        EventManager.RegisterClassHandler(typeof(Button), UIElement.MouseMoveEvent, new MouseEventHandler((sender, args) => Hover((Button)sender, args.GetPosition((Button)sender))));
+        EventManager.RegisterClassHandler(typeof(Button), UIElement.MouseLeaveEvent, new MouseEventHandler((sender, _) => Hover((Button)sender, null)));
+        EventManager.RegisterClassHandler(typeof(Button), FrameworkElement.UnloadedEvent, new RoutedEventHandler((sender, _) =>
+        {
+            var button = (Button)sender;
+            Active.Remove(button);
+            if (Buttons.TryGetValue(button, out var state)) state.Reset();
+            SleepIfSettled();
+        }));
+        SystemParameters.StaticPropertyChanged += SystemMotionChanged;
+    }
+
+    // 每个按钮只创建一组独立表面变换，弱引用不会阻止窗口释放。
+    private static SurfaceState State(Button button) => Buttons.GetValue(button, owner =>
+    {
+        owner.ApplyTemplate();
+        var face = owner.Template.FindName("Face", owner) as FrameworkElement;
+        var glyph = owner.Template.FindName("Glyph", owner) as FrameworkElement;
+        var state = new SurfaceState(owner, face, glyph);
+        Known.RemoveAll(reference => !reference.TryGetTarget(out _));
+        Known.Add(new WeakReference<SurfaceState>(state));
+        return state;
+    });
+
+    /// <summary>输入槽位不移动；按住冻结迎向，释放从当前状态回落。</summary>
+    public static void Press(Button button, bool pressed)
+    {
+        var state = State(button);
+        state.Pressed = pressed;
+        state.ScaleX.To = pressed ? Motion.GetProperty("press").GetProperty("x").GetDouble() : 1;
+        state.ScaleY.To = pressed ? Motion.GetProperty("press").GetProperty("y").GetDouble() : 1;
+        if (!pressed) { state.X.To = 0; state.Y.To = 0; }
+        Wake(state);
+    }
+
+    // 由事件提供的控件内坐标计算有界迎向，不读取或移动系统光标。
+    private static void Hover(Button button, Point? pointer)
+    {
+        if (!button.IsEnabled || !SystemParameters.ClientAreaAnimation) return;
+        var state = State(button);
+        if (state.Pressed) return;
+        var field = Motion.GetProperty("field");
+        var dx = pointer?.X - button.ActualWidth / 2 ?? 0;
+        var dy = pointer?.Y - button.ActualHeight / 2 ?? 0;
+        var attention = pointer.HasValue ? Math.Pow(Math.Max(0, 1 - Math.Sqrt(dx * dx + dy * dy) / field.GetProperty("radius").GetDouble()), 2) : 0;
+        state.X.To = Math.Clamp(dx / Math.Max(1, button.ActualWidth * .7), -1, 1) * attention * field.GetProperty("shiftX").GetDouble();
+        state.Y.To = Math.Clamp(dy / Math.Max(1, button.ActualHeight * .7), -1, 1) * attention * field.GetProperty("shiftY").GetDouble();
+        Wake(state);
+    }
+
+    /// <summary>托盘浮卡短位移和淡入，不缩放菜单文字，系统减少动态时直接显示。</summary>
+    public static void EnterPopup(ContextMenu menu)
+    {
+        StopPopup(menu);
+        var state = new SurfaceState(menu, null, null) { Popup = true };
+        state.Y.Snap(8); state.Y.To = 0; state.Alpha.Snap(0); state.Alpha.To = 1;
+        menu.RenderTransform = state.Shift;
+        Wake(state);
+    }
+
+    public static void StopPopup(ContextMenu menu)
+    {
+        if (Active.Remove(menu, out var state)) state.Reset();
+        menu.Opacity = 1;
+        SleepIfSettled();
+    }
+
+    // 仅活动表面订阅合成帧；系统关闭动画时同步复位。
+    private static void Wake(SurfaceState state)
+    {
+        if (!SystemParameters.ClientAreaAnimation) { state.Reset(); Active.Remove(state.Owner); SleepIfSettled(); return; }
+        Active[state.Owner] = state;
+        if (_rendering) return;
+        _last = Stopwatch.GetTimestamp(); _rendering = true;
+        CompositionTarget.Rendering += Render;
+    }
+
+    /// <summary>同一原生帧循环使用 v2 的有界步长；所有控件停稳后解除渲染订阅。</summary>
+    private static void Render(object? sender, EventArgs args)
+    {
+        var now = Stopwatch.GetTimestamp();
+        var elapsed = Math.Min(Motion.GetProperty("solver").GetProperty("maxElapsed").GetDouble(), (now - _last) / (double)Stopwatch.Frequency);
+        _last = now;
+        foreach (var pair in Active.ToArray())
+        {
+            var state = pair.Value;
+            if (!state.Owner.IsLoaded || !state.Owner.IsVisible || !SystemParameters.ClientAreaAnimation) { state.Reset(); Active.Remove(pair.Key); continue; }
+            var config = Motion.GetProperty("spring").GetProperty(state.Popup ? "panel" : state.Pressed ? "press" : "attention");
+            var moving = false;
+            foreach (var spring in new[] { state.X, state.Y, state.Alpha }) moving = spring.Step(elapsed, config) || moving;
+            var press = Motion.GetProperty("spring").GetProperty("press");
+            moving = state.ScaleX.Step(elapsed, press) || moving;
+            moving = state.ScaleY.Step(elapsed, press) || moving;
+            state.Paint();
+            if (!moving) Active.Remove(pair.Key);
+        }
+        SleepIfSettled();
+    }
+
+    private static void SleepIfSettled()
+    {
+        if (Active.Count != 0 || !_rendering) return;
+        CompositionTarget.Rendering -= Render; _rendering = false;
+    }
+
+    // 系统偏好优先，连已经休眠的偏移表面也立即恢复。
+    private static void SystemMotionChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName != nameof(SystemParameters.ClientAreaAnimation) || SystemParameters.ClientAreaAnimation) return;
+        // 系统选项切换时连已经休眠的迎向表面也复位，不能留下偏移。
+        foreach (var reference in Known) if (reference.TryGetTarget(out var state)) state.Reset();
+        foreach (var state in Active.Values) state.Reset();
+        Active.Clear(); SleepIfSettled();
+    }
+
+    /// <summary>材质独立缩放，图文仅以 0.38 比例平移；透明根槽位始终固定。</summary>
+    private sealed class SurfaceState
+    {
+        public readonly FrameworkElement Owner;
+        public readonly FrameSpring X = new(), Y = new(), ScaleX = new(1), ScaleY = new(1), Alpha = new(1);
+        public readonly TranslateTransform Shift = new();
+        private readonly ScaleTransform _scale = new(1, 1);
+        private readonly TranslateTransform _glyphShift = new();
+        public bool Pressed, Popup;
+
+        // 命中网格不参与变换；材质与图文分别挂接到模板零件。
+        public SurfaceState(FrameworkElement owner, FrameworkElement? face, FrameworkElement? glyph)
+        {
+            Owner = owner;
+            if (face != null)
+            {
+                face.RenderTransformOrigin = new Point(.5, .5);
+                face.RenderTransform = new TransformGroup { Children = { _scale, Shift } };
+            }
+            if (glyph != null) glyph.RenderTransform = _glyphShift;
+        }
+
+        public void Paint()
+        {
+            Shift.X = X.Value; Shift.Y = Y.Value;
+            _scale.ScaleX = ScaleX.Value; _scale.ScaleY = ScaleY.Value;
+            var ratio = Motion.GetProperty("field").GetProperty("iconRatio").GetDouble();
+            _glyphShift.X = X.Value * ratio; _glyphShift.Y = Y.Value * ratio;
+            if (Popup) Owner.Opacity = Math.Clamp(Alpha.Value, 0, 1);
+        }
+
+        public void Reset()
+        {
+            X.Snap(0); Y.Snap(0); ScaleX.Snap(1); ScaleY.Snap(1); Alpha.Snap(1); Pressed = false; Paint();
+        }
+    }
+
+    /// <summary>与 React 相同的质量为 1 半隐式欧拉求解与停稳阈值。</summary>
+    private sealed class FrameSpring
+    {
+        public double Value, Velocity, To;
+        public FrameSpring(double value = 0) { Value = To = value; }
+        public void Snap(double value) { Value = To = value; Velocity = 0; }
+        public bool Step(double elapsed, JsonElement config)
+        {
+            var solver = Motion.GetProperty("solver");
+            var steps = Math.Max(1, (int)Math.Ceiling(elapsed / solver.GetProperty("maxStep").GetDouble()));
+            var step = elapsed / steps;
+            for (var index = 0; index < steps; index++)
+            {
+                Velocity += (-config.GetProperty("k").GetDouble() * (Value - To) - config.GetProperty("c").GetDouble() * Velocity) * step;
+                Value += Velocity * step;
+            }
+            if (Math.Abs(Value - To) < solver.GetProperty("positionEpsilon").GetDouble() && Math.Abs(Velocity) < solver.GetProperty("velocityEpsilon").GetDouble()) Snap(To);
+            return Value != To || Velocity != 0;
+        }
+    }
+}

@@ -1,0 +1,42 @@
+/* v2 只接管表现层；所有布局、颜色、圆角和物理截图映射仍由生产 token 决定。 */
+.clay-editor .liquid-rail { isolation: isolate; background: transparent; box-shadow: none; animation: none !important; }
+.liquid-rail-body { position: absolute; inset: 0; z-index: 0; border-radius: inherit; background: var(--clay-face); box-shadow: var(--clay-elevation); transform-origin: 96% 50%; pointer-events: none; }
+.liquid-rail > :not(.liquid-rail-body,.liquid-sweep,.liquid-active,.liquid-bridge) { position: relative; z-index: 2; }
+.clay-editor .liquid-rail button[data-motion-button] { position: relative; isolation: isolate; background: transparent !important; box-shadow: none !important; filter: none !important; transform: none !important; transition: none !important; }
+.liquid-skin { position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; background: var(--clay-raised); box-shadow: var(--clay-button); }
+.liquid-skin::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(40px circle at var(--liquid-light-x,50%) 25%, #fff, transparent); opacity: var(--liquid-light,0); }
+.liquid-glyph { display: inline-flex; align-items: center; justify-content: center; gap: 8px; pointer-events: none; }
+.clay-editor .liquid-glyph > svg { width: var(--clay-size-icon); height: var(--clay-size-icon); }
+.clay-editor .clay-image-tools .liquid-glyph > svg { width: 21px; height: 21px; }
+[data-motion-action=done] > .liquid-skin { background: var(--clay-primary); box-shadow: var(--clay-primary-shadow); }
+[data-motion-button][aria-pressed=true] > .liquid-skin { background: transparent; box-shadow: none; }
+[data-motion-button][aria-expanded=true] > .liquid-skin { background: var(--clay-raised); box-shadow: var(--clay-press); }
+[data-motion-button]:focus-visible > .liquid-skin { filter: brightness(1.2); }
+[data-motion-button]:active:enabled > .liquid-skin { box-shadow: var(--clay-press); }
+[data-motion-button]:disabled > .liquid-skin { box-shadow: inset 0 1px 2px #ffffff0d; }
+.liquid-active { position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none; border-radius: var(--clay-radius-control); background: var(--clay-primary); box-shadow: var(--clay-primary-shadow); opacity: 0; transform-origin: center; }
+.clay-editor .liquid-rail > svg.liquid-bridge { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; fill: var(--clay-raisedMid); overflow: hidden; pointer-events: none; }
+.liquid-sweep { position: absolute; inset: 0; z-index: 3; pointer-events: none; border-radius: inherit; opacity: 0; background: linear-gradient(115deg,transparent 38%,#ffffff40 50%,transparent 62%); }
+.clay-editor .liquid-panel { background: transparent; box-shadow: none; overflow: visible; animation: none !important; }
+.liquid-panel-skin { position: absolute; inset: 0; z-index: 0; border-radius: inherit; background: var(--clay-card-face); box-shadow: var(--clay-elevation); transform-origin: top left; pointer-events: none; }
+.liquid-panel-content { position: relative; z-index: 1; display: flex; flex-direction: column; min-height: 0; border-radius: inherit; overflow: hidden; }
+.clay-editor .liquid-panel.is-closing { animation: none; }
+.clay-editor .liquid-image-copy { position: fixed; z-index: 4; pointer-events: none; transform-origin: center; }
+.clay-editor[data-motion-exit] :where(.clay-chrome,.clay-capture-layer,.clay-reader) { pointer-events: none !important; }
+.clay-editor[data-motion-exit] button { pointer-events: none !important; }
+/* 浮层文字只做短位移和淡入，不随材质拉伸；没有输入时不播放装饰循环。 */
+.clay-reader, .clay-select-popup, .clay-color-popover, .clay-tooltip, .clay-notice { animation: liquid-feedback-in 170ms cubic-bezier(.22,1,.36,1); }
+@keyframes liquid-feedback-in { from { opacity: 0; translate: 0 6px; } to { opacity: 1; translate: 0 0; } }
+.clay-editor[data-motion-reduced=true] *, .clay-editor[data-motion-reduced=true] *::before, .clay-editor[data-motion-reduced=true] *::after { animation: none !important; transition: none !important; }
+.clay-editor[data-motion-economy=true] .liquid-sweep, .clay-editor[data-motion-reduced=true] :where(.liquid-bridge,.liquid-sweep), .clay-editor[data-motion-reduced=true] .liquid-skin::after { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .clay-reader, .clay-select-popup, .clay-color-popover, .clay-tooltip, .clay-notice { animation: none !important; }
+  .liquid-bridge, .liquid-sweep, .liquid-skin::after { display: none !important; }
+}
+
+/* 折叠只改变容器高度；字段正文保持静止，取消粒屑不进入画布。 */
+.liquid-details-content { display:grid; gap:12px; }
+.liquid-crumb { position:fixed; z-index:7; width:5px; height:5px; border-radius:50%; background:var(--clay-raisedMid); pointer-events:none; }
+
+.clay-editor > svg.liquid-panel-bridge { position:absolute; inset:0; width:100%; height:100%; z-index:4; overflow:hidden; fill:var(--clay-surfaceMid); pointer-events:none; }
+.clay-editor[data-motion-reduced=true] > .liquid-panel-bridge, .clay-editor.is-reading > .liquid-panel-bridge { display:none; }

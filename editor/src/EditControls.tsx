@@ -1,3 +1,4 @@
+import { MotionButton } from './LiquidMotion';
 import { useEffect, useState, type RefObject } from 'react';
 import { ColorField } from './ColorField';
 import { ArrowUpRight, Highlighter, Redo2, Square, Undo2 } from 'lucide-react';
@@ -5,7 +6,7 @@ import { contentGeometry, type ContentResize, type ProjectDocument, type SourceC
 import type { CanvasHandle, CanvasSelection } from './EditorCanvas';
 
 export function HistoryButtons({ canUndo, canRedo, undo, redo }: { canUndo: boolean; canRedo: boolean; undo: () => void; redo: () => void }) {
-  return <><button data-tooltip="撤销 Ctrl+Z" aria-label="撤销" disabled={!canUndo} onClick={undo}><Undo2/></button><button data-tooltip="重做 Ctrl+Y" aria-label="重做" disabled={!canRedo} onClick={redo}><Redo2/></button></>;
+  return <><MotionButton group="history" data-tooltip="撤销 Ctrl+Z" aria-label="撤销" disabled={!canUndo} onClick={undo}><Undo2/></MotionButton><MotionButton group="history" data-tooltip="重做 Ctrl+Y" aria-label="重做" disabled={!canRedo} onClick={redo}><Redo2/></MotionButton></>;
 }
 /** 属性只针对当前标注，修改即时应用且沿用画布撤销；不重复堆放绘制工具。 */
 export function AnnotationPalette({ canvasRef, onError, selection, disabled=false }: { canvasRef: RefObject<CanvasHandle | null>; onError: (error: unknown) => void; selection:CanvasSelection|null; disabled?:boolean }) {

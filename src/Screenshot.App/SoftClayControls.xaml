@@ -28,15 +28,17 @@
     <Setter Property="Effect" Value="{DynamicResource ClayButtonShadow}"/><Setter Property="HorizontalContentAlignment" Value="Center"/>
     <Setter Property="VerticalContentAlignment" Value="Center"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
-      <Grid>
-        <local:SoftClaySurface x:Name="Face" Background="{TemplateBinding Background}" CornerRadius="{DynamicResource ClayControlRadius}"
+      <!-- 透明根网格保持命中区域；材质和图文各自运动。 -->
+      <Grid Background="Transparent">
+        <local:SoftClaySurface x:Name="Face" IsHitTestVisible="False" Background="{TemplateBinding Background}" CornerRadius="{DynamicResource ClayControlRadius}"
                 BorderThickness="0" Material="{Binding Path=(local:SoftClaySurface.Material),RelativeSource={RelativeSource TemplatedParent}}">
           <Grid>
             <Border x:Name="State" CornerRadius="{DynamicResource ClayControlRadius}" Background="Transparent"/>
-            <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" RecognizesAccessKey="True"/>
+
           </Grid>
         </local:SoftClaySurface>
+        <ContentPresenter x:Name="Glyph" IsHitTestVisible="False" Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}" RecognizesAccessKey="True"/>
         <Border x:Name="Focus" Background="{DynamicResource ClayFocusFill}" BorderThickness="0"
                 CornerRadius="{DynamicResource ClayControlRadius}" Visibility="Collapsed" IsHitTestVisible="False"/>
       </Grid>

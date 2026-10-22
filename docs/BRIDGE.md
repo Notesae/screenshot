@@ -215,3 +215,9 @@ settings.configure 增加可选 section（capture / services / updates），在�
 
 ## 2026-10-21 框选交接等待调整
 presentation.ready / presentation.painted 字段与当前捕获、DPI、alpha 样本确认条件不变。等待现有 WebView 图像的样本核对改在 Dispatcher.Loaded（渲染后）队列执行，并仅在等待期间每 32ms 重查同一现有 Source，补足原地缓冲更新或通知合并未及时触发核对的情况。仅有验帧谓词才启用重查，超时/取消/结束均停止；时间本身不构成成功依据。确认后不再等 ContextIdle，改等 Render 队列，再执行现有 DwmFlush 与身份/几何复核。网页几何循环保留动画帧，但增加 32ms 定时后备，仅推进布局采样，仍由宿主真实帧检查放行。原总期限和拒绝旧帧规则保持。
+
+## 2026-10-22 v2 动效与完成时序
+
+桥接字段保持。App 在 image.copy 返回 copied:true 后复核 documentId/revision/generation/captureId，才请求本地表现控制器收束；约 360ms 后再复核身份，然后调用既有 presentation.complete。宿主仍执行 CheckEditorAsync 与呈现代数/捕获身份检查才隐藏。展示副本仅复制现有本地 canvas，不调用屏幕捕获，也不进入项目或导出。
+
+等待时“取消完成”或 Esc 只取消收起意图，已交给系统的复制不能回滚。退出动画被打断、文档替换或宿主拒绝时恢复当前表面，不发送迟到隐藏。普通 presentation.dismiss 仍只改变呈现并保留文档。ready/painted/合成帧门控及原生物理像素坐标保持；工具入场只在当前 chromeVisible 后启动。

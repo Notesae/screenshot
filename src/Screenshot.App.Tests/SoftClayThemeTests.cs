@@ -1,3 +1,4 @@
+using System.Windows.Media;
 using System.Windows;
 using System.Windows.Controls;
 using Screenshot.App;
@@ -32,6 +33,16 @@ internal static class SoftClayThemeTests
                     if(control is ContentControl item)item.Content="合成选项";
                     Check(control.ApplyTemplate(),"custom native template loads: "+type.Name);
                     Check(control.FocusVisualStyle is null,"native focus adorners remain replaced: "+type.Name);
+                    // 仅实例化模板和变换，验证固定命中层，不显示窗口或注入指针。
+                    if(control is Button button)
+                    {
+                        var face=(FrameworkElement)button.Template.FindName("Face",button);
+                        var glyph=(FrameworkElement)button.Template.FindName("Glyph",button);
+                        Check(ReferenceEquals(VisualTreeHelper.GetParent(face),VisualTreeHelper.GetParent(glyph)),"native glyph is independent from deforming material");
+                        SoftClayMotion.Press(button,true);
+                        Check(button.RenderTransform.Value.IsIdentity&&glyph.RenderTransform is TranslateTransform,"native input slot stays fixed while glyph only translates");
+                        button.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
+                    }
                     if(control is TextBox or PasswordBox or ComboBox)Check(control.BorderThickness==new Thickness(0),"fields have no decorative outline: "+type.Name);
                     if(control is ListBoxItem or ComboBoxItem)Check(control.Template.FindName("ItemContent",control) is ContentPresenter { Content: "合成选项" },"native item text remains visible");
                     if(control is TextBox or PasswordBox or RichTextBox)Check(control.Template.FindName("PART_ContentHost",control) is ScrollViewer,"native text host preserved");

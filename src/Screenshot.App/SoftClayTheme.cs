@@ -82,6 +82,7 @@ internal static class SoftClayTheme
     {
         if (_buttonFeedbackInstalled) return;
         _buttonFeedbackInstalled = true;
+        SoftClayMotion.Install();
         EventManager.RegisterClassHandler(typeof(Button), UIElement.PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler((sender, _) => AnimatePress((Button)sender, true)));
         EventManager.RegisterClassHandler(typeof(Button), UIElement.PreviewMouseLeftButtonUpEvent, new MouseButtonEventHandler((sender, _) => AnimatePress((Button)sender, false)));
         EventManager.RegisterClassHandler(typeof(Button), UIElement.LostMouseCaptureEvent, new MouseEventHandler((sender, _) => AnimatePress((Button)sender, false)));
@@ -89,21 +90,8 @@ internal static class SoftClayTheme
         EventManager.RegisterClassHandler(typeof(Button), UIElement.PreviewKeyUpEvent, new KeyEventHandler((sender, e) => { if (e.Key is Key.Space or Key.Enter) AnimatePress((Button)sender, false); }));
     }
 
-    private static void AnimatePress(Button button, bool pressed)
-    {
-        if (button.RenderTransform is not ScaleTransform scale)
-        {
-            scale = new ScaleTransform(1, 1); button.RenderTransform = scale; button.RenderTransformOrigin = new Point(.5, .5);
-        }
-        var target = pressed ? Number("motion", "pressedScale") : 1;
-        if (!SystemParameters.ClientAreaAnimation)
-        {
-            scale.BeginAnimation(ScaleTransform.ScaleXProperty, null); scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-            scale.ScaleX = scale.ScaleY = target; return;
-        }
-        var animation = new DoubleAnimation(target, TimeSpan.FromMilliseconds(Number("motion", pressed ? "press" : "release"))) { EasingFunction = Spring() };
-        scale.BeginAnimation(ScaleTransform.ScaleXProperty, animation); scale.BeginAnimation(ScaleTransform.ScaleYProperty, animation);
-    }
+    // 固定命中槽位，材质和图文分别响应同源物理弹簧。
+    private static void AnimatePress(Button button, bool pressed) => SoftClayMotion.Press(button, pressed);
     // 反解 CSS cubic-bezier 的时间轴，使原生回弹与网页使用同一组控制点。
     private sealed class SharedSpringEase : EasingFunctionBase
     {
@@ -160,6 +148,8 @@ internal static class SoftClayTrayMenu
     {
         var menu=new ContextMenu{Placement=System.Windows.Controls.Primitives.PlacementMode.MousePoint,StaysOpen=false,HasDropShadow=false,FontFamily=SoftClayTheme.Font};
         SoftClayTheme.Install(menu.Resources);menu.Style=(Style)menu.Resources["ClayTrayMenu"];
+        menu.Opened+=(_,_)=>SoftClayMotion.EnterPopup(menu);
+        menu.Closed+=(_,_)=>SoftClayMotion.StopPopup(menu);
         return menu;
     }
     public static MenuItem Command(string label,string geometry,Action action,string shortcut="")

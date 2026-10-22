@@ -1,3 +1,4 @@
+import { MotionDetails } from './MotionDetails';
 import { Select } from './Select';
 import { ColorField } from './ColorField';
 import { useState } from 'react';
@@ -13,13 +14,13 @@ export function StyleTools({editor,update,onError}:{editor:EditorState;update:(c
   const active=beauty.find(p=>Object.entries(p.style).every(([key,value])=>editor[key as keyof EditorState]===value))?.id;
   return <section className="clay-style-tools" aria-label="样式预设">
     <div className="clay-preset-list">{beauty.map(p=><button key={p.id} aria-pressed={active===p.id} onClick={()=>{setSelected(p.id);update(p.style);}}>{p.name}</button>)}</div>
-    <details><summary>管理样式与边框</summary>
+    <MotionDetails><summary>管理样式与边框</summary>
       <label>已保存样式<Select aria-label="成品样式" value={selected} onChange={value=>setSelected(value)}>{presets.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</Select></label>
       <button onClick={()=>{const preset=presets.find(p=>p.id===selected);if(preset)update(preset.style);}}>应用所选样式</button>
       <label>新样式名称<input aria-label="新样式名称" maxLength={40} value={name} onChange={event=>setName(event.target.value)}/></label>
       <div className="text-copy-actions"><button disabled={!name.trim()} onClick={()=>{try{const id=crypto.randomUUID();persist([...saved,{id,name:name.trim(),style:editorStyle(editor)}]);setSelected(id);setName('');}catch(error){onError(error);}}}>保存当前样式</button><button disabled={!saved.some(p=>p.id===selected)} onClick={()=>{try{persist(saved.filter(p=>p.id!==selected));setSelected('simple');}catch(error){onError(error);}}}>删除所选样式</button></div>
       <label>边框宽度<input aria-label="边框宽度" type="number" min={0} max={12} value={editor.borderWidth} onChange={event=>{const value=Number(event.target.value);if(value>=0&&value<=12)update({borderWidth:value,mode:'beauty'});}}/></label>
       <label>边框颜色<ColorField label="边框颜色" value={editor.borderColor} onChange={borderColor=>update({borderColor,mode:'beauty'})}/></label>
-    </details>
+    </MotionDetails>
   </section>;
 }

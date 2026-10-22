@@ -1,3 +1,4 @@
+import { presentationMotion } from './LiquidMotion';
 import {parseTranslationDocument,createTranslationDocument,canResumeTranslation,translationText} from './translationDocument';
 import { prepareUpdateSnapshot, prepareLeaveSnapshot, SETTINGS_OPERATION } from './updateSafety';
 import { runTranslationChunks,type TranslationChunk } from './translation';
@@ -39,6 +40,8 @@ export default function App() {
   // 暂停的是旧呈现而非文档；解码序号防止旧任务解锁下一次捕获。
   const [loadingCapture,setLoadingCapture]=useState<number|null>(null);
   const [busy, setBusy] = useState('');
+  // 取消完成只作废收起意图；已交给系统的复制不能回滚，返回时仍复核身份。
+  const completionCancelled=useRef(false);
   const operationRef=useRef(''); // 原生回调读取同步操作状态，避免 React 尚未重绘时误读上一次忙状态。
   const [canvasStatus, setCanvasStatus] = useState<CanvasRenderStatus>('loading');
   const [selection,setSelection] = useState<CanvasSelection|null>(null);
@@ -210,6 +213,8 @@ export default function App() {
       // 退出或收起后的迟到裁剪不得继续修改已经保护的文档。
       if(captureAdjusting.current)generation.current++;
 
+      // 显式恢复也是新的呈现意图；文件没有 captureId 时，代次仍能阻止迟到成功清空文档。
+      if(presentation.reason==='user_editor'||presentation.reason==='user_workbench'){generation.current++;presentationMotion()?.restore();}
       setOverlay(null);
       if (presentation.reason === 'overlay_timeout') setNotice({ text: '选区编辑未及时就绪，已返回轻量编辑器。图片与编辑内容仍保留。', error: true });
     }, (action,text) => actions.current(action,text));
@@ -280,25 +285,40 @@ export default function App() {
       else { const url = URL.createObjectURL(new Blob([JSON.stringify(document)], { type: 'application/json' })); download(url, '拾影项目.screenshot.json'); setTimeout(() => URL.revokeObjectURL(url), 1000); setNotice({ text: '项目已导出，请保留此文件以继续编辑。' }); }
     });
   }
-  // 完成只复制当前 PNG；复制成功且身份未变时收起，不自动保存或显示继续编辑提示。
+  function cancelCompletion(){completionCancelled.current=true;presentationMotion()?.restore();setNotice({text:'已取消收起；已经开始的复制请求可能仍会完成。'});}
+  // 完成只复制当前 PNG；先确认真实结果和身份，再播放收束，最后由宿主隐藏。
   async function completeEditing() {
     await run('完成截图', async () => {
-      const stamp={documentId:documentIdRef.current,revision:history.currentRevision(),generation:generation.current};
-      const dataUrl = await canvas.current!.exportPng(scale);
-      if (native.available) {
-        const result = await native.request<{ copied:boolean }>('image.copy', { dataUrl });
-        if (!result.copied) throw new Error('图片未复制成功，请重试。');
-        if (stamp.documentId!==documentIdRef.current || stamp.revision!==history.currentRevision() || stamp.generation!==generation.current) return;
-        const completed=await native.request<{accepted:boolean}>('presentation.complete',{...stamp,captureId:overlayRef.current?.captureId,text:'图片已复制到剪贴板'});
-        if(!completed.accepted)throw new Error('图片已复制，编辑状态已变化，请重新完成。');
-        if(stamp.documentId!==documentIdRef.current || stamp.revision!==history.currentRevision() || stamp.generation!==generation.current)return;
-        generation.current++;setOverlay(null);setNotice(null);
-        setDoc(initial);setDocumentEpoch(value=>value+1);
-      } else {
-        if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') throw new Error('此浏览器不支持复制图片，请使用 Windows 桌面应用。');
-        const bytes=Uint8Array.from(atob(dataUrl.split(',')[1]),c=>c.charCodeAt(0));
-        await navigator.clipboard.write([new ClipboardItem({ 'image/png':new Blob([bytes],{type:'image/png'}) })]);
-        if(stamp.documentId===documentIdRef.current && stamp.revision===history.currentRevision() && stamp.generation===generation.current){setDoc(initial);setDocumentEpoch(value=>value+1);setNotice({text:'图片已复制'});}
+      completionCancelled.current = false;
+      const stamp = { documentId: documentIdRef.current, revision: history.currentRevision(), generation: generation.current, captureId: overlayRef.current?.captureId };
+      const matches = () => !completionCancelled.current && stamp.documentId === documentIdRef.current && stamp.revision === history.currentRevision() && stamp.generation === generation.current && stamp.captureId === overlayRef.current?.captureId;
+      let motion: ReturnType<typeof presentationMotion> = null;
+      try {
+        const dataUrl = await canvas.current!.exportPng(scale);
+        if (!matches()) return;
+        if (native.available) {
+          const result = await native.request<{ copied: boolean }>('image.copy', { dataUrl });
+          if (!matches()) return;
+          if (!result.copied) throw new Error('图片未复制成功，请重试。');
+        } else {
+          if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') throw new Error('此浏览器不支持复制图片，请使用 Windows 桌面应用。');
+          const bytes = Uint8Array.from(atob(dataUrl.split(',')[1]), c => c.charCodeAt(0));
+          await navigator.clipboard.write([new ClipboardItem({ 'image/png': new Blob([bytes], { type: 'image/png' }) })]);
+          if (!matches()) return;
+        }
+        motion = presentationMotion();
+        if (motion && !await motion.exit('complete')) return;
+        if (!matches()) { motion?.restore(); return; }
+        if (native.available) {
+          const result = await native.request<{ accepted: boolean }>('presentation.complete', { ...stamp, text: '图片已复制到剪贴板' });
+          if (!result.accepted) throw new Error('图片已复制，编辑状态已变化，请重新完成。');
+          if (!matches()) return;
+          generation.current++; setOverlay(null); setNotice(null);
+        } else setNotice({ text: '图片已复制' });
+        setDoc(initial); setDocumentEpoch(value => value + 1);
+      } catch (error) {
+        motion?.restore();
+        if (!completionCancelled.current) throw error;
       }
     });
   }
@@ -438,8 +458,14 @@ export default function App() {
     await run(mode === 'workbench' ? '打开轻量编辑器' : '退出编辑', async () => {
       const revision = generation.current;
       const captureId = overlayRef.current?.captureId;
-      const result = await native.request<PresentationResult>(mode === 'workbench' ? 'presentation.editor' : 'presentation.dismiss', captureId ? { captureId } : {});
-      if (result.accepted === false || revision !== generation.current) return;
+      // 收起仅改变呈现；失败时恢复原位现场，文档与历史始终保留。
+      const motion=presentationMotion();
+      if(mode==='hidden'&&motion&&!await motion.exit('dismiss'))return;
+      if(revision!==generation.current){motion?.restore();return;}
+      let result:PresentationResult;
+      try { result=await native.request<PresentationResult>(mode === 'workbench' ? 'presentation.editor' : 'presentation.dismiss', captureId ? { captureId } : {}); }
+      catch(error){motion?.restore();throw error;}
+      if (result.accepted === false || revision !== generation.current) {motion?.restore();return;}
       if (mode === 'hidden') generation.current++;
       setOverlay(null); setNotice(null);
     });
@@ -483,6 +509,6 @@ export default function App() {
   return <>
     <input hidden ref={imageInput} type="file" accept="image/png,image/jpeg,image/webp" onChange={event=>{void chooseFiles(event.currentTarget.files);event.currentTarget.value='';}}/>
     <input hidden ref={projectInput} type="file" accept=".json" onChange={event=>{void chooseFiles(event.currentTarget.files);event.currentTarget.value='';}}/>
-    <CompactOverlay onTranslateImage={()=>{void translateImage();}} onCancelAi={()=>{void cancelOcr();}} suspended={loadingCapture!==null} onAdjustCapture={adjustCapture} locked={hostLocked} requestedPanel={entryPanel} onOpenImage={()=>{void openImage();}} onOpenProject={()=>{void openProject();}} onPaste={()=>{void nativeImage('image.paste','粘贴图片');}} selection={selection} onSelection={setSelection} renderStatus={canvasStatus} onRenderStatus={setCanvasStatus} skipReady={overlayReady} onFiles={files=>chooseFiles(files,Boolean(overlay))} onCapture={(method,payload)=>{void nativeImage(method,"捕获屏幕",payload);}} key={documentEpoch} document={doc} metadata={activeOverlay} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo} onTransform={changeTransform} textTools={textTools} recoveryPanel={recoveryPanel} captureBackend={captureBackend} onReadyResult={handleReadyResult} canvasRef={canvas} update={update} onComplete={() => { void completeEditing(); }} onAi={kind => { void ai(kind); }} onPresentation={mode => { void presentation(mode); }} onConfigure={() => { void configureSettings(); }} onSaveProject={() => { void saveProject(); }} onError={errorNotice} busy={busy} aiBusy={aiBusy} settings={settings} providerId={providerId} setProviderId={setProviderId} targetLanguage={targetLanguage} setTargetLanguage={setTargetLanguage} scale={scale} setScale={setScale} notice={notice} clearNotice={() => setNotice(null)}/>
+    <CompactOverlay onTranslateImage={()=>{void translateImage();}} onCancelAi={()=>{void cancelOcr();}} suspended={loadingCapture!==null} onAdjustCapture={adjustCapture} locked={hostLocked} requestedPanel={entryPanel} onOpenImage={()=>{void openImage();}} onOpenProject={()=>{void openProject();}} onPaste={()=>{void nativeImage('image.paste','粘贴图片');}} selection={selection} onSelection={setSelection} renderStatus={canvasStatus} onRenderStatus={setCanvasStatus} skipReady={overlayReady} onFiles={files=>chooseFiles(files,Boolean(overlay))} onCapture={(method,payload)=>{void nativeImage(method,"捕获屏幕",payload);}} key={documentEpoch} document={doc} metadata={activeOverlay} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo} onTransform={changeTransform} textTools={textTools} recoveryPanel={recoveryPanel} captureBackend={captureBackend} onReadyResult={handleReadyResult} canvasRef={canvas} update={update} onComplete={() => { void completeEditing(); }} onCancelComplete={cancelCompletion} onAi={kind => { void ai(kind); }} onPresentation={mode => { void presentation(mode); }} onConfigure={() => { void configureSettings(); }} onSaveProject={() => { void saveProject(); }} onError={errorNotice} busy={busy} aiBusy={aiBusy} settings={settings} providerId={providerId} setProviderId={setProviderId} targetLanguage={targetLanguage} setTargetLanguage={setTargetLanguage} scale={scale} setScale={setScale} notice={notice} clearNotice={() => setNotice(null)}/>
   </>;
 }
