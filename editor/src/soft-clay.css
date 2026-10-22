@@ -141,7 +141,7 @@
 .clay-capture-selection { position: absolute; z-index: 3; pointer-events: none; outline: var(--clay-size-selectionBorder) solid var(--clay-accent); box-shadow: 0 0 9px var(--clay-selection); }
 .clay-selection-size { position: absolute; left: 0; top: -38px; padding: 4px 12px; border-radius: var(--clay-radius-pill); background: var(--clay-face); box-shadow: var(--clay-elevation); color: var(--clay-ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .clay-editor .clay-selection-handle { position: absolute; width: 24px; height: 24px; min-width: 0; min-height: 0; padding: 6px; border: 0; border-radius: 50%; background: transparent; box-shadow: none; transform: translate(-50%, -50%); pointer-events: auto; touch-action: none; transition: none; }
-.clay-selection-handle::after { content: ''; width: var(--clay-size-handle); height: var(--clay-size-handle); border-radius: 50%; background: var(--clay-ink); box-shadow: 0 2px 5px #0007, 0 0 0 1px var(--clay-accent); }
+.clay-selection-handle::after { content: ''; width: var(--clay-size-handle); height: var(--clay-size-handle); border-radius: 50%; background: var(--clay-ink); box-shadow: 0 2px 5px #0007, 0 0 0 1px var(--clay-accent); transform:scale(var(--handle-scale-x,1),var(--handle-scale-y,1)); }
 .clay-editor .clay-selection-handle:hover:enabled, .clay-editor .clay-selection-handle:active:enabled { background: transparent; box-shadow: none; transform: translate(-50%, -50%); }
 .clay-editor .clay-selection-handle:hover:enabled::after { background: var(--clay-focus); }
 .clay-editor .clay-selection-handle:disabled { opacity: 1; cursor: progress; }
@@ -154,7 +154,6 @@
 .clay-editor.is-awaiting:not(.is-preparing) .clay-capture-layer { visibility: hidden; }
 .clay-editor.is-presented .clay-rail { animation-fill-mode: backwards; }
 .clay-editor.is-presented .clay-card:not(.is-closing) { animation-delay: 40ms; animation-fill-mode: backwards; }
-.clay-editor.is-presented .clay-status { animation: clay-panel-fade var(--clay-time-exit) ease-out 80ms backwards; }
 .clay-editor.is-overlay .clay-rail { animation-name: clay-panel-fade; animation-duration: var(--clay-time-press); animation-timing-function: ease-out; }
 .clay-editor.is-overlay.is-awaiting .clay-rail { animation: none; }
 .clay-editor.is-suspended { visibility: hidden !important; pointer-events: none; }

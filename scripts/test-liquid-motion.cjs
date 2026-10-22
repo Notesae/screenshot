@@ -17,7 +17,7 @@ function mockHost(){
   const image={dataUrl:canvas.toDataURL(),width:560,height:300,name:'合成.png'};
   const state={sequence:0,captureId:null,copied:0,completed:0,hidden:false,failCopy:false,holdCopy:false,rejectComplete:false,rejectDismiss:false,requests:[],exitAtComplete:null};
   const load=(fileOnly=false)=>{if(fileOnly){state.captureId=null;state.hidden=false;document.querySelector('[data-editor-root]')?.style.removeProperty('visibility');emit({event:'image.loaded',payload:image});return;}state.captureId='motion-'+(++state.sequence);state.hidden=false;document.querySelector('[data-editor-root]')?.style.removeProperty('visibility');emit({event:'image.loaded',payload:{image,overlay:{captureId:state.captureId,desktopBounds:{x:0,y:0,width:1280,height:800},selection:{x:300,y:180,width:560,height:300},screens:[{bounds:{x:0,y:0,width:1280,height:800},workArea:{x:0,y:0,width:1280,height:760},primary:true}]}}});};
-  window.__motionTest={state,load,resume:()=>{state.hidden=false;document.querySelector('[data-editor-root]').style.removeProperty('visibility');emit({event:'presentation.changed',payload:{presentation:'workbench',reason:'user_editor'}});}};
+  window.__motionTest={state,load,notice:(text,error)=>emit({event:'editor.action',payload:{action:'notice',text,error}}),resume:()=>{state.hidden=false;document.querySelector('[data-editor-root]').style.removeProperty('visibility');emit({event:'presentation.changed',payload:{presentation:'workbench',reason:'user_editor'}});}};
   Object.assign(window.chrome||={}, {webview:{addEventListener:(_,fn)=>listeners.add(fn),removeEventListener:(_,fn)=>listeners.delete(fn),postMessage:async request=>{
     state.requests.push(request.method);let result={};
     try{
@@ -81,6 +81,27 @@ async function interruptPanel(action){
   // 明确推进 16ms 帧，避免慢机器首帧直接越过部分透明区而让回归偶发超时。
   try{await page.clock.runFor(80);}finally{await page.clock.resume();}
   return interrupted;
+}
+/** 用受控帧在小菜单尚未长成时取消，测量可见材质而非固定语义槽位。 */
+async function closeGrowingMenu(){
+  await page.clock.pauseAt(await page.evaluate(()=>Date.now()+100));
+  const interrupted=page.evaluate(()=>new Promise((resolve,reject)=>{
+    const observer=new MutationObserver(()=>{
+      const skin=document.querySelector('.clay-select-menu > .liquid-surface-skin'),alpha=Number(skin?.style.opacity);
+      if(!skin||alpha<.15||alpha>.75)return;
+      const box=skin.getBoundingClientRect();clearTimeout(timeout);observer.disconnect();
+      skin.parentElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+      resolve({width:box.width,height:box.height});
+    });
+    const timeout=setTimeout(()=>{observer.disconnect();reject(Error('未捕捉到小菜单中间帧'));},4000);
+    observer.observe(document.querySelector('[data-editor-root]'),{subtree:true,childList:true,attributes:true,attributeFilter:['style']});
+    document.querySelector('[role=combobox][aria-label="导出倍率"]').click();
+  }));
+  try{
+    await page.clock.runFor(96);const before=await interrupted;
+    const after=await page.locator('.clay-select-menu > .liquid-surface-skin').boundingBox();
+    assert.ok(after&&after.width<=before.width+.1&&after.height<=before.height+.1,'提前退出材质只能从当前可见体积收拢');
+  }finally{await page.clock.resume();}
 }
 /** 直接操作生产组件；滑杆、控件反馈和文档历史共用同一合成页面。 */
 async function componentChecks(click,load){
@@ -185,6 +206,24 @@ async function main(){
   assert.equal(await page.locator('[data-motion-exit]').count(),0);assert.equal(await page.locator('canvas.lower-canvas').count(),1);checks.push('hidden-exit-does-not-send-stale-completion');
   await componentChecks(click,load);
   const rectTool=page.getByRole('button',{name:'矩形标注',exact:true}),arrowTool=page.getByRole('button',{name:'箭头标注',exact:true});
+  await rectTool.focus();await page.keyboard.down('Space');
+  await page.waitForFunction(()=>new DOMMatrixReadOnly(document.querySelector('[aria-label="矩形标注"] .liquid-skin').style.transform).m22<.95);
+  await visibility(true);
+  assert.equal(await rectTool.locator('.liquid-skin').evaluate(el=>new DOMMatrixReadOnly(el.style.transform).isIdentity),true);
+  await rectTool.evaluate(el=>el.dispatchEvent(new PointerEvent('pointerdown',{button:0,bubbles:true})));
+  await page.waitForTimeout(80);assert.equal(await rectTool.locator('.liquid-skin').evaluate(el=>new DOMMatrixReadOnly(el.style.transform).isIdentity),true);
+  await page.keyboard.up('Space');await visibility(false);await page.waitForTimeout(80);
+  assert.equal(await rectTool.locator('.liquid-skin').evaluate(el=>new DOMMatrixReadOnly(el.style.transform).isIdentity),true);checks.push('hidden-held-rail-resets-without-stale-hover');
+  await rectTool.focus();await page.keyboard.down('Space');
+  await page.waitForFunction(()=>new DOMMatrixReadOnly(document.querySelector('[aria-label="矩形标注"] .liquid-skin').style.transform).m22<.95);
+  await page.locator('fieldset.clay-chrome').evaluate(el=>el.disabled=true);
+  await page.waitForFunction(()=>new DOMMatrixReadOnly(document.querySelector('[aria-label="矩形标注"] .liquid-skin').style.transform).isIdentity);
+  await page.keyboard.up('Space');await page.locator('fieldset.clay-chrome').evaluate(el=>el.disabled=false);checks.push('ancestor-disable-clears-held-rail');
+  const handle=page.locator('[data-selection-handle=se]'),handleBox=await handle.boundingBox();
+  await page.mouse.move(handleBox.x+12,handleBox.y+12);await page.mouse.down();
+  await page.waitForFunction(()=>Number(document.querySelector('[data-selection-handle=se]').style.getPropertyValue('--handle-scale-y'))<.95);
+  assert.deepEqual(await handle.boundingBox(),handleBox,'选区捕获手势时手柄命中槽位不形变');
+  await page.mouse.up();await page.waitForFunction(()=>document.querySelector('[data-selection-handle=se]').style.getPropertyValue('--handle-scale-y')==='1');checks.push('selection-handle-feedback-survives-capture-handler');
   const fixed=await rectTool.boundingBox();await page.mouse.move(fixed.x+fixed.width*.75,fixed.y+8);await page.waitForTimeout(160);
   assert.deepEqual(await rectTool.boundingBox(),fixed,'迎向不能移动命中槽位');
   const material=await rectTool.locator('.liquid-skin').evaluate(el=>new DOMMatrixReadOnly(getComputedStyle(el).transform).m41);
@@ -207,7 +246,9 @@ async function main(){
   const details=page.locator('.clay-card').getByText('细调外观',{exact:true});await details.click();await page.waitForTimeout(50);await details.click();await page.waitForTimeout(50);await details.click();
   await page.waitForFunction(()=>{const node=[...document.querySelectorAll('details')].find(el=>el.querySelector('summary')?.textContent==='细调外观');return node?.open&&!node.style.height;});checks.push('redirected-disclosure');
   // 小弹层退出仍保留表面，但立即离开辅助树和命中；重开取消旧关闭。
-  await click('更多操作');const select=page.getByRole('combobox',{name:'导出倍率',exact:true});await select.click();
+  await click('更多操作');const select=page.getByRole('combobox',{name:'导出倍率',exact:true});
+  await closeGrowingMenu();await page.waitForSelector('.clay-select-menu',{state:'detached'});checks.push('early-surface-close-never-expands-current-material');
+  await select.click();
   await page.waitForFunction(()=>{const skin=document.querySelector('.clay-select-menu > .liquid-surface-skin'),body=document.querySelector('.clay-select-menu > .liquid-surface-content');return skin&&Number(skin.style.opacity)>.15&&Number(body.style.opacity)<.4;});
   const beforeClose=await page.locator('.clay-select-menu > .liquid-surface-skin').evaluate(el=>Number(el.style.opacity));
   await page.keyboard.press('Escape');
@@ -252,6 +293,9 @@ async function main(){
   await page.screenshot({path:path.join(out,'05-notice.png')});
   assert.equal(await page.locator('.clay-notice').evaluate(el=>getComputedStyle(el).pointerEvents),'none');
   assert.equal(await page.getByRole('button',{name:'关闭提示',exact:true}).evaluate(el=>getComputedStyle(el).pointerEvents),'auto');checks.push('notice-replacement-and-text-click-through');
+  await page.clock.fastForward(5000);assert.equal(await page.getByRole('alert').count(),1,'错误不能依赖超时消失');
+  await page.evaluate(()=>window.__motionTest.notice('合成普通提示',false));await page.getByRole('status').filter({hasText:'合成普通提示'}).waitFor();
+  await page.clock.fastForward(5000);await page.waitForSelector('.clay-notice',{state:'detached'});checks.push('native-notice-kind-controls-persistence');
   await page.evaluate(()=>{const s=window.__motionTest.state;s.failCopy=false;s.holdCopy=true;});await click('完成');
   await page.waitForFunction(()=>typeof window.__motionTest.state.releaseCopy==='function');
   assert.equal(await page.locator('[data-motion-exit]').count(),0,'复制确认前不收束');
@@ -265,8 +309,12 @@ async function main(){
   // 取消的是收起意图；夹具仍会返回已经交给宿主的复制结果。
   await page.evaluate(()=>{const s=window.__motionTest.state;s.holdCopy=true;s.releaseCopy=null;});await click('完成');
   await page.waitForFunction(()=>typeof window.__motionTest.state.releaseCopy==='function');await click('取消完成');
+  await page.clock.pauseAt(await page.evaluate(()=>Date.now()+100));
   await page.evaluate(()=>{const s=window.__motionTest.state;s.holdCopy=false;s.releaseCopy();});
   await page.waitForFunction(()=>!document.querySelector('fieldset').disabled);assert.equal(await page.evaluate(()=>window.__motionTest.state.completed),0);assert.equal(await page.locator('[data-motion-exit]').count(),0);checks.push('cancel-copy-wait-does-not-hide');
+  assert.equal(await page.locator('.clay-status').evaluate(el=>el.dataset.motionPhase==='closing'&&el.inert&&el.getAttribute('aria-hidden')==='true'),true);
+  assert.equal(await page.locator('.clay-status button').isDisabled(),true);await page.clock.runFor(200);await page.clock.resume();
+  await page.waitForSelector('.clay-status',{state:'detached'});checks.push('task-status-retains-noninteractive-exit');
   await click('完成');await page.waitForSelector('[data-motion-exit=complete]');await page.keyboard.press('Escape');
   await page.waitForFunction(()=>!document.querySelector('[data-motion-exit]')&&!document.querySelector('fieldset').disabled);assert.equal(await page.evaluate(()=>window.__motionTest.state.completed),0);checks.push('escape-interrupts-exit');
   await page.evaluate(()=>window.__motionTest.load());

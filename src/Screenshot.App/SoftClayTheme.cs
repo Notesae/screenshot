@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Input;
@@ -83,15 +84,24 @@ internal static class SoftClayTheme
         if (_buttonFeedbackInstalled) return;
         _buttonFeedbackInstalled = true;
         SoftClayMotion.Install();
-        EventManager.RegisterClassHandler(typeof(Button), UIElement.PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler((sender, _) => AnimatePress((Button)sender, true)));
-        EventManager.RegisterClassHandler(typeof(Button), UIElement.PreviewMouseLeftButtonUpEvent, new MouseButtonEventHandler((sender, _) => AnimatePress((Button)sender, false)));
-        EventManager.RegisterClassHandler(typeof(Button), UIElement.LostMouseCaptureEvent, new MouseEventHandler((sender, _) => AnimatePress((Button)sender, false)));
-        EventManager.RegisterClassHandler(typeof(Button), UIElement.PreviewKeyDownEvent, new KeyEventHandler((sender, e) => { if (e.Key is Key.Space or Key.Enter) AnimatePress((Button)sender, true); }));
-        EventManager.RegisterClassHandler(typeof(Button), UIElement.PreviewKeyUpEvent, new KeyEventHandler((sender, e) => { if (e.Key is Key.Space or Key.Enter) AnimatePress((Button)sender, false); }));
+        EventManager.RegisterClassHandler(typeof(ButtonBase), UIElement.PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler((sender, _) => AnimatePress((ButtonBase)sender, true)));
+        EventManager.RegisterClassHandler(typeof(ButtonBase), UIElement.PreviewMouseLeftButtonUpEvent, new MouseButtonEventHandler((sender, _) => AnimatePress((ButtonBase)sender, false)));
+        EventManager.RegisterClassHandler(typeof(ButtonBase), UIElement.LostMouseCaptureEvent, new MouseEventHandler((sender, _) => AnimatePress((ButtonBase)sender, false)));
+        EventManager.RegisterClassHandler(typeof(ButtonBase), UIElement.LostKeyboardFocusEvent, new KeyboardFocusChangedEventHandler((sender, _) => AnimatePress((ButtonBase)sender, false)));
+        EventManager.RegisterClassHandler(typeof(ButtonBase), UIElement.PreviewKeyDownEvent, new KeyEventHandler((sender, e) => { if (!e.IsRepeat && e.Key is Key.Space or Key.Enter) AnimatePress((ButtonBase)sender, true); }));
+        EventManager.RegisterClassHandler(typeof(ButtonBase), UIElement.PreviewKeyUpEvent, new KeyEventHandler((sender, e) => { if (e.Key is Key.Space or Key.Enter) AnimatePress((ButtonBase)sender, false); }));
+        // 组合框的键盘焦点留在外层，仍让模板中的触发材质收到同源反馈。
+        EventManager.RegisterClassHandler(typeof(ComboBox), UIElement.PreviewKeyDownEvent, new KeyEventHandler((sender, e) => { if (!e.IsRepeat && e.Key is Key.Space or Key.Enter or Key.F4 or Key.Down or Key.Up) ComboPress((ComboBox)sender, true); }));
+        EventManager.RegisterClassHandler(typeof(ComboBox), UIElement.PreviewKeyUpEvent, new KeyEventHandler((sender, _) => ComboPress((ComboBox)sender, false)));
+        EventManager.RegisterClassHandler(typeof(ComboBox), UIElement.LostKeyboardFocusEvent, new KeyboardFocusChangedEventHandler((sender, _) => ComboPress((ComboBox)sender, false)));
     }
 
     // 固定命中槽位，材质和图文分别响应同源物理弹簧。
-    private static void AnimatePress(Button button, bool pressed) => SoftClayMotion.Press(button, pressed);
+    private static void AnimatePress(ButtonBase button, bool pressed) => SoftClayMotion.Press(button, pressed);
+    private static void ComboPress(ComboBox combo, bool pressed)
+    {
+        if (combo.Template?.FindName("Toggle", combo) is ButtonBase trigger) AnimatePress(trigger, pressed);
+    }
     // 反解 CSS cubic-bezier 的时间轴，使原生回弹与网页使用同一组控制点。
     private sealed class SharedSpringEase : EasingFunctionBase
     {

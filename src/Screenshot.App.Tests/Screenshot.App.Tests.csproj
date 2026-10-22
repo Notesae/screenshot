@@ -18,6 +18,7 @@
     <Compile Include="../Screenshot.App/SoftClayPopupSurface.cs" Link="SoftClayPopupSurface.cs"/>
     <Compile Include="../Screenshot.App/SoftClayPopupMotion.cs" Link="SoftClayPopupMotion.cs"/>
     <Compile Include="../Screenshot.App/SoftClayWindow.cs" Link="SoftClayWindow.cs"/>
+    <Compile Include="../Screenshot.App/SoftClayNoticeWindow.cs" Link="SoftClayNoticeWindow.cs"/>
     <Compile Include="../Screenshot.App/NativeCloseGate.cs" Link="NativeCloseGate.cs"/>
     <Compile Include="../Screenshot.App/NativeSurfaceTransition.cs" Link="NativeSurfaceTransition.cs"/>
     <Compile Include="../Screenshot.App/SoftClayDisclosure.cs" Link="SoftClayDisclosure.cs"/>

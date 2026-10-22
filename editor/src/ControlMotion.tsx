@@ -14,6 +14,7 @@ export class ControlFeedback {
   private active = new Set<ControlState>();
   private hovered: ControlState | null = null;
   private held: ControlState | null = null;
+  private presented = false;
   private cleanup: (() => void)[] = [];
   private observer: MutationObserver;
 
@@ -22,7 +23,10 @@ export class ControlFeedback {
     const listen = (target: EventTarget, name: string, handler: EventListener) => {
       target.addEventListener(name, handler, true); this.cleanup.push(() => target.removeEventListener(name, handler, true));
     };
-    const control = (event: Event) => event.target instanceof Element ? event.target.closest<HTMLButtonElement | HTMLInputElement>('[data-control-button],input[type=range],input[type=checkbox]') : null;
+    const control = (event: Event) => {
+      const element = event.target instanceof Element ? event.target.closest<HTMLButtonElement | HTMLInputElement>('[data-control-button],[data-selection-handle],input[type=range],input[type=checkbox]') : null;
+      return this.presented && element && root.contains(element) ? element : null;
+    };
     listen(root, 'pointermove', ((event: PointerEvent) => {
       if (event.pointerType !== 'mouse' || this.clock.reduced) return;
       const element = control(event);
@@ -30,18 +34,19 @@ export class ControlFeedback {
       const state = this.state(element);
       if (this.hovered !== state) this.leave();
       this.hovered = state;
-      if (state.down || element instanceof HTMLInputElement) return;
+      if (state.down || element instanceof HTMLInputElement || element.hasAttribute('data-selection-handle')) return;
       const box = element.getBoundingClientRect();
       state.x.to = clamp((event.clientX - box.left - box.width / 2) / Math.max(1, box.width), -1, 1) * 2;
       state.y.to = clamp((event.clientY - box.top - box.height / 2) / Math.max(1, box.height), -1, 1) * 2;
       this.wake(state);
     }) as EventListener);
     listen(root, 'pointerout', event => { const related = (event as PointerEvent).relatedTarget; if (!this.hovered?.element.contains(related as Node | null)) this.leave(); });
-    listen(root, 'pointerdown', ((event: PointerEvent) => { if (event.button === 0) this.press(control(event)); }) as EventListener);
-    listen(root, 'keydown', ((event: KeyboardEvent) => {
+    // 选区在 React 捕获阶段接管手势；先观察输入，反馈不拦截业务事件。
+    listen(window, 'pointerdown', ((event: PointerEvent) => { if (event.button === 0) this.press(control(event)); }) as EventListener);
+    listen(window, 'keydown', ((event: KeyboardEvent) => {
       if (event.repeat || event.isComposing) return;
       const element = control(event), range = element instanceof HTMLInputElement && element.type === 'range';
-      const accepted = range ? /^(Arrow(Left|Right|Up|Down)|Home|End|PageUp|PageDown)$/.test(event.key) : element instanceof HTMLInputElement ? event.key === ' ' : event.key === ' ' || event.key === 'Enter';
+      const accepted = range || element?.hasAttribute('data-selection-handle') ? /^(Arrow(Left|Right|Up|Down)|Home|End|PageUp|PageDown)$/.test(event.key) : element instanceof HTMLInputElement ? event.key === ' ' : event.key === ' ' || event.key === 'Enter';
       if (accepted) this.press(element);
     }) as EventListener);
     listen(window, 'pointerup', () => this.release()); listen(window, 'pointercancel', () => this.release());
@@ -75,8 +80,13 @@ export class ControlFeedback {
   }
   /** 系统减少动态、隐藏或控件卸载时立即复位，不能遗留凹下的材质。 */
   reset() { for (const state of new Set([...this.active, ...(this.held ? [this.held] : []), ...(this.hovered ? [this.hovered] : [])])) this.clear(state); }
+  present(presented: boolean) { this.presented = presented; if (!presented) this.reset(); }
   private draw(state: ControlState) {
     const x = state.x.x, y = state.y.x, p = state.press.x;
+    if (state.element.hasAttribute('data-selection-handle')) {
+      state.element.style.setProperty('--handle-scale-x', String(1 + (T.press.x - 1) * p));
+      state.element.style.setProperty('--handle-scale-y', String(1 + (T.press.y - 1) * p)); return;
+    }
     if (state.element instanceof HTMLInputElement) {
       const range = state.element.type === 'range', prefix = range ? '--range-scale-' : '--check-scale-';
       state.element.style.setProperty(prefix + 'x', String(1 + (range ? .12 : T.press.x - 1) * p));

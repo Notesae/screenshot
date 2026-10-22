@@ -47,7 +47,7 @@
 | document.preserve | {} | 覆盖前保护当前文档，成功返回 `{saved:true}`，失败拒绝覆盖 |
 | presentation.complete | {captureId?:string,documentId:string,revision:number,text:string} | text 仅接受“图片已复制到剪贴板”或“PNG 已保存”；文档身份、历史 revision、截图 ID 与呈现代数均匹配且快照成功，才收起并显示独立原生提示。返回 `{accepted,presentation?}` |
 | app.terms | {} | 只读查看原生条款，不能接受条款或绕过启动门禁 |
-| editor.action | {action,text?} | 宿主事件；固定动作 `continue / open-image / open-project / paste / recovery / settings / notice`。消费后复用已有处理器，不包含路径或秘密 |
+| editor.action | {action,text?,error?} | 宿主事件；固定动作 `continue / open-image / open-project / paste / recovery / settings / notice`。`notice` 的 `error:false` 为可自动收起的普通提示，省略仍按错误保留。消费后复用已有处理器，不包含路径或秘密 |
 
 宿主覆盖、收起、关闭和重载前读取本地 `window.screenshotPrepareLeave(reason)`，reason 固定为 `replace / close / complete`，返回 `{documentId,revision,document,empty,projectSaved}` 或 `{error}`；准备期间前端锁定编辑，宿主最终调用 `window.screenshotFinishLeave()` 解锁。documentId 与 revision 是当前内存身份；恢复库使用独立稳定 GUID 和递增写序列，避免与自动保存的同序号冲突。完整项目已在当前身份/revision 下保存时可跳过重复快照；PNG 和文字复制不会标记项目已保存。捕获替换允许取消旧 AI 任务；关闭/完成不接受正在编辑、加载或进行中的 AI。快照失败、过期或忙状态保留当前文档和呈现。
 

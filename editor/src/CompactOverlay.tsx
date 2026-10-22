@@ -56,7 +56,7 @@ export function CompactOverlay(props:Props) {
   const [reading,setReading]=useState(false),readerTrigger=useRef<HTMLButtonElement|null>(null);
   const [readerBounds,setReaderBounds]=useState<PixelRect|null>(null);
   // 退出保留独立材质与最后一条通知，避免立即卸载截断时间线。
-  const readerRoot=useRef<HTMLElement>(null),noticeRoot=useRef<HTMLDivElement>(null),restoreReaderFocus=useRef(false);
+  const readerRoot=useRef<HTMLElement>(null),noticeRoot=useRef<HTMLDivElement>(null),statusRoot=useRef<HTMLDivElement>(null),restoreReaderFocus=useRef(false);
   const retainedNotice=useRef(props.notice),notice=props.notice??retainedNotice.current;
   useLayoutEffect(()=>{if(props.notice)retainedNotice.current=props.notice;},[props.notice]);
   useEffect(()=>setReading(false),[doc.image,editor.imageTranslation,editor.mode]);
@@ -99,6 +99,11 @@ export function CompactOverlay(props:Props) {
   const readerMounted=useSurfaceMotion(reading&&!!automaticReader,readerRoot,readerTrigger.current,JSON.stringify(reader?.box));
   const noticeTop=tools.rail.y<screen.y+110?screen.y+screen.height-100:screen.y+18;
   const noticeMounted=useSurfaceMotion(!!props.notice,noticeRoot,null,noticeTop+':'+screen.width);
+  const currentTask=(!adjusting&&busy||aiBusy||hasContent&&props.renderStatus==='loading')?{text:busy||aiBusy||'画布更新中',cancel:aiBusy?'ocr':busy==='完成截图'?'complete':null}:null;
+  const retainedTask=useRef(currentTask),task=currentTask??retainedTask.current;
+  useLayoutEffect(()=>{if(currentTask)retainedTask.current=currentTask;},[currentTask]);
+  const taskOpen=!!currentTask&&chromeVisible&&!props.suspended;
+  const statusMounted=useSurfaceMotion(taskOpen,statusRoot,null,screen.x+':'+screen.y+':'+screen.width);
   const fullReading=Boolean(readerMounted&&reader?.full);
   // 完整阅读退场后再恢复工具焦点，防止把焦点交给仍隐藏的主轨。
   useLayoutEffect(()=>{if(reading)restoreReaderFocus.current=false;else if(!readerMounted&&restoreReaderFocus.current){restoreReaderFocus.current=false;readerTrigger.current?.focus({preventScroll:true});}},[reading,readerMounted]);
@@ -230,7 +235,7 @@ export function CompactOverlay(props:Props) {
       </section>}
     </fieldset>
     {readerMounted&&reader&&editor.imageTranslation&&<ImageTranslationReader rootRef={readerRoot} open={reading} data={editor.imageTranslation} box={reader.box} screen={screen} full={reader.full} onClose={closeReader} onBoundsChange={setReaderBounds} onReset={()=>setReaderBounds(null)}/>}
-    {(!adjusting&&busy||aiBusy||hasContent&&props.renderStatus==='loading')&&<div className="clay-status" style={{left:screen.x+16,top:screen.y+12,maxWidth:screen.width-32}}><div role="status" className="clay-task"><span className="spinner"/>{busy||aiBusy||'画布更新中'}…{aiBusy&&<ControlButton onClick={props.textTools.onCancelOcr}>取消任务</ControlButton>}{busy==='完成截图'&&<ControlButton onClick={props.onCancelComplete}>取消完成</ControlButton>}</div></div>}
+    {statusMounted&&task&&<div ref={statusRoot} className="clay-status" aria-hidden={!taskOpen} inert={!taskOpen} style={{left:screen.x+16,top:screen.y+12,maxWidth:screen.width-32}}><div className="liquid-surface-skin" aria-hidden="true"/><div role="status" className="clay-task liquid-surface-content"><span className="spinner"/>{task.text}…{task.cancel==='ocr'&&<ControlButton disabled={!taskOpen} onClick={props.textTools.onCancelOcr}>取消任务</ControlButton>}{task.cancel==='complete'&&<ControlButton disabled={!taskOpen} onClick={props.onCancelComplete}>取消完成</ControlButton>}</div></div>}
     {noticeMounted&&notice&&<div ref={noticeRoot} className={'clay-notice '+(notice.error?'is-error':'')} aria-hidden={!props.notice} style={{top:noticeTop,left:screen.x+screen.width/2,maxWidth:screen.width-32}} role={notice.error?'alert':'status'}><div className="liquid-surface-skin" aria-hidden="true"/><div className="liquid-surface-content"><span>{notice.text}</span><ControlButton aria-label="关闭提示" disabled={!props.notice} onClick={props.clearNotice}><X aria-hidden="true"/></ControlButton></div></div>}
     <OverlayScrollbars/>
     <TooltipLayer/>

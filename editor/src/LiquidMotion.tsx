@@ -65,11 +65,12 @@ export class LiquidMotion {
     const invalidate = () => { this.dirty = true; this.wake(); };
     this.resize = new ResizeObserver(invalidate); this.resize.observe(rail); this.resize.observe(root);
     this.mutation = new MutationObserver(invalidate);
-    this.mutation.observe(rail, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'aria-pressed', 'aria-expanded'] });
+    this.mutation.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'inert', 'aria-pressed', 'aria-expanded'] });
     const listen = (target: EventTarget, name: string, fn: EventListener, capture = false) => {
       target.addEventListener(name, fn, capture); this.cleanup.push(() => target.removeEventListener(name, fn, capture));
     };
     listen(root, 'pointermove', ((event: PointerEvent) => {
+      if (!this.active || document.hidden) return;
       this.pointer = { x: event.clientX, y: event.clientY, inside: event.pointerType === 'mouse' && !(event.target as Element).closest('.clay-card,.clay-reader,.clay-select-menu,.clay-color-popover') };
       this.wake();
     }) as EventListener);
@@ -77,13 +78,13 @@ export class LiquidMotion {
     // 鼠标与键盘走同一按压反馈；冻结迎向目标，不移动语义命中槽位。
     const press = (button: Element | null) => {
       const node = this.nodes.find(n => n.el === button);
-      if (!node || node.el.matches(':disabled')) return;
+      if (!this.active || document.hidden || !node || !this.usable(node)) return;
       this.pressed = node; node.press.to = 1;
       node.x.to = node.x.x; node.y.to = node.y.x; node.x.v = node.y.v = 0;
       const index = this.nodes.indexOf(node);
       for (const offset of [-1, 1]) {
         const neighbor = this.nodes[index + offset];
-        if (!this.clock.reduced && neighbor && node.group !== 'end' && neighbor.group === node.group && !neighbor.el.matches(':disabled')) neighbor.y.v += T.press.neighborImpulse;
+        if (!this.clock.reduced && neighbor && node.group !== 'end' && neighbor.group === node.group && this.usable(neighbor)) neighbor.y.v += T.press.neighborImpulse;
       }
       this.wake();
     };
@@ -99,12 +100,11 @@ export class LiquidMotion {
     listen(window, 'blur', () => { this.pointer.inside = false; release(); });
     listen(window, 'resize', invalidate); listen(root, 'scroll', invalidate, true);
     listen(document, 'visibilitychange', () => {
+      root.dataset.motionHidden = String(document.hidden);
       if (document.hidden) {
-        this.pointer.inside = false; release();
         // 先取消业务退出，再结束表现过渡，避免隐藏时误发完成或留下半张浮卡。
-        this.restore(); this.controls.reset(); this.clock.finish(); this.clock.stop();
-        this.animations.forEach(animation => animation.cancel());
-      } else invalidate();
+        this.restore(); this.controls.present(false); this.clock.finish(); this.resetField(); this.clock.stop();
+      } else { this.controls.present(this.active); invalidate(); }
     });
     listen(root, 'keydown', ((event: KeyboardEvent) => {
       if (event.key === 'Escape' && root.dataset.motionExit) { event.preventDefault(); event.stopImmediatePropagation(); this.restore(); }
@@ -125,12 +125,13 @@ export class LiquidMotion {
     if (!panel) return;
     this.clock.finish('panel'); this.panelRect = rect(panel.getBoundingClientRect()); this.manualPanel = immediate;
   }
-  private wake() { if (!this.destroyed && !document.hidden) { this.root.dataset.motionState = 'awake'; this.clock.wake(); } }
+  private wake() { if (!this.destroyed && this.active && !document.hidden) { this.root.dataset.motionState = 'awake'; this.clock.wake(); } }
   /** 只在宿主真正撤挡后入场；挂起旧截图时取消时间线，不提前消费动画。 */
   present(presented: boolean) {
     if (this.active === presented) return;
     this.active = presented;
-    if (!presented) { this.restore(); this.controls.reset(); this.clock.finish(); this.clock.stop(); return; }
+    this.controls.present(presented && !document.hidden);
+    if (!presented) { this.restore(); this.clock.finish(); this.resetField(); this.clock.stop(); return; }
     this.measure();
     this.body.snap(this.clock.reduced ? 1 : .06); this.body.to = 1;
     const now = performance.now();
@@ -138,11 +139,32 @@ export class LiquidMotion {
       node.birth.snap(this.clock.reduced ? 1 : 0); node.birth.to = 1;
       node.due = now + (node.el.dataset.motionAction === 'done' ? 0 : (this.nodes.length - index) * T.duration.enterStagger);
     }
+    this.paint(0, now);
     if (!this.clock.reduced) {
       this.decorate(this.rail.querySelector<HTMLElement>('.liquid-sweep'), [{ opacity: 0, transform: 'translateX(-110%)' }, { opacity: .22, offset: .3 }, { opacity: 0, transform: 'translateX(110%)' }], T.duration.sweep);
       this.decorate(this.root.querySelector<HTMLElement>('.clay-capture-selection'), [{ boxShadow: '0 0 0 0 var(--clay-selection)' }, { boxShadow: '0 0 0 12px transparent' }], T.duration.pulse);
     }
     this.wake();
+  }
+  /** 旧会话的迎向、按压和尺寸惯性不能带到下一次揭示，也不能留下液桥。 */
+  private resetField() {
+    this.pointer.inside = false; this.pressed = this.nearest = null; this.bridge = null; this.bridgeLast = -Infinity;
+    for (const node of this.nodes) {
+      for (const spring of [node.x, node.y, node.attention, node.press]) spring.snap(0);
+      node.birth.snap(1); node.faceX = node.faceY = 0;
+      node.skin.style.transform = node.glyph.style.transform = 'none';
+      node.skin.style.opacity = node.glyph.style.opacity = '1';
+      node.skin.style.borderRadius = node.radius + 'px'; node.skin.style.setProperty('--liquid-light', '0');
+    }
+    this.body.snap(1); this.bulge.snap(0); this.bodyLight.snap(this.rr.width / 2);
+    const body = this.rail.querySelector<HTMLElement>('.liquid-rail-body');
+    if (body) { body.style.transform = 'none'; body.style.borderRadius = this.railRadius + 'px'; body.style.setProperty('--liquid-body-light', '0'); }
+    for (const spring of Object.values(this.indicator)) spring.snap(0);
+    const indicator = this.rail.querySelector<HTMLElement>('.liquid-active'); if (indicator) indicator.style.opacity = '0';
+    this.rail.querySelector('.liquid-bridge path')?.setAttribute('d', '');
+    this.sizePosition = null; this.sizeX.snap(0); this.sizeY.snap(0);
+    const size = this.root.querySelector<HTMLElement>('.clay-selection-size'); if (size) size.style.transform = 'none';
+    this.animations.forEach(animation => animation.cancel()); this.animations.clear();
   }
   private decorate(element: HTMLElement | null, keyframes: Keyframe[], duration: number) {
     if (!element || this.economy || this.clock.reduced) return;
@@ -173,12 +195,14 @@ export class LiquidMotion {
   }
   private usable(node: Surface) {
     const r = node.rect;
-    return !node.el.matches(':disabled') && r.width > 0 && r.height > 0 && r.x >= -1 && r.y >= -1 && r.x + r.width <= this.rr.width + 1 && r.y + r.height <= this.rr.height + 1;
+    return node.el.isConnected && !node.el.matches(':disabled') && !node.el.closest('[inert]') && r.width > 0 && r.height > 0 && r.x >= -1 && r.y >= -1 && r.x + r.width <= this.rr.width + 1 && r.y + r.height <= this.rr.height + 1
+      && this.rr.x + r.x >= -1 && this.rr.y + r.y >= -1 && this.rr.x + r.x + r.width <= innerWidth + 1 && this.rr.y + r.y + r.height <= innerHeight + 1;
   }
   /** 主轨、图标、蓝色选中面和局部桥共用一帧；静止后不保留后台循环。 */
   private paint(dt: number, time: number) {
     if (!this.active || this.root.dataset.motionExit) return false;
     if (this.dirty) this.measure();
+    if (this.pressed && !this.usable(this.pressed)) { this.pressed.press.snap(0); this.pressed = null; }
     this.root.dataset.motionFrames = String(this.clock.frames); this.root.dataset.motionState = 'awake';
     const reduced = this.clock.reduced, pointer = this.pointer;
     const reacting = !reduced && pointer.inside && !this.pressed && this.fine.matches && !this.root.inert && !this.root.dataset.motionDragging;

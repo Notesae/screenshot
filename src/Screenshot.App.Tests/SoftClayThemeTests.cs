@@ -56,11 +56,22 @@ internal static class SoftClayThemeTests
                 expander.Resources.MergedDictionaries.Add(resources); expander.Style = (Style)resources[typeof(Expander)];
                 Check(expander.ApplyTemplate(), "native expander template loads");
                 var expansion = (SoftClayDisclosure)expander.Template.FindName("Expansion", expander);
+                var header = (System.Windows.Controls.Primitives.ToggleButton)expander.Template.FindName("HeaderToggle", expander);
+                CheckFeedbackParts(header);
                 Check(!expansion.IsEnabled && expansion.Visibility == Visibility.Collapsed, "closed disclosure immediately leaves input");
                 expander.IsExpanded = true; expander.Measure(new Size(320, double.PositiveInfinity)); expander.Arrange(new Rect(expander.DesiredSize));
                 Check(expansion.Progress == 1 && expansion.IsEnabled && expansion.Child!.RenderTransform.Value.IsIdentity, "unshown native disclosure resolves without scaling text or starting a window");
                 expander.IsExpanded = false;
                 Check(expansion.Progress == 0 && !expansion.IsEnabled && expansion.Visibility == Visibility.Collapsed, "native disclosure close releases its layout slot");
+                header.IsChecked = true;
+                Check(((FrameworkElement)header.Template.FindName("Arrow", header)).RenderTransform is RotateTransform { Angle: 180 }, "unshown disclosure chevron reaches expanded state");
+                header.IsChecked = false;
+                Check(((FrameworkElement)header.Template.FindName("Arrow", header)).RenderTransform is RotateTransform { Angle: 0 }, "disclosure reversal reaches closed chevron without a window");
+                Check(NativeNoticePolicy.Timeout(true) is null && NativeNoticePolicy.Timeout(false) == TimeSpan.FromSeconds(4), "native errors persist while informational notices expire");
+                Check(NativeNoticePolicy.BodyStyle(0x80000) == (0x80000 | 0x20 | 0x08000000), "notice body preserves layered style and adds click through/no activation");
+                var closeSurface = new SoftClayPopupSurface { Style = (Style)resources["ClayNoticeClose"] };
+                Check(closeSurface.ApplyTemplate(), "separate notice close slot uses bounded popup surface");
+                Check(((Grid)VisualTreeHelper.GetChild(closeSurface, 0)).Background is SolidColorBrush { Color.A: 1 }, "layered close slot preserves its full hit rectangle with minimal nonzero alpha");
                 Check(SoftClayTheme.Color("mask").A==128&&SoftClayDrawing.Color("mask").A==128,"CSS mask alpha matches WPF and GDI");
                 Check(SoftClayTheme.Number("motion","toast")==280,"shared native toast timing");
                 var spring=SoftClayTheme.Spring();
@@ -80,19 +91,40 @@ internal static class SoftClayThemeTests
                     Check(control.ApplyTemplate(),"custom native template loads: "+type.Name);
                     Check(control.FocusVisualStyle is null,"native focus adorners remain replaced: "+type.Name);
                     // 仅实例化模板和变换，验证固定命中层，不显示窗口或注入指针。
-                    if(control is Button button)
-                    {
-                        var face=(FrameworkElement)button.Template.FindName("Face",button);
-                        var glyph=(FrameworkElement)button.Template.FindName("Glyph",button);
-                        Check(ReferenceEquals(VisualTreeHelper.GetParent(face),VisualTreeHelper.GetParent(glyph)),"native glyph is independent from deforming material");
-                        SoftClayMotion.Press(button,true);
-                        Check(button.RenderTransform.Value.IsIdentity&&glyph.RenderTransform is TranslateTransform,"native input slot stays fixed while glyph only translates");
-                        button.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
-                    }
+                    if(control is System.Windows.Controls.Primitives.ButtonBase button) CheckFeedbackParts(button);
                     if(control is TextBox or PasswordBox or ComboBox)Check(control.BorderThickness==new Thickness(0),"fields have no decorative outline: "+type.Name);
                     if(control is ListBoxItem or ComboBoxItem)Check(control.Template.FindName("ItemContent",control) is ContentPresenter { Content: "合成选项" },"native item text remains visible");
                     if(control is TextBox or PasswordBox or RichTextBox)Check(control.Template.FindName("PART_ContentHost",control) is ScrollViewer,"native text host preserved");
                     if(control is ComboBox)Check(control.Template.FindName("PART_Popup",control) is System.Windows.Controls.Primitives.Popup,"native keyboard dropdown part preserved");
+                    if(control is ComboBox combo)
+                    {
+                        var toggle = (System.Windows.Controls.Primitives.ToggleButton)combo.Template.FindName("Toggle", combo);
+                        CheckFeedbackParts(toggle);
+                        // 原触发器保留 ComboBox 的闭合绑定；独立复用其模板验证箭头，绝不打开 Popup。
+                        var isolated = new System.Windows.Controls.Primitives.ToggleButton { Template = toggle.Template };
+                        isolated.Resources.MergedDictionaries.Add(resources); CheckFeedbackParts(isolated); isolated.IsChecked = true;
+                        var arrow = (FrameworkElement)isolated.Template.FindName("Arrow", isolated);
+                        Check(arrow.RenderTransform is RotateTransform { Angle: 180 }, "isolated dropdown chevron follows logical opening");
+                        Check(!combo.IsDropDownOpen, "chevron isolation never opens native popup");
+                        isolated.IsChecked = false;
+                        Check(arrow.RenderTransform is RotateTransform { Angle: 0 }, "isolated dropdown chevron reverses to closed state");
+                    }
+                }
+                // 直接推进模板和属性；不注入鼠标/键盘，也不打开 HWND。
+                void CheckFeedbackParts(System.Windows.Controls.Primitives.ButtonBase button)
+                {
+                    button.ApplyTemplate();
+                    var face = (FrameworkElement)button.Template.FindName("Face", button);
+                    var glyph = (FrameworkElement)button.Template.FindName("Glyph", button);
+                    Check(ReferenceEquals(VisualTreeHelper.GetParent(face), VisualTreeHelper.GetParent(glyph)), "native glyph is independent from deforming material: " + button.GetType().Name);
+                    SoftClayMotion.Press(button, true);
+                    Check(button.RenderTransform.Value.IsIdentity && glyph.RenderTransform is TranslateTransform, "native input slot stays fixed while glyph only translates");
+                    ((ScaleTransform)((TransformGroup)face.RenderTransform).Children[0]).ScaleY = .8;
+                    button.IsEnabled = false;
+                    Check(face.RenderTransform.Value.IsIdentity && glyph.RenderTransform.Value.IsIdentity, "disabling native feedback immediately clears pressure");
+                    SoftClayMotion.Press(button, true);
+                    Check(face.RenderTransform.Value.IsIdentity, "disabled native feedback refuses another press");
+                    button.IsEnabled = true; button.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
                 }
             }
             catch(Exception error){failure=error;}

@@ -52,7 +52,7 @@ export default function App() {
   const [hostLocked, setHostLocked] = useState(false);
   const hostLock = useRef(false), savedProject = useRef<{ id:string; revision:number } | null>(null);
   const [entryPanel, setEntryPanel] = useState<{kind:'more'|'recovery';sequence:number}|null>(null);
-  const actions = useRef<(action:string,text?:string)=>void>(()=>{});
+  const actions = useRef<(action:string,text?:string,error?:boolean)=>void>(()=>{});
   // 成功提示按长度留出阅读时间，错误保持到用户关闭；旧计时器不能清除较新的提示。
   useEffect(() => {
     if (!notice || notice.error) return;
@@ -217,7 +217,7 @@ export default function App() {
       if(presentation.reason==='user_editor'||presentation.reason==='user_workbench'){generation.current++;presentationMotion()?.restore();}
       setOverlay(null);
       if (presentation.reason === 'overlay_timeout') setNotice({ text: '选区编辑未及时就绪，已返回轻量编辑器。图片与编辑内容仍保留。', error: true });
-    }, (action,text) => actions.current(action,text));
+    }, (action,text,error) => actions.current(action,text,error));
     if (native.available) {
       void native.request('app.updateReady').catch(() => {});
       void native.request<LocalOcrStatus>('ocr.status').then(value => {
@@ -493,7 +493,7 @@ export default function App() {
   }
   const textTools = { onProbe:(kind:"text"|"image")=>{void probeAi(kind);}, translationProgress:translationJob?{done:translationJob.chunks.filter(c=>c.status==='done').length,total:translationJob.chunks.length,failed:translationJob.chunks.filter(c=>c.status==='failed').length,pending:translationJob.chunks.filter(c=>c.status==='pending'||c.status==='running').length,canRetry:!!doc.editor.translationData&&canResumeTranslation(doc.editor.translationData,doc.editor,providerId,providerRevision,targetLanguage),errors:translationJob.chunks.filter(c=>c.error).map(c=>c.error!)}:null, onRetryTranslation:()=>{void ai('translate',true);}, onCopyText:(text:string)=>{void copyPlainText(text);}, document: doc, update, settings, providerId, setProviderId, targetLanguage, setTargetLanguage, ocrEngine, setOcrEngine, localStatus, busy, aiBusy, onAi: (kind: 'ocr' | 'translate') => { void ai(kind); }, onCancelOcr: () => { void cancelOcr(); }, onConfigure: () => { void configureSettings('services'); }, onError: errorNotice };
   const recoveryPanel = <RecoveryPanel onRestore={restoreRecovery} onError={errorNotice} autoOpen/>;
-  actions.current=(action,text)=>{
+  actions.current=(action,text,error)=>{
     if(action==='open-image')void openImage();
     else if(action==='open-project')void openProject();
     else if(action==='paste')void nativeImage('image.paste','粘贴图片');
@@ -504,7 +504,7 @@ export default function App() {
       void native.request<{backend:'wgc'|'gdi'}>('capture.settings').then(value=>{if(value.backend==='wgc'||value.backend==='gdi')setCaptureBackend(value.backend);}).catch(errorNotice);
     }
     else if(action==='recovery')setEntryPanel(value=>({kind:action,sequence:(value?.sequence??0)+1}));
-    else if(action==='notice'&&text)setNotice({text,error:true});
+    else if(action==='notice'&&text)setNotice({text,error:error!==false});
   };
   return <>
     <input hidden ref={imageInput} type="file" accept="image/png,image/jpeg,image/webp" onChange={event=>{void chooseFiles(event.currentTarget.files);event.currentTarget.value='';}}/>

@@ -40,7 +40,8 @@ export function useSurfaceMotion(open: boolean, element: RefObject<HTMLElement |
     const anchor = origin?.getBoundingClientRect();
     const first = anchor ? { x: anchor.left, y: anchor.top, width: anchor.width, height: anchor.height } : { ...target, y: target.y - 6, width: target.width * .96, height: target.height * .94 };
     const start = state.current.box ?? first, alpha = state.current.alpha, material = state.current.material;
-    const destination = open ? target : { ...target, y: target.y + (anchor && anchor.top < target.y ? -6 : 6), width: target.width * .98, height: target.height * .97 };
+    // 提前关闭从正在显示的材质收拢，不能先长到完整布局尺寸再退出。
+    const destination = open ? target : { ...start, y: start.y + (anchor && anchor.top < start.y ? -6 : 6), width: start.width * .98, height: start.height * .97 };
     /** 仅给材质写 transform/opacity，内容独立淡入，不缩放输入或长文字。 */
     const paint = (progress: number) => {
       const goal = open ? box() : destination;

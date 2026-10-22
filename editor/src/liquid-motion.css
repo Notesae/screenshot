@@ -25,10 +25,10 @@
 .clay-editor[data-motion-exit] :where(.clay-chrome,.clay-capture-layer,.clay-reader) { pointer-events: none !important; }
 .clay-editor[data-motion-exit] button { pointer-events: none !important; }
 /* 浮层槽位与正文保持真实尺寸，只有独立材质形变；关闭后立即停止命中。 */
-.clay-editor :is(.clay-select-menu,.clay-color-popover,.clay-tooltip,.clay-reader,.clay-notice) { isolation:isolate; background:transparent; box-shadow:none; animation:none; overflow:visible; }
+.clay-editor :is(.clay-select-menu,.clay-color-popover,.clay-tooltip,.clay-reader,.clay-notice,.clay-status) { isolation:isolate; background:transparent; box-shadow:none; animation:none; overflow:visible; }
 .liquid-surface-skin { position:absolute; inset:0; z-index:0; border-radius:inherit; background:var(--clay-card-face); box-shadow:var(--clay-elevation); transform-origin:top left; pointer-events:none; opacity:0; }
 .liquid-surface-content { position:relative; z-index:1; min-width:0; min-height:0; border-radius:inherit; opacity:0; }
-.clay-editor [aria-hidden=true]:is(.clay-select-menu,.clay-color-popover,.clay-tooltip,.clay-reader,.clay-notice), .clay-editor [aria-hidden=true]:is(.clay-select-menu,.clay-color-popover,.clay-reader,.clay-notice) * { pointer-events:none !important; }
+.clay-editor [aria-hidden=true]:is(.clay-select-menu,.clay-color-popover,.clay-tooltip,.clay-reader,.clay-notice,.clay-status), .clay-editor [aria-hidden=true]:is(.clay-select-menu,.clay-color-popover,.clay-reader,.clay-notice,.clay-status) * { pointer-events:none !important; }
 .clay-editor :is(.clay-select-menu,.clay-color-popover) { padding:0; }
 :is(.clay-select-menu,.clay-color-popover) > .liquid-surface-content { overflow-y:auto; overflow-x:hidden; max-height:inherit; overscroll-behavior:contain; padding:4px; }
 .clay-color-popover > .liquid-surface-content { padding:12px; }
@@ -36,7 +36,11 @@
 .clay-tooltip > .liquid-surface-skin { background:var(--clay-well); box-shadow:var(--clay-shadow); }
 .clay-tooltip > .liquid-surface-content { padding:7px 10px; }
 .clay-reader > .liquid-surface-content { display:flex; flex-direction:column; height:100%; overflow:hidden; }
-.clay-editor .clay-notice { padding:0; pointer-events:none; }
+.clay-editor :is(.clay-notice,.clay-status) { padding:0; pointer-events:none; }
+.clay-status > .liquid-surface-content { padding:12px 16px; }
+.clay-status > .liquid-surface-skin { background:var(--clay-face); }
+.clay-status button { pointer-events:auto; }
+.clay-editor:is(.is-awaiting,.is-suspended,[data-motion-hidden=true]) .spinner, .clay-status[aria-hidden=true] .spinner { animation-play-state:paused; }
 .clay-notice > .liquid-surface-content { display:flex; align-items:center; gap:12px; padding:12px 16px; }
 .clay-notice button { pointer-events:auto; }
 .clay-editor[data-motion-reduced=true] *, .clay-editor[data-motion-reduced=true] *::before, .clay-editor[data-motion-reduced=true] *::after { animation: none !important; transition: none !important; }

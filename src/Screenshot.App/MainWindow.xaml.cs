@@ -180,7 +180,7 @@ public partial class MainWindow : Window
     {
         if (!_terms.IsAuthorized) return;
         if (!_ready || !_editorMounted.Task.IsCompletedSuccessfully) { ShowEditorAction("notice", "编辑器尚未就绪，请重试加载。"); return; }
-        if (!_requests.TryEnter("capture.region", out var lease)) { ShowEditorNotice("正在处理另一项本地操作，请稍后重试。"); return; }
+        if (!_requests.TryEnter("capture.region", out var lease)) { ShowEditorNotice("正在处理另一项本地操作，请稍后重试。", error: false); return; }
         try
         {
             var image = await CaptureAsync(request);
@@ -207,9 +207,10 @@ public partial class MainWindow : Window
         var completed = false;
         try
         {
+            var noticeDismissed = await ClearNativeNoticeAsync();
             // 先隐藏完整 HWND；已在托盘时直接取帧，可见窗口只等待本进程撤离合成，不固定睡眠。
             Hide();trace.Mark("host_hidden");
-            if(wasVisible)await Task.Run(()=>Marshal.ThrowExceptionForHR(DwmFlush()),_lifetime.Token);
+            if(wasVisible||noticeDismissed)await Task.Run(()=>Marshal.ThrowExceptionForHR(DwmFlush()),_lifetime.Token);
             trace.Mark("capture_started");
             if (!_captureBackends.TryGetValue(request.Backend, out var backend)) throw new CaptureException("invalid_capture_backend", "不支持的截图后端。");
             var frame = await backend.CaptureAsync(request, _lifetime.Token);

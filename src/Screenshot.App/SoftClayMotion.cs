@@ -7,6 +7,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 
@@ -19,7 +20,7 @@ internal static class SoftClayMotion
         ?? throw new InvalidOperationException("缺少共享动效参数。"));
     private static JsonElement Motion => Tokens.RootElement.GetProperty("motion");
     // 弱表保留重定向状态；只有尚未停稳的控件进入活动帧列表。
-    private static readonly ConditionalWeakTable<Button, SurfaceState> Buttons = new();
+    private static readonly ConditionalWeakTable<ButtonBase, SurfaceState> Buttons = new();
     private static readonly ConditionalWeakTable<FrameworkElement, FloatingSurface> Surfaces = new();
     private static readonly List<WeakReference<SurfaceState>> Known = new();
     private static readonly Dictionary<FrameworkElement, SurfaceState> Active = new();
@@ -33,11 +34,14 @@ internal static class SoftClayMotion
     {
         if (_installed) return;
         _installed = true;
-        EventManager.RegisterClassHandler(typeof(Button), UIElement.MouseMoveEvent, new MouseEventHandler((sender, args) => Hover((Button)sender, args.GetPosition((Button)sender))));
-        EventManager.RegisterClassHandler(typeof(Button), UIElement.MouseLeaveEvent, new MouseEventHandler((sender, _) => Hover((Button)sender, null)));
-        EventManager.RegisterClassHandler(typeof(Button), FrameworkElement.UnloadedEvent, new RoutedEventHandler((sender, _) =>
+        EventManager.RegisterClassHandler(typeof(ButtonBase), UIElement.MouseMoveEvent, new MouseEventHandler((sender, args) => Hover((ButtonBase)sender, args.GetPosition((ButtonBase)sender))));
+        EventManager.RegisterClassHandler(typeof(ButtonBase), UIElement.MouseLeaveEvent, new MouseEventHandler((sender, _) => Hover((ButtonBase)sender, null)));
+        EventManager.RegisterClassHandler(typeof(ButtonBase), FrameworkElement.LoadedEvent, new RoutedEventHandler((sender, _) => State((ButtonBase)sender)));
+        EventManager.RegisterClassHandler(typeof(ToggleButton), ToggleButton.CheckedEvent, new RoutedEventHandler((sender, _) => TurnChevron((ToggleButton)sender)));
+        EventManager.RegisterClassHandler(typeof(ToggleButton), ToggleButton.UncheckedEvent, new RoutedEventHandler((sender, _) => TurnChevron((ToggleButton)sender)));
+        EventManager.RegisterClassHandler(typeof(ButtonBase), FrameworkElement.UnloadedEvent, new RoutedEventHandler((sender, _) =>
         {
-            var button = (Button)sender;
+            var button = (ButtonBase)sender;
             Active.Remove(button);
             if (Buttons.TryGetValue(button, out var state)) state.Reset();
             SleepIfSettled();
@@ -46,34 +50,54 @@ internal static class SoftClayMotion
     }
 
     // 每个按钮只创建一组独立表面变换，弱引用不会阻止窗口释放。
-    private static SurfaceState State(Button button) => Buttons.GetValue(button, owner =>
+    private static SurfaceState? State(ButtonBase owner)
     {
+        if (Buttons.TryGetValue(owner, out var existing)) return existing;
         owner.ApplyTemplate();
-        var face = owner.Template.FindName("Face", owner) as FrameworkElement;
-        var glyph = owner.Template.FindName("Glyph", owner) as FrameworkElement;
-        var state = new SurfaceState(owner, face, glyph);
+        var face = owner.Template?.FindName("Face", owner) as FrameworkElement;
+        if (face is null) return null; // 滚动条等透明命中按钮没有材质，不进入帧循环。
+        var glyph = owner.Template!.FindName("Glyph", owner) as FrameworkElement;
+        var arrow = owner.Template.FindName("Arrow", owner) as FrameworkElement;
+        var state = new SurfaceState(owner, face, glyph, arrow);
+        Buttons.Add(owner, state);
+        void ResetUnavailable(object sender, DependencyPropertyChangedEventArgs args)
+        {
+            if (owner.IsEnabled && owner.IsVisible) return;
+            state.Reset(); Active.Remove(owner); SleepIfSettled();
+        }
+        owner.IsEnabledChanged += ResetUnavailable; owner.IsVisibleChanged += ResetUnavailable;
         Known.RemoveAll(reference => !reference.TryGetTarget(out _));
         Known.Add(new WeakReference<SurfaceState>(state));
         return state;
-    });
+    }
 
     /// <summary>输入槽位不移动；按住冻结迎向，释放从当前状态回落。</summary>
-    public static void Press(Button button, bool pressed)
+    public static void Press(ButtonBase button, bool pressed)
     {
         var state = State(button);
+        if (state is null) return;
+        if (!button.IsEnabled) { state.Reset(); Active.Remove(button); SleepIfSettled(); return; }
         state.Pressed = pressed;
         state.ScaleX.To = pressed ? Motion.GetProperty("press").GetProperty("x").GetDouble() : 1;
         state.ScaleY.To = pressed ? Motion.GetProperty("press").GetProperty("y").GetDouble() : 1;
-        if (!pressed) { state.X.To = 0; state.Y.To = 0; }
+        if (pressed) { state.X.Snap(state.X.Value); state.Y.Snap(state.Y.Value); }
+        else { state.X.To = 0; state.Y.To = 0; }
+        Wake(state);
+    }
+    private static void TurnChevron(ToggleButton button)
+    {
+        var state = State(button);
+        if (state is null) return;
+        state.Chevron.Redirect(button.IsChecked == true ? 1 : 0);
         Wake(state);
     }
 
     // 由事件提供的控件内坐标计算有界迎向，不读取或移动系统光标。
-    private static void Hover(Button button, Point? pointer)
+    private static void Hover(ButtonBase button, Point? pointer)
     {
         if (!button.IsEnabled || !SystemParameters.ClientAreaAnimation) return;
         var state = State(button);
-        if (state.Pressed) return;
+        if (state is null || state.Pressed) return;
         var field = Motion.GetProperty("field");
         var dx = pointer?.X - button.ActualWidth / 2 ?? 0;
         var dy = pointer?.Y - button.ActualHeight / 2 ?? 0;
@@ -127,7 +151,7 @@ internal static class SoftClayMotion
     // 仅活动表面订阅合成帧；系统关闭动画时同步复位。
     private static void Wake(SurfaceState state)
     {
-        if (!SystemParameters.ClientAreaAnimation) { state.Reset(); Active.Remove(state.Owner); SleepIfSettled(); return; }
+        if (!state.Owner.IsLoaded || !state.Owner.IsVisible || !SystemParameters.ClientAreaAnimation) { state.Reset(); Active.Remove(state.Owner); SleepIfSettled(); return; }
         Active[state.Owner] = state;
         StartRendering();
     }
@@ -147,13 +171,14 @@ internal static class SoftClayMotion
         foreach (var pair in Active.ToArray())
         {
             var state = pair.Value;
-            if (!state.Owner.IsLoaded || !state.Owner.IsVisible || !SystemParameters.ClientAreaAnimation) { state.Reset(); Active.Remove(pair.Key); continue; }
+            if (!state.Owner.IsLoaded || !state.Owner.IsVisible || !state.Owner.IsEnabled || !SystemParameters.ClientAreaAnimation) { state.Reset(); Active.Remove(pair.Key); continue; }
             var config = Motion.GetProperty("spring").GetProperty(state.Pressed ? "press" : "attention");
             var moving = false;
             foreach (var spring in new[] { state.X, state.Y }) moving = spring.Step(elapsed, config) || moving;
             var press = Motion.GetProperty("spring").GetProperty("press");
             moving = state.ScaleX.Step(elapsed, press) || moving;
             moving = state.ScaleY.Step(elapsed, press) || moving;
+            state.Chevron.Step(elapsed); moving = state.Chevron.Moving || moving;
             state.Paint();
             if (!moving) Active.Remove(pair.Key);
         }
@@ -188,13 +213,15 @@ internal static class SoftClayMotion
     {
         public readonly FrameworkElement Owner;
         public readonly SpringState X = new(), Y = new(), ScaleX = new(1), ScaleY = new(1);
+        public readonly DisclosureTransition Chevron = new();
         public readonly TranslateTransform Shift = new();
         private readonly ScaleTransform _scale = new(1, 1);
         private readonly TranslateTransform _glyphShift = new();
+        private readonly RotateTransform _arrowTurn = new();
         public bool Pressed;
 
         // 命中网格不参与变换；材质与图文分别挂接到模板零件。
-        public SurfaceState(FrameworkElement owner, FrameworkElement? face, FrameworkElement? glyph)
+        public SurfaceState(ButtonBase owner, FrameworkElement face, FrameworkElement? glyph, FrameworkElement? arrow)
         {
             Owner = owner;
             if (face != null)
@@ -203,6 +230,12 @@ internal static class SoftClayMotion
                 face.RenderTransform = new TransformGroup { Children = { _scale, Shift } };
             }
             if (glyph != null) glyph.RenderTransform = _glyphShift;
+            if (arrow != null)
+            {
+                Chevron.Redirect(owner is ToggleButton { IsChecked: true } ? 1 : 0); Chevron.Step(double.PositiveInfinity);
+                arrow.RenderTransformOrigin = new Point(.5, .5); arrow.RenderTransform = _arrowTurn;
+                _arrowTurn.Angle = Chevron.Value * 180;
+            }
         }
 
         public void Paint()
@@ -211,11 +244,12 @@ internal static class SoftClayMotion
             _scale.ScaleX = ScaleX.Value; _scale.ScaleY = ScaleY.Value;
             var ratio = Motion.GetProperty("field").GetProperty("iconRatio").GetDouble();
             _glyphShift.X = X.Value * ratio; _glyphShift.Y = Y.Value * ratio;
+            _arrowTurn.Angle = Chevron.Value * 180;
         }
 
         public void Reset()
         {
-            X.Snap(0); Y.Snap(0); ScaleX.Snap(1); ScaleY.Snap(1); Pressed = false; Paint();
+            X.Snap(0); Y.Snap(0); ScaleX.Snap(1); ScaleY.Snap(1); Chevron.Step(double.PositiveInfinity); Pressed = false; Paint();
         }
     }
 
