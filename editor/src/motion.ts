@@ -44,6 +44,9 @@ export class MotionClock {
   private frame = 0;
   private last = 0;
   private quiet = 0;
+  private ticking = false;
+  private version = 0;
+  private disposed = false;
   frames = 0;
   reduced = false;
   onIdle?: () => void;
@@ -52,8 +55,12 @@ export class MotionClock {
   get activeTracks() { return this.tracks.size; }
   listen(listener: (elapsed: number, time: number) => boolean) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   wake() {
+    if (this.disposed) return;
     this.quiet = 0;
-    if (!this.frame) { this.last = this.source.now(); this.frame = this.source.request(time => this.tick(time)); }
+    if (!this.frame) {
+      if (!this.ticking) this.last = this.source.now();
+      this.frame = this.source.request(time => this.tick(time));
+    }
   }
   cancel(key: string) {
     const track = this.tracks.get(key);
@@ -61,64 +68,83 @@ export class MotionClock {
   }
   /** 同名弹簧从旧轨道的当前 x/v 续接，而不是从初始姿态重播。 */
   spring(key: string, paint: Track['paint'], from = 0, to = 1, preset: SpringPreset = 'panel') {
+    if (this.disposed) return Promise.resolve(false);
     const previous = this.tracks.get(key)?.spring;
     const spring = new MotionSpring(previous?.x ?? from); spring.v = previous?.v ?? 0; spring.to = to;
     this.cancel(key);
     return new Promise<boolean>(resolve => {
       if (this.reduced) { paint(to, 0); resolve(true); return; }
-      this.tracks.set(key, { paint, resolve, spring, preset, start: this.source.now(), duration: 1600 });
-      paint(spring.x, spring.v); this.wake();
+      const track = { paint, resolve, spring, preset, start: this.source.now(), duration: 1600 };
+      this.tracks.set(key, track); paint(spring.x, spring.v);
+      if (this.tracks.get(key) === track) this.wake();
     });
   }
   /** 同名缓动取消旧回调；减少动态直接提交业务对应的终态。 */
   tween(key: string, duration: number, paint: Track['paint']) {
+    if (this.disposed) return Promise.resolve(false);
     this.cancel(key);
     return new Promise<boolean>(resolve => {
       if (this.reduced) { paint(1, 0); resolve(true); return; }
-      this.tracks.set(key, { paint, resolve, start: this.source.now(), duration, preset: 'exit' });
-      paint(0, 0); this.wake();
+      const track: Track = { paint, resolve, start: this.source.now(), duration, preset: 'exit' };
+      this.tracks.set(key, track); paint(0, 0);
+      if (this.tracks.get(key) === track) this.wake();
     });
   }
   /** 系统偏好变化时立刻归到终态，不能留下半透明弹层或继续退出的旧计时器。 */
   setReduced(reduced: boolean) {
     this.reduced = reduced;
-    if (reduced) {
-      for (const [key, track] of [...this.tracks]) {
-        this.tracks.delete(key); track.paint(track.spring?.to ?? 1, 0); track.resolve(true);
-      }
-    }
+    if (reduced) this.finish();
     this.wake();
   }
+  /** 隐藏时结束表现过渡并保留成功回调；业务退出须由调用者先取消。 */
+  finish() {
+    for (const [key, track] of [...this.tracks]) {
+      if (this.tracks.get(key) !== track) continue;
+      this.tracks.delete(key); track.paint(track.spring?.to ?? 1, 0); track.resolve(true);
+    }
+  }
   stop() {
+    this.version++;
     if (this.frame) this.source.cancel(this.frame);
     this.frame = 0;
     for (const key of [...this.tracks.keys()]) this.cancel(key);
     this.onIdle?.();
   }
-  dispose() { this.stop(); this.listeners.clear(); }
+  dispose() { this.disposed = true; this.stop(); this.listeners.clear(); }
   /** 帧内先更新连续场，再推进命名时间线；完成后不再调度空帧。 */
   private tick(time: number) {
     this.frame = 0; this.frames++;
+    const version = this.version;
     const elapsed = clamp((time - this.last) / 1000, 0, motionTokens.solver.maxElapsed); this.last = time;
     let moving = false;
-    for (const listener of this.listeners) moving = listener(elapsed, time) || moving;
-    for (const [key, track] of [...this.tracks]) {
-      if (this.tracks.get(key) !== track) continue;
-      let done = false;
-      if (track.spring) {
-        track.spring.step(elapsed, track.preset);
-        done = !track.spring.moving || time - track.start >= track.duration;
-        if (done) track.spring.snap(track.spring.to);
-        track.paint(track.spring.x, track.spring.v);
-      } else {
-        const progress = clamp((time - track.start) / track.duration);
-        track.paint(1 - Math.pow(1 - progress, 3), 0); done = progress === 1;
+    this.ticking = true;
+    try {
+      for (const listener of this.listeners) {
+        moving = listener(elapsed, time) || moving;
+        if (version !== this.version) return;
       }
-      if (done && this.tracks.get(key) === track) { this.tracks.delete(key); track.resolve(true); }
-      else moving = true;
+      for (const [key, track] of [...this.tracks]) {
+        if (this.tracks.get(key) !== track) continue;
+        let done = false;
+        if (track.spring) {
+          track.spring.step(elapsed, track.preset);
+          done = !track.spring.moving || time - track.start >= track.duration;
+          if (done) track.spring.snap(track.spring.to);
+          track.paint(track.spring.x, track.spring.v);
+        } else {
+          const progress = clamp((time - track.start) / track.duration);
+          track.paint(1 - Math.pow(1 - progress, 3), 0); done = progress === 1;
+        }
+        if (version !== this.version) return;
+        if (done && this.tracks.get(key) === track) { this.tracks.delete(key); track.resolve(true); }
+        else moving = true;
+      }
+    } finally {
+      this.ticking = false;
     }
     this.quiet = moving ? 0 : this.quiet + 1;
-    if (this.quiet < motionTokens.solver.sleepFrames) this.frame = this.source.request(next => this.tick(next));
+    // 绘制可同步启动新过渡；复用它已排队的帧，避免并行 RAF 链无法休眠。
+    if (this.quiet < motionTokens.solver.sleepFrames) { if (!this.frame) this.frame = this.source.request(next => this.tick(next)); }
     else this.onIdle?.();
   }
 }

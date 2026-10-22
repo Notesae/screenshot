@@ -11,8 +11,9 @@ export function useSurfaceMotion(open: boolean, element: RefObject<HTMLElement |
   useLayoutEffect(() => {
     const media = matchMedia('(prefers-reduced-motion: reduce)');
     const update = () => owned.current?.setReduced(media.matches);
-    media.addEventListener('change', update);
-    return () => { media.removeEventListener('change', update); scheduler.current?.cancel(key); owned.current?.dispose(); };
+    const hidden = () => { if (document.hidden) { owned.current?.finish(); owned.current?.stop(); } };
+    media.addEventListener('change', update); document.addEventListener('visibilitychange', hidden);
+    return () => { media.removeEventListener('change', update); document.removeEventListener('visibilitychange', hidden); scheduler.current?.cancel(key); owned.current?.dispose(); };
   }, []);
   useLayoutEffect(() => { if (open) setMounted(true); }, [open]);
   useLayoutEffect(() => {

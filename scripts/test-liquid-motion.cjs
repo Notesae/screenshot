@@ -55,11 +55,39 @@ function mockHost(){
 }
 let browser,page;
 const checks=[];
+/** 仅替换合成页面的可见性读数，不切换桌面窗口或浏览器焦点。 */
+async function visibility(hidden){
+  await page.evaluate(hidden=>{
+    if(hidden)Object.defineProperties(document,{hidden:{configurable:true,value:true},visibilityState:{configurable:true,value:'hidden'}});
+    else{delete document.hidden;delete document.visibilityState;}
+    document.dispatchEvent(new Event('visibilitychange'));
+  },hidden);
+}
+/** 在真实材质尚未显现完时触发操作，避免机器速度改变采样时机。 */
+async function interruptPanel(action){
+  await page.clock.pauseAt(await page.evaluate(()=>Date.now()+100));
+  const interrupted=page.evaluate(action=>new Promise((resolve,reject)=>{
+    const observer=new MutationObserver(()=>{
+      const skin=document.querySelector('.liquid-panel-skin'),before=Number(skin?.style.opacity);
+      if(!skin||before<=.05||before>=.75)return;
+      clearTimeout(timeout);observer.disconnect();
+      document.querySelector('[aria-label="'+action+'"]').click();
+      queueMicrotask(()=>resolve({before,after:Number(skin.style.opacity)}));
+    });
+    const timeout=setTimeout(()=>{observer.disconnect();reject(Error('未捕捉到主浮卡中间帧'));},4000);
+    observer.observe(document.querySelector('[data-editor-root]'),{subtree:true,childList:true,attributes:true,attributeFilter:['style']});
+    document.querySelector('[aria-label="美化图片"]').click();
+  }),action);
+  // 明确推进 16ms 帧，避免慢机器首帧直接越过部分透明区而让回归偶发超时。
+  try{await page.clock.runFor(80);}finally{await page.clock.resume();}
+  return interrupted;
+}
 /** 在正式构建页面中验证表现层与真实业务入口的先后顺序。 */
 async function main(){
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   browser=await chromium.launch({headless:true,...(process.env.SCREENSHOT_CHROMIUM_EXECUTABLE?{executablePath:process.env.SCREENSHOT_CHROMIUM_EXECUTABLE}:{channel:'msedge'})});
   const context=await browser.newContext({viewport:{width:1280,height:800}});page=await context.newPage();const errors=[];
+  await page.clock.install();
   page.on('pageerror',error=>errors.push(error.message));
   await page.route('**/*',route=>route.request().url().startsWith('http://127.0.0.1:')||route.request().url().startsWith('data:')?route.continue():route.abort());
   await page.addInitScript(mockHost);await page.goto('http://127.0.0.1:'+server.address().port+'/index.html');
@@ -68,6 +96,35 @@ async function main(){
   const click=name=>page.getByRole('button',{name,exact:true}).click();
   await load();
   const original=await page.locator('canvas.lower-canvas').evaluate(canvas=>canvas.toDataURL());
+  const earlyClose=await interruptPanel('关闭浮卡');
+  assert.ok(earlyClose.after<=earlyClose.before+.1,'主浮卡提前关闭不能跳亮');
+  await page.waitForSelector('.clay-card',{state:'detached'});checks.push('early-panel-close-preserves-material-opacity');
+  const switching=await interruptPanel('提取文字');
+  assert.ok(switching.after>=switching.before*.9,'切换浮卡不能重新闪成透明');
+  await page.waitForFunction(()=>document.querySelector('.clay-card[aria-label="识别与校对"] .liquid-panel-content')?.style.opacity==='1');
+  await click('关闭浮卡');await page.waitForSelector('.clay-card',{state:'detached'});checks.push('panel-switch-retains-visible-material');
+  await click('美化图片');
+  await page.waitForFunction(()=>{const n=document.querySelector('.liquid-panel-content');return n&&Number(n.style.opacity)>0&&Number(n.style.opacity)<1;});
+  await visibility(true);
+  assert.equal(await page.locator('.liquid-panel-content').evaluate(el=>el.style.opacity),'1');
+  const hiddenFrames=await page.locator('[data-editor-root]').getAttribute('data-motion-frames');await page.waitForTimeout(80);
+  assert.equal(await page.locator('[data-editor-root]').getAttribute('data-motion-frames'),hiddenFrames,'隐藏期间没有残留帧');
+  await visibility(false);
+  assert.equal(await page.locator('.liquid-panel-skin').evaluate(el=>{const m=new DOMMatrixReadOnly(getComputedStyle(el).transform);return Math.abs(m.m11-1)<.001&&Math.abs(m.m22-1)<.001;}),true);
+  checks.push('hidden-panel-enter-settles-and-sleeps');
+  await click('关闭浮卡');await visibility(true);
+  await page.waitForSelector('.clay-card',{state:'detached'});await visibility(false);checks.push('hidden-panel-close-removes-retained-surface');
+  await click('更多操作');await page.getByRole('combobox',{name:'导出倍率',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('.clay-select-menu')?.dataset.motionPhase==='open');
+  await page.keyboard.press('Escape');await visibility(true);
+  await page.waitForSelector('.clay-select-menu',{state:'detached'});await visibility(false);checks.push('hidden-menu-close-releases-retained-surface');
+  await page.getByText('裁剪与缩放',{exact:true}).click();await visibility(true);
+  assert.equal(await page.locator('details').filter({has:page.locator('summary').filter({hasText:'裁剪与缩放'})}).evaluate(el=>el.open&&!el.style.height&&!el.style.overflow),true);
+  await visibility(false);await click('关闭浮卡');await page.waitForSelector('.clay-card',{state:'detached'});checks.push('hidden-disclosure-finishes-at-semantic-state');
+  await click('完成');await page.waitForSelector('[data-motion-exit=complete]');await visibility(true);await visibility(false);
+  await page.waitForFunction(()=>!document.querySelector('fieldset').disabled);
+  assert.equal(await page.evaluate(()=>window.__motionTest.state.completed),0,'隐藏只取消收束，不能确认完成');
+  assert.equal(await page.locator('[data-motion-exit]').count(),0);assert.equal(await page.locator('canvas.lower-canvas').count(),1);checks.push('hidden-exit-does-not-send-stale-completion');
   const rectTool=page.getByRole('button',{name:'矩形标注',exact:true}),arrowTool=page.getByRole('button',{name:'箭头标注',exact:true});
   const fixed=await rectTool.boundingBox();await page.mouse.move(fixed.x+fixed.width*.75,fixed.y+8);await page.waitForTimeout(160);
   assert.deepEqual(await rectTool.boundingBox(),fixed,'迎向不能移动命中槽位');

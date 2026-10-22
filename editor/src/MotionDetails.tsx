@@ -9,9 +9,10 @@ export function MotionDetails({ children, open = false, ...props }: ComponentPro
   useLayoutEffect(() => {
     const scheduler = clock.current = new MotionClock(), media = matchMedia('(prefers-reduced-motion: reduce)');
     const update = () => scheduler.setReduced(media.matches);
+    const hidden = () => { if (document.hidden) { scheduler.finish(); scheduler.stop(); } };
     if (element.current) element.current.open = open;
-    update(); media.addEventListener('change', update);
-    return () => { media.removeEventListener('change', update); scheduler.dispose(); };
+    update(); media.addEventListener('change', update); document.addEventListener('visibilitychange', hidden);
+    return () => { media.removeEventListener('change', update); document.removeEventListener('visibilitychange', hidden); scheduler.dispose(); };
   }, []);
   // 以当前实测高度重定向，关闭结束后释放固定高度，避免嵌套折叠被裁掉。
   function toggle() {
@@ -23,7 +24,8 @@ export function MotionDetails({ children, open = false, ...props }: ComponentPro
     const style = getComputedStyle(node), summary = node.querySelector('summary')!;
     const target = next ? node.getBoundingClientRect().height : summary.getBoundingClientRect().height + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
     setExpanded(next);
-    void scheduler.tween('height', motionTokens.duration.disclosure, progress => { node.style.height = from + (target - from) * progress + 'px'; node.style.overflow = 'hidden'; }).then(completed => {
+    // clip 不创建可滚动容器，展开期间聚焦字段不会产生伪滚动并误关外置弹层。
+    void scheduler.tween('height', motionTokens.duration.disclosure, progress => { node.style.height = from + (target - from) * progress + 'px'; node.style.overflow = 'clip'; }).then(completed => {
       if (!completed) return;
       node.open = next; changing.current = false;
       node.style.removeProperty('height'); node.style.removeProperty('overflow');

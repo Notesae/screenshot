@@ -33,6 +33,8 @@ export class LiquidMotion {
   private indicator = { x: new MotionSpring(), y: new MotionSpring(), width: new MotionSpring(), opacity: new MotionSpring() };
   private panelRect: MotionRect | null = null;
   private panelOpacity = 0;
+  private panelMaterial = 0;
+  private panelElement: HTMLElement | null = null;
   private panelVersion = 0;
   // 尺寸读数即时变化，只有胶囊外壳保留 5/4px 以内的短惯性。
   private sizePosition: MotionRect | null = null;
@@ -91,7 +93,14 @@ export class LiquidMotion {
     listen(window, 'pointerup', release); listen(window, 'pointercancel', release);
     listen(window, 'blur', () => { this.pointer.inside = false; release(); });
     listen(window, 'resize', invalidate); listen(root, 'scroll', invalidate, true);
-    listen(document, 'visibilitychange', () => { if (document.hidden) { this.restore(); this.clock.stop(); } else invalidate(); });
+    listen(document, 'visibilitychange', () => {
+      if (document.hidden) {
+        this.pointer.inside = false; release();
+        // 先取消业务退出，再结束表现过渡，避免隐藏时误发完成或留下半张浮卡。
+        this.restore(); this.clock.finish(); this.clock.stop();
+        this.animations.forEach(animation => animation.cancel());
+      } else invalidate();
+    });
     listen(root, 'keydown', ((event: KeyboardEvent) => {
       if (event.key === 'Escape' && root.dataset.motionExit) { event.preventDefault(); event.stopImmediatePropagation(); this.restore(); }
     }) as EventListener, true);
@@ -110,7 +119,7 @@ export class LiquidMotion {
   present(presented: boolean) {
     if (this.active === presented) return;
     this.active = presented;
-    if (!presented) { this.restore(); this.clock.stop(); return; }
+    if (!presented) { this.restore(); this.clock.finish(); this.clock.stop(); return; }
     this.measure();
     this.body.snap(this.clock.reduced ? 1 : .06); this.body.to = 1;
     const now = performance.now();
@@ -242,7 +251,10 @@ export class LiquidMotion {
   }
   /** 浮卡仅缩放材质，正文单独淡入；快速切换从正在显示的矩形续接。 */
   panel(element: HTMLElement, source: HTMLElement | null, open: boolean) {
-    this.resize.observe(element);
+    if (this.panelElement !== element) {
+      if (this.panelElement) this.resize.unobserve(this.panelElement);
+      this.panelElement = element; this.resize.observe(element);
+    }
     const version=++this.panelVersion,started=performance.now();
     const link=this.root.querySelector<SVGPathElement>('.liquid-panel-bridge path');
     const sourceRect=source?rect(source.getBoundingClientRect()):null;
@@ -250,13 +262,15 @@ export class LiquidMotion {
     const content = element.querySelector<HTMLElement>('.liquid-panel-content')!;
     const origin = this.panelRect ?? (source ? rect(source.getBoundingClientRect()) : target);
     const destination = open ? target : source ? rect(source.getBoundingClientRect()) : { ...origin, y: origin.y + 8 };
-    const alpha = this.panelOpacity;
+    const alpha = this.panelOpacity, material = this.panelMaterial;
     this.clock.cancel('panel');
     const paint = (value: number) => {
       const p = clamp(value), box = { x: origin.x + (destination.x - origin.x) * p, y: origin.y + (destination.y - origin.y) * p, width: origin.width + (destination.width - origin.width) * p, height: origin.height + (destination.height - origin.height) * p };
       this.panelRect = box; this.panelOpacity = open ? alpha + (1 - alpha) * clamp((p - .35) / .65) : alpha * (1 - p);
       skin.style.transform = 'translate(' + (box.x - target.x) + 'px,' + (box.y - target.y) + 'px) scale(' + Math.max(.01, box.width / target.width) + ',' + Math.max(.01, box.height / target.height) + ')';
-      skin.style.opacity = String(open ? clamp(p * 4) : 1 - p);
+      // 材质和正文各自续接，提前关闭或切换不会跳亮或重新从透明开始。
+      this.panelMaterial = open ? material + (1 - material) * clamp(p * 4) : material * (1 - p);
+      skin.style.opacity = String(this.panelMaterial);
       content.style.opacity = String(this.panelOpacity);
       // 连接只短暂存在于按钮与浮卡的近邻间隙，不跨过正文或远距离拖动。
       if(link){
@@ -273,7 +287,14 @@ export class LiquidMotion {
     };
     if(this.root.dataset.motionDragging){paint(1);return Promise.resolve(true);}
     const result = open ? this.clock.spring('panel', paint, 0, 1, 'panel') : this.clock.tween('panel', 170, paint);
-    void result.then(completed => { if(version===this.panelVersion)link?.setAttribute('d','');if (completed && !open) { this.panelRect = null; this.panelOpacity = 0; } });
+    void result.then(completed => {
+      if (version !== this.panelVersion) return;
+      link?.setAttribute('d', '');
+      if (completed && !open) {
+        this.panelRect = null; this.panelOpacity = this.panelMaterial = 0;
+        this.resize.unobserve(element); this.panelElement = null;
+      }
+    });
     return result;
   }
   /** 只有已确认业务成功的调用者才能请求成功收束；副本来自现有画布，绝不改写导出。 */

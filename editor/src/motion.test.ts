@@ -53,6 +53,63 @@ describe('v2 物理弹簧与生命周期', () => {
     expect(paints).toBe(5); expect(f.pending.size).toBe(0);
     clock.wake(); f.advance(); expect(paints).toBe(6); clock.dispose();
   });
+  it('绘制回调唤醒新轨道时仍只保留一个后续帧', () => {
+    const f = frames(), clock = new MotionClock(f.source);
+    let started = false;
+    clock.tween('first', 60, progress => {
+      if (progress > 0 && !started) {
+        started = true;
+        void clock.tween('second', 100, () => {});
+      }
+    });
+    f.advance();
+    expect(f.pending.size).toBe(1);
+    for (let i = 0; i < 40; i++) f.advance();
+    expect(f.pending.size).toBe(0); clock.dispose();
+  });
+  it('帧内停止或销毁后不能重新排队', () => {
+    for (const dispose of [false, true]) {
+      const f = frames(), clock = new MotionClock(f.source);
+      clock.listen(() => { if (dispose) clock.dispose(); else clock.stop(); return true; });
+      clock.wake(); f.advance();
+      expect(f.pending.size).toBe(0); expect(clock.activeTracks).toBe(0);
+    }
+  });
+  it('隐藏前结束表现过渡，但已取消的业务退出不能复活', async () => {
+    const f = frames(), clock = new MotionClock(f.source);
+    let panel = 0, menu = 0, exit = 0;
+    const opening = clock.spring('panel', value => { panel = value; }, 0, -1);
+    const closing = clock.tween('menu', 170, value => { menu = value; });
+    const completion = clock.tween('exit', 360, value => { exit = value; });
+    f.advance(); const interrupted = exit;
+    clock.cancel('exit'); clock.finish(); clock.stop();
+    expect(await opening).toBe(true); expect(panel).toBe(-1);
+    expect(await closing).toBe(true); expect(menu).toBe(1);
+    expect(await completion).toBe(false); expect(exit).toBe(interrupted);
+    expect(clock.activeTracks).toBe(0); expect(f.pending.size).toBe(0);
+  });
+  it('归位回调替换另一个过渡后，不再绘制旧目标', async () => {
+    const f = frames(), clock = new MotionClock(f.source);
+    let replacement: Promise<boolean> | undefined, current = 0;
+    clock.tween('first', 170, progress => {
+      if (progress === 1) replacement = clock.spring('second', value => { current = value; }, 3, 4);
+    });
+    const old = clock.tween('second', 170, value => { current = value; });
+    clock.finish();
+    expect(await old).toBe(false); expect(current).toBe(3);
+    for (let i = 0; i < 180; i++) f.advance();
+    expect(await replacement).toBe(true); expect(current).toBe(4);
+    expect(f.pending.size).toBe(0);
+  });
+  it('首次绘制中停止，以及销毁后的新请求都不能残留帧', async () => {
+    const f = frames(), clock = new MotionClock(f.source);
+    const stopped = clock.tween('surface', 170, () => clock.stop());
+    expect(await stopped).toBe(false); expect(f.pending.size).toBe(0);
+    clock.dispose(); let paints = 0;
+    expect(await clock.spring('late', () => { paints++; })).toBe(false);
+    expect(await clock.tween('late', 170, () => { paints++; })).toBe(false);
+    clock.wake(); expect(paints).toBe(0); expect(f.pending.size).toBe(0);
+  });
   it('液桥不能越过大间距、换行或远离屏幕的槽位', () => {
     const a = { x: 0, y: 0, width: 36, height: 36 };
     expect(liquidBridge(a, { ...a, x: 42 })).toMatch(/^M/);
