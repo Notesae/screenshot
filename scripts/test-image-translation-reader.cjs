@@ -76,10 +76,22 @@ async function main(){
   await drag(p,resize,500-enlarged.width,0);assert.equal(await p.locator('.clay-reader.is-narrow').count(),1);assert.equal(await p.locator('.clay-reader article').first().evaluate(element=>getComputedStyle(element).display),'block');checks.push('comparison is paired columns when wide and stacked at narrow reading widths');
   await click(p,'译文');const manual=await bounds(p);await click(p,'关闭阅读，返回截图');await click(p,'阅读完整译文');box=await bounds(p);for(const property of ['x','y','width','height'])near(box[property],manual[property]);
   assert.deepEqual(await documentOf(p),translated);checks.push('close/reopen keeps reader position and size without changing project content or history');
+  // 正常运动下保留退出表面；快速重开和中途减少动态都不能丢掉阅读矩形。
+  await p.emulateMedia({reducedMotion:'no-preference'});await p.evaluate(()=>window.__savedReader=document.querySelector('.clay-reader'));
+  await click(p,'关闭阅读，返回截图');assert.equal(await p.locator('.clay-reader').evaluate(el=>el.inert&&el.getAttribute('aria-hidden')==='true'),true);
+  await click(p,'阅读完整译文');await p.waitForFunction(()=>document.querySelector('.clay-reader')?.dataset.motionPhase==='open');
+  assert.equal(await p.locator('.clay-reader').evaluate(el=>el===window.__savedReader),true);
+  box=await bounds(p);for(const property of ['x','y','width','height'])near(box[property],manual[property]);
+  assert.equal(await p.locator('.clay-reader > .liquid-surface-content').evaluate(el=>getComputedStyle(el).transform),'none');
+  await click(p,'关闭阅读，返回截图');await p.emulateMedia({reducedMotion:'reduce'});await p.waitForSelector('.clay-reader',{state:'detached'});
+  assert.equal(await p.getByRole('button',{name:'阅读完整译文',exact:true}).evaluate(el=>document.activeElement===el),true);
+  await click(p,'阅读完整译文');checks.push('reader exit/reopen preserves geometry and reduced motion restores focus without scaling text');
   const content=p.locator('.clay-reader-content');await p.waitForFunction(()=>{const e=document.querySelector('.clay-reader-content');return e.scrollHeight>e.clientHeight;});assert.equal(await content.evaluate(element=>element.offsetWidth-element.clientWidth),0);
   await content.evaluate(element=>element.scrollTop=120);await p.waitForFunction(()=>document.querySelector('.clay-scrollbar.is-visible'));await p.mouse.move(1,1);
   await p.waitForFunction(()=>[...document.querySelectorAll('.clay-scrollbar')].filter(element=>!element.hidden).every(element=>Number(getComputedStyle(element).opacity)===0));checks.push('reading scrollbars reserve no content width and hide after idle');
-  await click(p,'关闭阅读，返回截图');await click(p,'撤销');assert.equal((await documentOf(p)).editor.imageTranslation,null);await click(p,'重做');assert.deepEqual((await documentOf(p)).editor.imageTranslation,translated.editor.imageTranslation);checks.push('one undo restores the original and redo restores the complete translation layer');
+  await p.emulateMedia({reducedMotion:'no-preference'});await click(p,'撤销');assert.equal((await documentOf(p)).editor.imageTranslation,null);
+  assert.equal(await p.locator('.clay-reader').count(),0);await click(p,'重做');assert.deepEqual((await documentOf(p)).editor.imageTranslation,translated.editor.imageTranslation);
+  assert.equal(await p.locator('.clay-reader').count(),0,'重做不能短暂复活已经撤销的阅读层');await p.emulateMedia({reducedMotion:'reduce'});checks.push('undo/redo while reading does not resurrect a retained hidden surface');checks.push('one undo restores the original and redo restores the complete translation layer');
   await click(p,'更多操作');await choose(p,'导出倍率','2× 尺寸');await click(p,'完成');await p.waitForFunction(()=>window.__messages.filter(message=>message.method==='image.copy').length===2);
   const double=await p.evaluate(()=>new Promise(resolve=>{const image=new Image();image.onload=()=>resolve([image.width,image.height]);image.src=window.__messages.filter(message=>message.method==='image.copy').at(-1).payload.dataUrl;}));assert.deepEqual(double,[2048,1400]);await ready(p);await closeNotice(p);
   await click(p,'保存项目');await p.waitForFunction(()=>window.__messages.some(message=>message.method==='project.save'));await ready(p);const saved=await p.evaluate(()=>window.__messages.filter(message=>message.method==='project.save').at(-1).payload.document);

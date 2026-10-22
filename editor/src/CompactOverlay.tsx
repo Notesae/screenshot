@@ -1,4 +1,5 @@
 import { MotionDetails } from './MotionDetails';
+import { useSurfaceMotion } from './SurfaceMotion';
 import { MotionButton, useLiquidMotion } from './LiquidMotion';
 import { Select } from './Select';
 import { ColorField } from './ColorField';
@@ -6,7 +7,7 @@ import { TooltipLayer } from './TooltipLayer';
 import { OverlayScrollbars } from './OverlayScrollbars';
 import { flushSync } from 'react-dom';
 import { matchesPresentationViewport, readPresentationViewport } from './presentationViewport';
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type PointerEvent, type KeyboardEvent, type CSSProperties } from 'react';
+import { useId, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type PointerEvent, type KeyboardEvent, type CSSProperties } from 'react';
 import { ArrowUpRight, BookOpen, Check, Copy, FolderOpen, Frame, GripVertical, Highlighter, ImagePlus, Languages, MoreHorizontal, RotateCcw, ScanText, Settings2, Shield, Sparkles, Trash2, Type, X } from 'lucide-react';
 import { StyleTools } from './StyleTools';
 import { TextTools, type TextToolsProps } from './TextTools';
@@ -49,9 +50,14 @@ type Props = {
 /** 冻结选区与无冻结文件共用外壳；路径、工具位置和浮卡始终不写入项目模型。 */
 export function CompactOverlay(props:Props) {
   const {document:doc,metadata,canvasRef,update,busy,aiBusy}=props,editor=doc.editor;
+  const bridgeId=useId(); // 多个编辑外壳也不会引用到其它实例的桥材质。
   const [panel,setPanel]=useState<Panel|null>(null),[positions,setPositions]=useState<ToolPositions>({});
   const [reading,setReading]=useState(false),readerTrigger=useRef<HTMLButtonElement|null>(null);
   const [readerBounds,setReaderBounds]=useState<PixelRect|null>(null);
+  // 退出保留独立材质与最后一条通知，避免立即卸载截断时间线。
+  const readerRoot=useRef<HTMLElement>(null),noticeRoot=useRef<HTMLDivElement>(null),restoreReaderFocus=useRef(false);
+  const retainedNotice=useRef(props.notice),notice=props.notice??retainedNotice.current;
+  useLayoutEffect(()=>{if(props.notice)retainedNotice.current=props.notice;},[props.notice]);
   useEffect(()=>setReading(false),[doc.image,editor.imageTranslation,editor.mode]);
   // 浮卡关闭由可打断时间线确认，旧回调不得移除新打开的内容。
   const [visiblePanel,setVisiblePanel]=useState<Panel|null>(panel);
@@ -86,12 +92,17 @@ export function CompactOverlay(props:Props) {
   const screen=mapped?.screen??{x:0,y:0,...viewport};
   const tools=placeTools(screen,mapped?.frame??null,railSize,{width:visiblePanel==='text'?420:360,height:visiblePanel==='properties'?400:620},positions);
   useLiquidMotion(rootRef,railRef,chromeVisible&&!props.suspended,panel,visiblePanel,trigger,tools.card,tools.rail,mapped?.frame??null,()=>setVisiblePanel(null));
-  const automaticReader=reading&&editor.imageTranslation&&editor.mode!=='reflow'?translationReaderPlacement(screen,mapped?.frame??null,tools.rail):null;
+  const automaticReader=editor.imageTranslation&&editor.mode!=='reflow'?translationReaderPlacement(screen,mapped?.frame??null,tools.rail):null;
   // 手动移动/缩放后固定窗口矩形；允许用户移到截图旁边，不因工具避让或重开而跳回。
   const reader=automaticReader?{box:readerBounds??automaticReader.box,full:automaticReader.full&&!readerBounds}:null;
-  const fullReading=Boolean(reader?.full);
+  const readerMounted=useSurfaceMotion(reading&&!!automaticReader,readerRoot,readerTrigger.current,JSON.stringify(reader?.box));
+  const noticeTop=tools.rail.y<screen.y+110?screen.y+screen.height-100:screen.y+18;
+  const noticeMounted=useSurfaceMotion(!!props.notice,noticeRoot,null,noticeTop+':'+screen.width);
+  const fullReading=Boolean(readerMounted&&reader?.full);
+  // 完整阅读退场后再恢复工具焦点，防止把焦点交给仍隐藏的主轨。
+  useLayoutEffect(()=>{if(reading)restoreReaderFocus.current=false;else if(!readerMounted&&restoreReaderFocus.current){restoreReaderFocus.current=false;readerTrigger.current?.focus({preventScroll:true});}},[reading,readerMounted]);
   latest.current={props,panel,reading,readingFull:fullReading};
-  function closeReader(){setReading(false);requestAnimationFrame(()=>readerTrigger.current?.focus({preventScroll:true}));}
+  function closeReader(){restoreReaderFocus.current=true;setReading(false);}
   function closePanel(){setPanel(null);trigger.current?.focus();}
   function openPanel(next:Panel,button?:HTMLButtonElement){if(button)trigger.current=button;setPanel(current=>current===next?null:next);}
   useEffect(()=>{if(props.requestedPanel)setPanel(props.requestedPanel.kind);},[props.requestedPanel]);
@@ -179,7 +190,7 @@ export function CompactOverlay(props:Props) {
     <svg className="liquid-panel-bridge" aria-hidden="true"><path/></svg>
     <fieldset className="clay-chrome" disabled={!!busy&&!adjusting} inert={fullReading||adjusting||Boolean(selectionPreview&&!selectionDragging.current)}>
       <div className="clay-rail liquid-rail" ref={railRef} role="toolbar" aria-label="截图编辑工具" style={{left:tools.rail.x,top:tools.rail.y,maxWidth:tools.area.width,maxHeight:tools.area.height}}>
-        <span className="liquid-rail-body" aria-hidden="true"/><span className="liquid-sweep" aria-hidden="true"/><span className="liquid-active" aria-hidden="true"/><svg className="liquid-bridge" aria-hidden="true"><path/></svg>
+        <span className="liquid-rail-body" aria-hidden="true"/><span className="liquid-sweep" aria-hidden="true"/><span className="liquid-active" aria-hidden="true"/><svg className="liquid-bridge" aria-hidden="true"><defs><linearGradient id={bridgeId} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="var(--clay-raisedTop)"/><stop offset=".5" stopColor="var(--clay-raisedMid)"/><stop offset="1" stopColor="var(--clay-raisedBottom)"/></linearGradient></defs><path fill={"url(#"+bridgeId+")"}/></svg>
         <span className="clay-grip" role="button" tabIndex={0} aria-label="移动动作轨，方向键微调" onPointerDown={event=>beginDrag('rail',event)} onPointerMove={moveDrag} onPointerUp={endDrag} onLostPointerCapture={endDrag} onKeyDown={event=>moveByKey('rail',event)}><GripVertical aria-hidden="true"/></span>
         {/* 美化、提取文字只打开面板；图片翻译是明确的网络动作，直接替换选区外语。 */}
         <div className="clay-image-tools" role="group" aria-label="图片工具">
@@ -216,9 +227,9 @@ export function CompactOverlay(props:Props) {
         </div>
       </section>}
     </fieldset>
-    {reader&&editor.imageTranslation&&<ImageTranslationReader data={editor.imageTranslation} box={reader.box} screen={screen} full={reader.full} onClose={closeReader} onBoundsChange={setReaderBounds} onReset={()=>setReaderBounds(null)}/>}
+    {readerMounted&&reader&&editor.imageTranslation&&<ImageTranslationReader rootRef={readerRoot} open={reading} data={editor.imageTranslation} box={reader.box} screen={screen} full={reader.full} onClose={closeReader} onBoundsChange={setReaderBounds} onReset={()=>setReaderBounds(null)}/>}
     {(!adjusting&&busy||aiBusy||hasContent&&props.renderStatus==='loading')&&<div className="clay-status" style={{left:screen.x+16,top:screen.y+12,maxWidth:screen.width-32}}><div role="status" className="clay-task"><span className="spinner"/>{busy||aiBusy||'画布更新中'}…{aiBusy&&<button onClick={props.textTools.onCancelOcr}>取消任务</button>}{busy==='完成截图'&&<button onClick={props.onCancelComplete}>取消完成</button>}</div></div>}
-    {props.notice&&<div className={'clay-notice '+(props.notice.error?'is-error':'')} style={{top:tools.rail.y<screen.y+110?screen.y+screen.height-100:screen.y+18,left:screen.x+screen.width/2,maxWidth:screen.width-32}} role={props.notice.error?'alert':'status'}><span>{props.notice.text}</span><button aria-label="关闭提示" onClick={props.clearNotice}><X aria-hidden="true"/></button></div>}
+    {noticeMounted&&notice&&<div ref={noticeRoot} className={'clay-notice '+(notice.error?'is-error':'')} aria-hidden={!props.notice} style={{top:noticeTop,left:screen.x+screen.width/2,maxWidth:screen.width-32}} role={notice.error?'alert':'status'}><div className="liquid-surface-skin" aria-hidden="true"/><div className="liquid-surface-content"><span>{notice.text}</span><button aria-label="关闭提示" disabled={!props.notice} onClick={props.clearNotice}><X aria-hidden="true"/></button></div></div>}
     <OverlayScrollbars/>
     <TooltipLayer/>
   </div>;

@@ -14,6 +14,21 @@ internal static class SoftClayThemeTests
             try
             {
                 void Check(bool value,string name){if(!value)throw new Exception(name);checks++;}
+                // 纯状态验证不实例化截图窗口，不读取屏幕或使用系统指针。
+                foreach(var rate in new[]{30,60,144})
+                {
+                    var feedback=new CaptureMotion();feedback.Update(100,100,true,false);feedback.Update(240,180,true,false);
+                    Check(Math.Abs(feedback.OffsetX)<=5&&Math.Abs(feedback.OffsetY)<=4,"capture lag bounded at "+rate);
+                    for(var frame=0;frame<rate*2;frame++)feedback.Step(1d/rate);
+                    Check(!feedback.Moving&&feedback.OffsetX==0&&feedback.OffsetY==0&&feedback.HandleScale==1,"capture feedback settles at "+rate);
+                    feedback.Update(280,220,true,false);feedback.Update(320,250,true,true);
+                    Check(!feedback.Moving&&feedback.OffsetX==0&&feedback.HandleScale==1,"capture reduced motion snaps at "+rate);
+                    feedback.Update(440,320,true,false);feedback.Snap();
+                    Check(!feedback.Moving&&feedback.OffsetX==0&&feedback.OffsetY==0,"handoff snaps before transfer at "+rate);
+                }
+                var dip=new CaptureMotion();dip.Update(300/1.5,180/1.5,true,false);dip.Update(480/1.5,300/1.5,true,false);
+                Check(Math.Abs(dip.OffsetX*1.5)<=7.5&&Math.Abs(dip.OffsetY*1.5)<=6,"DPI only scales decorative offset");
+                dip.Step(8);Check(double.IsFinite(dip.OffsetX)&&double.IsFinite(dip.HandleScale),"capture long frame bounded by shared solver");
                 var resources=new ResourceDictionary();SoftClayTheme.Install(resources);
                 Check(SoftClayTheme.Color("mask").A==128&&SoftClayDrawing.Color("mask").A==128,"CSS mask alpha matches WPF and GDI");
                 Check(SoftClayTheme.Number("motion","toast")==280,"shared native toast timing");

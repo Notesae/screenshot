@@ -86,6 +86,11 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
     // 选区结果与窗口存活分离，交接期间继续显示本次冻结帧，不阻塞消息循环。
     private readonly TaskCompletionSource<PixelRect?> _selected=new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _handingOff;
+    // 仅活动装饰启动计时器；冻结背景与精确选区不随时间步进。
+    private readonly CaptureMotion _feedback=new();
+    private readonly System.Windows.Forms.Timer _motionTimer=new(){Interval=16};
+    private long _motionLast;
+    private Rectangle _hintBounds;
     public bool IsCancelled { get; private set; }
     [DllImport("user32.dll",EntryPoint="SetWindowLongPtrW",SetLastError=true)]private static extern nint SetOwner(nint window,int index,nint owner);
     // 先建立原生顶层窗口的 owner 关系，宿主 Show/置顶时也不能越过冻结遮挡。
@@ -101,13 +106,24 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
         Show();
         try{return await _selected.Task.WaitAsync(token);}catch{Close();throw;}
     }
-    protected override void OnFormClosed(FormClosedEventArgs e){IsCancelled=true;_selected.TrySetResult(null);base.OnFormClosed(e);}
-    protected override void Dispose(bool disposing){if(disposing&&!IsDisposed)_frozen.Dispose();base.Dispose(disposing);}
+    protected override void OnFormClosed(FormClosedEventArgs e){_motionTimer.Stop();IsCancelled=true;_selected.TrySetResult(null);base.OnFormClosed(e);}
+    // 释放局部帧循环和系统偏好订阅，不影响交接窗口之外的桌面。
+    protected override void Dispose(bool disposing)
+    {
+        if(disposing&&!IsDisposed)
+        {
+            System.Windows.SystemParameters.StaticPropertyChanged-=MotionPreferenceChanged;
+            _motionTimer.Stop();_motionTimer.Dispose();_frozen.Dispose();
+        }
+        base.Dispose(disposing);
+    }
     public RegionOverlay(Bitmap frozen,Rectangle desktop,PixelRect? allowedSelection=null,System.Collections.Generic.IReadOnlyList<WindowSnapTarget>? snapTargets=null,bool snapClient=false)
     {
         _frozen=frozen;_desktop=desktop;_allowed=allowedSelection ?? new(desktop.X,desktop.Y,desktop.Width,desktop.Height);_model=new(_allowed);_snapTargets=snapTargets??Array.Empty<WindowSnapTarget>();_snapEnabled=_snapTargets.Count>0;_snapClient=snapClient;
         AutoScaleMode=AutoScaleMode.None;FormBorderStyle=FormBorderStyle.None;StartPosition=FormStartPosition.Manual;Bounds=desktop;
         TopMost=true;ShowInTaskbar=false;DoubleBuffered=true;KeyPreview=true;Cursor=Cursors.Cross;Text="Screenshot 区域选择";
+        _motionTimer.Tick+=AnimateFeedback;
+        System.Windows.SystemParameters.StaticPropertyChanged+=MotionPreferenceChanged;
     }
     protected override void OnShown(EventArgs e) { base.OnShown(e);Bounds=_desktop;Activate();_trace?.Mark("selection_visible");_trace?.Flush(); }
     protected override void OnMouseDown(MouseEventArgs e)
@@ -116,7 +132,7 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
         if(e.Button==MouseButtons.Right){CancelSelection();return;}
         if(e.Button!=MouseButtons.Left||_handingOff)return;
         _down=e.Location;_startedEmpty=_model.HitTest(e.X+_desktop.X,e.Y+_desktop.Y)==SelectionHandle.Create;
-        _model.Begin(e.X+_desktop.X,e.Y+_desktop.Y);_pointer=e.Location;Capture=true;Invalidate();
+        _model.Begin(e.X+_desktop.X,e.Y+_desktop.Y);_pointer=e.Location;Capture=true;UpdateFeedback();Invalidate();
     }
     protected override void OnMouseMove(MouseEventArgs e)
     {
@@ -128,7 +144,7 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
             SelectionHandle.TopLeft or SelectionHandle.BottomRight=>Cursors.SizeNWSE,
             SelectionHandle.TopRight or SelectionHandle.BottomLeft=>Cursors.SizeNESW,
             _=>Cursors.Cross };
-        Invalidate();
+        UpdateFeedback();Invalidate();
     }
     // 有效框选松手即交接；点击吸附也走同一入口，不保留确认步骤。
     protected override void OnMouseUp(MouseEventArgs e)
@@ -136,7 +152,7 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
         base.OnMouseUp(e);if(e.Button!=MouseButtons.Left||!_model.Dragging)return;
         _model.Update(e.X+_desktop.X,e.Y+_desktop.Y);_model.End();
         if(_startedEmpty&&Math.Abs(e.X-_down.X)<=3&&Math.Abs(e.Y-_down.Y)<=3&&_snapEnabled){var target=CaptureTargets.AtPoint(_snapTargets,e.X+_desktop.X,e.Y+_desktop.Y,_allowed,_snapClient);if(target is not null){_model.Set(target.Bounds);}}
-        Capture=false;if(_model.HasArea)FinishSelection();else Invalidate();
+        Capture=false;if(_model.HasArea)FinishSelection();else {UpdateFeedback();Invalidate();}
     }
     protected override void OnKeyDown(KeyEventArgs e)
     {
@@ -144,7 +160,47 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
         if(e.KeyCode==Keys.Escape){CancelSelection();return;}
         if(e.KeyCode==Keys.M&&!_handingOff){_magnifier=!_magnifier;Invalidate();e.Handled=true;return;}
     }
-    private void FinishSelection() { if(!_model.HasArea||_model.Selection is not {} r)return;_trace?.Mark("selection_released");_handingOff=true;_magnifier=false;Cursor=Cursors.Default;_selected.TrySetResult(r);Invalidate(); }
+    // 在交付精确选区前结束装饰；冻结帧与网页验帧仍沿用原来的交接顺序。
+    private void FinishSelection()
+    {
+        if(!_model.HasArea||_model.Selection is not {} r)return;
+        _trace?.Mark("selection_released");_handingOff=true;_magnifier=false;
+        _motionTimer.Stop();_feedback.Snap();Cursor=Cursors.Default;_selected.TrySetResult(r);Invalidate();
+    }
+    /// <summary>事件坐标先转 DIP，仅驱动胶囊和控制点；选区模型保持物理像素。</summary>
+    private void UpdateFeedback()
+    {
+        var displayed=_model.Selection??HoverTarget?.Bounds;var scale=DeviceDpi/96d;
+        _feedback.Update((displayed?.X??0)/scale,(displayed?.Y??0)/scale,displayed is { Width:>0,Height:>0 },!System.Windows.SystemParameters.ClientAreaAnimation);
+        if(!_feedback.Moving||_handingOff){_motionTimer.Stop();return;}
+        if(_motionTimer.Enabled)return;
+        _motionLast=System.Diagnostics.Stopwatch.GetTimestamp();_motionTimer.Start();
+    }
+    // 只重绘胶囊和八个控制点的脏区，不因装饰计时器反复重绘整幅冻结图。
+    private void AnimateFeedback(object? sender,EventArgs args)
+    {
+        var now=System.Diagnostics.Stopwatch.GetTimestamp();
+        var moving=_feedback.Step((now-_motionLast)/(double)System.Diagnostics.Stopwatch.Frequency);_motionLast=now;
+        InvalidateFeedback();if(!moving||_handingOff)_motionTimer.Stop();
+    }
+    // 以未变形的选区中心计算脏区，覆盖旧胶囊偏移和控制点的有限膨胀。
+    private void InvalidateFeedback()
+    {
+        var scale=DeviceDpi/96f;var margin=(int)Math.Ceiling(12*scale);
+        if(!_hintBounds.IsEmpty){var hint=_hintBounds;hint.Inflate(margin,margin);Invalidate(hint);}
+        if((_model.Selection??HoverTarget?.Bounds) is not {} r)return;
+        var box=new Rectangle(r.X-_desktop.X,r.Y-_desktop.Y,r.Width,r.Height);
+        var radius=(int)Math.Ceiling((SoftClayTheme.Number("size","handle")+4)*scale);
+        foreach(var x in new[]{box.Left,box.Left+box.Width/2,box.Right})foreach(var y in new[]{box.Top,box.Top+box.Height/2,box.Bottom})
+            if(x!=box.Left+box.Width/2||y!=box.Top+box.Height/2)Invalidate(new Rectangle(x-radius,y-radius,radius*2,radius*2));
+    }
+    // 系统偏好即刻优先，进行中的局部反馈归到无偏移的终态。
+    private void MotionPreferenceChanged(object? sender,System.ComponentModel.PropertyChangedEventArgs args)
+    {
+        if(args.PropertyName!=nameof(System.Windows.SystemParameters.ClientAreaAnimation)||System.Windows.SystemParameters.ClientAreaAnimation||IsDisposed)return;
+        if(InvokeRequired){if(IsHandleCreated)BeginInvoke((Action)(()=>MotionPreferenceChanged(sender,args)));return;}
+        _motionTimer.Stop();_feedback.Snap();InvalidateFeedback();
+    }
     private void CancelSelection() { IsCancelled=true;_selected.TrySetResult(null);Close(); }
     protected override void OnPaint(PaintEventArgs e)
     {
@@ -159,14 +215,14 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
             using var glow=new Pen(Color.FromArgb(48,SoftClayDrawing.Color("accent")),6*scale);g.DrawRectangle(glow,box);
             using var pen=new Pen(SoftClayDrawing.Color("accent"),(float)SoftClayTheme.Number("size","selectionBorder")*scale);g.DrawRectangle(pen,box);
             foreach(var x in new[]{box.Left,box.Left+box.Width/2,box.Right})foreach(var y in new[]{box.Top,box.Top+box.Height/2,box.Bottom})
-                if(x!=box.Left+box.Width/2||y!=box.Top+box.Height/2) {var diameter=(float)SoftClayTheme.Number("size","handle")*scale;
+                if(x!=box.Left+box.Width/2||y!=box.Top+box.Height/2) {var diameter=(float)(SoftClayTheme.Number("size","handle")*_feedback.HandleScale)*scale;
                     var handle=new RectangleF(x-diameter/2,y-diameter/2,diameter,diameter);
                     using var fill=new System.Drawing.Drawing2D.LinearGradientBrush(handle,Color.White,Color.FromArgb(215,222,233),90);
                     g.FillEllipse(fill,handle);g.DrawEllipse(pen,handle);}
             // 松手前后尺寸胶囊保持相同内容，避免交接时突然缩短。
-            DrawHint(g,$"{r.Width} × {r.Height} px",box.X,box.Y-38);
+            _hintBounds=DrawHint(g,$"{r.Width} × {r.Height} px",box.X,box.Y-38,true);
         }
-        else DrawHint(g,"拖动框选 · M 放大镜 · Esc / 右键取消",Math.Max(12,-_desktop.X+24),Math.Max(12,-_desktop.Y+24));
+        else _hintBounds=DrawHint(g,"拖动框选 · M 放大镜 · Esc / 右键取消",Math.Max(12,-_desktop.X+24),Math.Max(12,-_desktop.Y+24));
         if(_magnifier)DrawMagnifier(g);
         if(!_handingOff)
         {
@@ -188,13 +244,15 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
         var color=_frozen.GetPixel(px,py);DrawHint(g,$"{px+_desktop.X}, {py+_desktop.Y} · #{color.R:X2}{color.G:X2}{color.B:X2} · M 隐藏",target.X,target.Bottom+3);
     }
     // 尺寸和指针读数使用同一凸面胶囊；文字随窗口 DPI 缩放，截图像素保持原样。
-    private void DrawHint(Graphics graphics,string text,int x,int y)
+    private Rectangle DrawHint(Graphics graphics,string text,int x,int y,bool animated=false)
     {
         // WPF/CSS 字号以 DIP 记录，GDI 的点数换算后继续随窗口 DPI 缩放。
         using var font=new Font(SoftClayTheme.Font.Source.Split(',')[0].Trim(),(float)SoftClayTheme.Number("type","body")*72/96,GraphicsUnit.Point);var size=graphics.MeasureString(text,font);
+        if(animated){x+=(int)Math.Round(_feedback.OffsetX*DeviceDpi/96);y+=(int)Math.Round(_feedback.OffsetY*DeviceDpi/96);}
         x=Math.Clamp(x,0,Math.Max(0,ClientSize.Width-(int)size.Width-16));y=Math.Clamp(y,0,Math.Max(0,ClientSize.Height-(int)size.Height-12));
         graphics.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         SoftClayDrawing.Surface(graphics,new RectangleF(x,y,size.Width+16,size.Height+12),(float)SoftClayTheme.Number("radius","pill"));
         using var ink=new SolidBrush(SoftClayDrawing.Color("ink"));graphics.DrawString(text,font,ink,x+8,y+6);
+        return Rectangle.Ceiling(new RectangleF(x,y,size.Width+16,size.Height+12));
     }
 }

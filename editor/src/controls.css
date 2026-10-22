@@ -89,10 +89,10 @@
 .clay-select-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .clay-select-trigger > svg { width: 16px; height: 16px; color: var(--clay-muted); }
 .clay-select-menu, .clay-color-popover { position: fixed; z-index: 40; overflow-y: auto; overflow-x: hidden; pointer-events: auto; padding: 4px; border: 0; outline: none; border-radius: var(--clay-radius-floating); background: var(--clay-card-face); box-shadow: var(--clay-elevation); overscroll-behavior: contain; }
-.clay-editor .clay-select-menu > button { display: flex; width: 100%; min-height: var(--clay-size-compact); justify-content: space-between; padding: 8px 12px; border-color: transparent; background: transparent; box-shadow: none; text-align: left; font-weight: 400; }
-.clay-select-menu > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.clay-editor .clay-select-menu > button.is-active { background: var(--clay-selected); }
-.clay-editor .clay-select-menu > button[aria-selected=true] { color: var(--clay-focus); background: var(--clay-selected); }
+.clay-editor .clay-select-menu > .liquid-surface-content > button { display: flex; width: 100%; min-height: var(--clay-size-compact); justify-content: space-between; padding: 8px 12px; border-color: transparent; background: transparent; box-shadow: none; text-align: left; font-weight: 400; }
+.clay-select-menu > .liquid-surface-content > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clay-editor .clay-select-menu > .liquid-surface-content > button.is-active { background: var(--clay-selected); }
+.clay-editor .clay-select-menu > .liquid-surface-content > button[aria-selected=true] { color: var(--clay-focus); background: var(--clay-selected); }
 .clay-editor .clay-color-trigger { width: 100%; justify-content: flex-start; background: var(--clay-well); box-shadow: var(--clay-inset); font-variant-numeric: tabular-nums; font-weight: 400; }
 .clay-color-swatch { width: 22px; height: 22px; flex-shrink: 0; border: 0; border-radius: 6px; }
 .clay-color-popover { width: 240px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); padding: 12px; }
@@ -133,8 +133,8 @@
 .clay-editor .clay-select-trigger[aria-expanded=true] { background: var(--clay-wellActive); filter: none; box-shadow: var(--clay-inset); }
 .clay-editor .clay-select-trigger:active:enabled,
 .clay-editor .clay-color-trigger:active:enabled { transform: none; }
-.clay-editor .clay-select-menu > button,
+.clay-editor .clay-select-menu > .liquid-surface-content > button,
 .clay-editor .clay-color-options > button { transform: none; filter: none; }
-.clay-editor .clay-select-menu > button:hover:enabled { background: var(--clay-hover); filter: none; }
-.clay-editor .clay-select-menu > button:active:enabled,
+.clay-editor .clay-select-menu > .liquid-surface-content > button:hover:enabled { background: var(--clay-hover); filter: none; }
+.clay-editor .clay-select-menu > .liquid-surface-content > button:active:enabled,
 .clay-editor .clay-color-options > button:active:enabled { transform: none; box-shadow: none; }

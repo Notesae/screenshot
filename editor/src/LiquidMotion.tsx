@@ -7,7 +7,7 @@ export function MotionButton({ children, group = 'end', ...props }: ComponentPro
 }
 
 /** 每个按钮的连续运动状态；矩形只来自未变形的语义槽位。 */
-type Surface = { el: HTMLButtonElement; skin: HTMLElement; glyph: HTMLElement; group: string; rect: MotionRect; x: MotionSpring; y: MotionSpring; attention: MotionSpring; press: MotionSpring; birth: MotionSpring; due: number; faceX: number; faceY: number };
+type Surface = { el: HTMLButtonElement; skin: HTMLElement; glyph: HTMLElement; group: string; rect: MotionRect; x: MotionSpring; y: MotionSpring; attention: MotionSpring; press: MotionSpring; birth: MotionSpring; due: number; faceX: number; faceY: number; radius: number };
 /** 仅指向当前挂载的编辑外壳；卸载会使旧完成链取消，不接触文档或系统能力。 */
 let currentMotion: LiquidMotion | null = null;
 export function presentationMotion() { return currentMotion; }
@@ -27,6 +27,9 @@ export class LiquidMotion {
   private bridgeLast = -Infinity;
   private body = new MotionSpring(1);
   private bulge = new MotionSpring();
+  // 底座沿注意力中心接收光与曲率，基础圆角仍由生产主题测量。
+  private bodyLight = new MotionSpring();
+  private railRadius = 0;
   private indicator = { x: new MotionSpring(), y: new MotionSpring(), width: new MotionSpring(), opacity: new MotionSpring() };
   private panelRect: MotionRect | null = null;
   private panelOpacity = 0;
@@ -60,27 +63,31 @@ export class LiquidMotion {
       target.addEventListener(name, fn, capture); this.cleanup.push(() => target.removeEventListener(name, fn, capture));
     };
     listen(root, 'pointermove', ((event: PointerEvent) => {
-      this.pointer = { x: event.clientX, y: event.clientY, inside: event.pointerType === 'mouse' && !(event.target as Element).closest('.clay-card,.clay-reader,.clay-select-popup,.clay-color-popover') };
+      this.pointer = { x: event.clientX, y: event.clientY, inside: event.pointerType === 'mouse' && !(event.target as Element).closest('.clay-card,.clay-reader,.clay-select-menu,.clay-color-popover') };
       this.wake();
     }) as EventListener);
     listen(root, 'pointerleave', () => { this.pointer.inside = false; this.wake(); });
-    listen(rail, 'pointerdown', ((event: PointerEvent) => {
-      const button = (event.target as Element).closest<HTMLButtonElement>('[data-motion-button]');
+    // 鼠标与键盘走同一按压反馈；冻结迎向目标，不移动语义命中槽位。
+    const press = (button: Element | null) => {
       const node = this.nodes.find(n => n.el === button);
-      if (!node || node.el.matches(':disabled') || event.button !== 0) return;
+      if (!node || node.el.matches(':disabled')) return;
       this.pressed = node; node.press.to = 1;
+      node.x.to = node.x.x; node.y.to = node.y.x; node.x.v = node.y.v = 0;
       const index = this.nodes.indexOf(node);
       for (const offset of [-1, 1]) {
         const neighbor = this.nodes[index + offset];
         if (!this.clock.reduced && neighbor && node.group !== 'end' && neighbor.group === node.group && !neighbor.el.matches(':disabled')) neighbor.y.v += T.press.neighborImpulse;
       }
       this.wake();
-    }) as EventListener);
+    };
+    listen(rail, 'pointerdown', ((event: PointerEvent) => { if (event.button === 0) press((event.target as Element).closest('[data-motion-button]')); }) as EventListener);
+    listen(rail, 'keydown', ((event: KeyboardEvent) => { if (!event.repeat && (event.key === ' ' || event.key === 'Enter')) press((event.target as Element).closest('[data-motion-button]')); }) as EventListener);
     listen(rail, 'click', event => {
       // 槽位在宿主揭示后立即响应；入场进度只控制表面，不吞掉用户点击。
       if (root.dataset.motionExit) { event.preventDefault(); event.stopImmediatePropagation(); }
     }, true);
     const release = () => { if (this.pressed) this.pressed.press.to = 0; this.pressed = null; this.wake(); };
+    listen(window, 'keyup', ((event: KeyboardEvent) => { if (event.key === ' ' || event.key === 'Enter') release(); }) as EventListener);
     listen(window, 'pointerup', release); listen(window, 'pointercancel', release);
     listen(window, 'blur', () => { this.pointer.inside = false; release(); });
     listen(window, 'resize', invalidate); listen(root, 'scroll', invalidate, true);
@@ -126,10 +133,12 @@ export class LiquidMotion {
   /** 缓存固定槽位，滚动和布局变化才重新测量；绝不测量变形后的材质作新目标。 */
   private measure() {
     this.rr = rect(this.rail.getBoundingClientRect());
+    this.railRadius = parseFloat(getComputedStyle(this.rail).borderTopLeftRadius) || 0;
     const existing = new Map(this.nodes.map(node => [node.el, node]));
     this.nodes = [...this.rail.querySelectorAll<HTMLButtonElement>('[data-motion-button]')].map(el => {
       const box = el.getBoundingClientRect();
-      const node = existing.get(el) ?? { el, skin: el.querySelector<HTMLElement>('.liquid-skin')!, glyph: el.querySelector<HTMLElement>('.liquid-glyph')!, group: el.dataset.motionGroup || 'end', x: new MotionSpring(), y: new MotionSpring(), attention: new MotionSpring(), press: new MotionSpring(), birth: new MotionSpring(1), due: 0, faceX: 0, faceY: 0, rect: rect(box) };
+      const node = existing.get(el) ?? { el, skin: el.querySelector<HTMLElement>('.liquid-skin')!, glyph: el.querySelector<HTMLElement>('.liquid-glyph')!, group: el.dataset.motionGroup || 'end', x: new MotionSpring(), y: new MotionSpring(), attention: new MotionSpring(), press: new MotionSpring(), birth: new MotionSpring(1), due: 0, faceX: 0, faceY: 0, radius: 0, rect: rect(box) };
+      node.radius = parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0;
       node.rect = { x: box.left - this.rr.x, y: box.top - this.rr.y, width: box.width, height: box.height };
       return node;
     });
@@ -150,7 +159,7 @@ export class LiquidMotion {
   private paint(dt: number, time: number) {
     if (!this.active || this.root.dataset.motionExit) return false;
     if (this.dirty) this.measure();
-    this.root.dataset.motionFrames = String(this.clock.frames);
+    this.root.dataset.motionFrames = String(this.clock.frames); this.root.dataset.motionState = 'awake';
     const reduced = this.clock.reduced, pointer = this.pointer;
     const reacting = !reduced && pointer.inside && !this.pressed && this.fine.matches && !this.root.inert && !this.root.dataset.motionDragging;
     const radius = T.field.radius;
@@ -163,7 +172,7 @@ export class LiquidMotion {
       }
     }
     this.nearest = near ?? null;
-    let moving = false, sum = 0;
+    let moving = false, sum = 0, center = 0;
     const done = this.nodes.find(node => node.el.dataset.motionAction === 'done');
     const endpoint = done ? done.rect.x + done.rect.width / 2 : this.rr.width - 32;
     for (const [index, node] of this.nodes.entries()) {
@@ -175,7 +184,7 @@ export class LiquidMotion {
         dx = clamp((pointer.x - this.rr.x - node.rect.x - node.rect.width / 2) / (node.rect.width * .7), -1, 1);
         dy = clamp((pointer.y - this.rr.y - node.rect.y - node.rect.height / 2) / (node.rect.height * .7), -1, 1);
       }
-      node.attention.to = attention; node.x.to = dx * attention * T.field.shiftX; node.y.to = dy * attention * T.field.shiftY;
+      if (this.pressed !== node) { node.attention.to = attention; node.x.to = dx * attention * T.field.shiftX; node.y.to = dy * attention * T.field.shiftY; }
       const preset = near === node ? 'attention' : 'neighbor';
       if (reduced) { node.x.snap(0); node.y.snap(0); node.attention.snap(0); node.press.snap(0); node.birth.snap(1); }
       else {
@@ -189,17 +198,23 @@ export class LiquidMotion {
       node.skin.style.transform = 'translate(' + (x + entryX) + 'px,' + (y + entryY) + 'px) scale(' + (Math.max(.02, birth) * (1 + T.field.stretch * a * .6 + (T.press.x - 1) * p)) + ',' + (Math.max(.02, birth) * (1 + T.field.stretch * a * (Math.abs(dy) - .3) + (T.press.y - 1) * p)) + ')';
       node.glyph.style.transform = 'translate(' + (x * T.field.iconRatio + entryX) + 'px,' + (y * T.field.iconRatio + entryY + p * 1.2) + 'px) rotate(' + ((1 - birth) * -22) + 'deg)';
       node.skin.style.opacity = node.glyph.style.opacity = String(clamp(birth * 1.7));
-      node.skin.style.setProperty('--liquid-light', String(this.economy ? 0 : clamp(a * .14, 0, .14)));
+      node.skin.style.borderRadius = [node.radius + dx*a*3,node.radius - dx*a*2,node.radius + dx*a*2,node.radius - dx*a*3].map(value => Math.max(0,value)+'px').join(' ');
+      node.skin.style.setProperty('--liquid-light', String(this.economy ? 0 : clamp(a * .95, 0, .8)));
+      node.skin.style.setProperty('--liquid-light-y', clamp((pointer.y - this.rr.y - node.rect.y) / node.rect.height * 100, 0, 100) + '%');
       node.skin.style.setProperty('--liquid-light-x', clamp((pointer.x - this.rr.x - node.rect.x) / node.rect.width * 100, 0, 100) + '%');
       node.el.dataset.motionReady = String(birth >= .85);
       for (const spring of [node.x, node.y, node.attention, node.press, node.birth]) moving = spring.moving || moving;
-      sum += a;
+      sum += a; center += (node.rect.x + node.rect.width/2)*a;
     }
     this.bulge.to = near ? clamp((pointer.y - this.rr.y - this.rr.height / 2) / this.rr.height, -1, 1) * T.field.bodyBulge * Math.min(sum, 1.2) : 0;
-    if (reduced) { this.body.snap(1); this.bulge.snap(0); } else { this.body.step(dt, 'entry'); this.bulge.step(dt, 'body'); }
+    this.bodyLight.to = sum ? center/sum : this.rr.width/2;
+    if (reduced) { this.body.snap(1); this.bulge.snap(0); this.bodyLight.snap(this.rr.width/2); } else { this.body.step(dt, 'entry'); this.bulge.step(dt, 'body'); this.bodyLight.step(dt, 'body'); }
     const body = this.rail.querySelector<HTMLElement>('.liquid-rail-body')!;
     body.style.transform = 'scale(' + this.body.x + ',' + (.92 + .08 * this.body.x) + ') skewX(' + this.bulge.x * .35 + 'deg)';
-    moving = this.body.moving || this.bulge.moving || moving;
+    body.style.borderRadius = [this.railRadius+Math.max(0,-this.bulge.x),this.railRadius+Math.max(0,this.bulge.x),this.railRadius,this.railRadius].map(value => value+'px').join(' ');
+    body.style.setProperty('--liquid-body-light-x',this.bodyLight.x+'px');
+    body.style.setProperty('--liquid-body-light',String(reduced||this.economy?0:Math.min(1,sum)));
+    moving = this.body.moving || this.bulge.moving || this.bodyLight.moving || moving;
     const selected = this.nodes.find(node => node.el.getAttribute('aria-pressed') === 'true' && this.usable(node));
     const ind = this.indicator;
     ind.opacity.to = selected ? 1 : 0;

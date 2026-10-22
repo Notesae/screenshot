@@ -149,7 +149,7 @@ internal static class SoftClayMotion
     private sealed class SurfaceState
     {
         public readonly FrameworkElement Owner;
-        public readonly FrameSpring X = new(), Y = new(), ScaleX = new(1), ScaleY = new(1), Alpha = new(1);
+        public readonly SpringState X = new(), Y = new(), ScaleX = new(1), ScaleY = new(1), Alpha = new(1);
         public readonly TranslateTransform Shift = new();
         private readonly ScaleTransform _scale = new(1, 1);
         private readonly TranslateTransform _glyphShift = new();
@@ -183,14 +183,17 @@ internal static class SoftClayMotion
     }
 
     /// <summary>与 React 相同的质量为 1 半隐式欧拉求解与停稳阈值。</summary>
-    private sealed class FrameSpring
+    internal sealed class SpringState
     {
         public double Value, Velocity, To;
-        public FrameSpring(double value = 0) { Value = To = value; }
+        public SpringState(double value = 0) { Value = To = value; }
         public void Snap(double value) { Value = To = value; Velocity = 0; }
+        public bool Moving => Value != To || Velocity != 0;
+        public bool Step(double elapsed, string preset) => Step(elapsed, Motion.GetProperty("spring").GetProperty(preset));
         public bool Step(double elapsed, JsonElement config)
         {
             var solver = Motion.GetProperty("solver");
+            elapsed = Math.Clamp(elapsed, 0, solver.GetProperty("maxElapsed").GetDouble());
             var steps = Math.Max(1, (int)Math.Ceiling(elapsed / solver.GetProperty("maxStep").GetDouble()));
             var step = elapsed / steps;
             for (var index = 0; index < steps; index++)
