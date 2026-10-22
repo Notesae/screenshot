@@ -9,6 +9,14 @@ function frames() {
   return { source, pending, advance(ms = 1000 / 60) { time += ms; const batch = [...pending.values()]; pending.clear(); batch.forEach(frame => frame(time)); } };
 }
 describe('v2 物理弹簧与生命周期', () => {
+  it('手动摆放只结束指定表现过渡，不推进正在等待的完成链', async () => {
+    const f = frames(), clock = new MotionClock(f.source); let panel = 0, exit = 0;
+    const opening = clock.spring('panel', value => { panel = value; });
+    const closing = clock.tween('exit', 360, value => { exit = value; });
+    f.advance(); const current = exit; clock.finish('panel');
+    expect(await opening).toBe(true); expect(panel).toBe(1); expect(exit).toBe(current);
+    expect(clock.has('exit')).toBe(true); clock.dispose(); expect(await closing).toBe(false);
+  });
   it.each([30, 60, 144])('%iHz 下保持有界并收敛，重定向不丢失速度', hz => {
     const spring = new MotionSpring(); spring.to = 1;
     for (let i = 0; i < hz / 10; i++) spring.step(1 / hz, 'attention');

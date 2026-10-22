@@ -62,7 +62,7 @@ public partial class MainWindow
         retry.Click+=(_,_)=>{notice.Close();action?.Invoke();};actions.Children.Add(retry);
         var exit=new Button{Content="退出应用",Style=SoftClayTheme.ButtonStyle(),Margin=new Thickness(10,0,0,0)};
         exit.Click+=(_,_)=>{notice.Close();Close();};actions.Children.Add(exit);panel.Children.Add(actions);
-        notice.Content=new SoftClaySurface{Style=(Style)FindResource("ClayFloatingSurface"),Margin=new Thickness(16),Child=panel};
+        notice.Content=new SoftClayPopupSurface{Style=(Style)FindResource(typeof(SoftClayPopupSurface)),Margin=new Thickness(16),Content=panel};
         notice.Closed+=(_,_)=>{if(ReferenceEquals(_startupNotice,notice))_startupNotice=null;};
         _startupNotice=notice;notice.Show();
     }
@@ -125,7 +125,7 @@ public partial class MainWindow
             _transientNotice?.Close();
             var area=SystemParameters.WorkArea;
             var notice=new Window{FontFamily=SoftClayTheme.Font,FontSize=SoftClayTheme.Number("type","body"),Width=Math.Min(440,area.Width-32),SizeToContent=SizeToContent.Height,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,ShowActivated=false,ShowInTaskbar=false,Topmost=true,AllowsTransparency=true,Background=Brushes.Transparent,IsHitTestVisible=false};
-            notice.Content=new SoftClaySurface{Style=(Style)FindResource("ClayFloatingSurface"),Margin=new Thickness(16),Padding=new Thickness(16,12,16,12),Child=new TextBlock{Text=text,TextWrapping=TextWrapping.Wrap,Foreground=SoftClayTheme.Brush("ink"),FontSize=SoftClayTheme.Number("type","body")}};
+            notice.Content=new SoftClayPopupSurface{Style=(Style)FindResource(typeof(SoftClayPopupSurface)),Margin=new Thickness(16),Padding=new Thickness(16,12,16,12),Content=new TextBlock{Text=text,TextWrapping=TextWrapping.Wrap,Foreground=SoftClayTheme.Brush("ink"),FontSize=SoftClayTheme.Number("type","body")}};
             var timer=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromSeconds(4)};
             timer.Tick+=(_,_)=>notice.Close();
             notice.Loaded+=(_,_)=>{notice.Left=area.Right-notice.ActualWidth-16;notice.Top=area.Bottom-notice.ActualHeight-16;timer.Start();};

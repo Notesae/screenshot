@@ -1,3 +1,4 @@
+import { ControlButton } from './ControlMotion';
 import { Select } from './Select';
 import { useState } from 'react';
 import { native } from './bridge';
@@ -17,11 +18,11 @@ export function CaptureControls(props:Props) {
     <div className="clay-capture-sections"><section className="clay-capture-section">
       <p className="ai-note">刷新后可选择需要截图的显示器。</p>
       <div className="clay-action-grid">
-        <button disabled={disabled||props.backend!=='wgc'} onClick={()=>props.onCapture('capture.current')}>当前屏幕截图</button>
-        <button disabled={disabled||props.backend!=='wgc'} onClick={()=>{void refreshMonitors();}}>刷新显示器</button>
+        <ControlButton disabled={disabled||props.backend!=='wgc'} onClick={()=>props.onCapture('capture.current')}>当前屏幕截图</ControlButton>
+        <ControlButton disabled={disabled||props.backend!=='wgc'} onClick={()=>{void refreshMonitors();}}>刷新显示器</ControlButton>
       </div>
       <label className="control-label">显示器<Select aria-label="截图显示器" value={selected} disabled={disabled||!monitors.length} onChange={setSelected}><option value="">请先刷新显示器</option>{monitors.map(m=><option key={m.handle} value={m.handle}>{m.label}{m.primary?' · 主屏':''}{m.current?' · 当前':''}</option>)}</Select></label>
-      <button className="clay-capture-apply" disabled={disabled||!selected||props.backend!=='wgc'} onClick={()=>props.onCapture('capture.screen',{target:{kind:'monitor',handle:selected}})}>截取所选显示器</button>
+      <ControlButton className="clay-capture-apply" disabled={disabled||!selected||props.backend!=='wgc'} onClick={()=>props.onCapture('capture.screen',{target:{kind:'monitor',handle:selected}})}>截取所选显示器</ControlButton>
       {props.backend==='gdi'&&<p className="ai-note">指定屏幕需在设置中选择 WGC；兼容模式支持桌面与区域截图。</p>}
     </section></div>
   </details>;

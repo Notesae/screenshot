@@ -57,3 +57,26 @@
 .clay-notice > .liquid-surface-skin { background:var(--clay-face); }
 .clay-notice.is-error > .liquid-surface-skin { background:var(--clay-errorSurface); }
 .clay-editor .clay-notice > .liquid-surface-content > button { width:32px; height:32px; min-height:32px; padding:6px; flex-shrink:0; color:var(--clay-muted); background:transparent; box-shadow:none; }
+
+/* 普通按钮沿用所属控件的材质，固定命中层不再带着长标签一起缩放。 */
+.clay-editor button[data-control-button] { position:relative; isolation:isolate; --control-face:var(--clay-raised); --control-shadow:var(--clay-button); background:transparent !important; box-shadow:none !important; transform:none !important; filter:none !important; transition:none !important; }
+.control-skin { position:absolute; inset:0; z-index:-1; border-radius:inherit; background:var(--control-face); box-shadow:var(--control-shadow); pointer-events:none; }
+.control-content { display:inline-flex; align-items:center; justify-content:inherit; gap:inherit; min-width:0; width:100%; pointer-events:none; }
+.clay-editor [data-control-button]:hover:enabled > .control-skin { filter:brightness(1.04); }
+.clay-editor [data-control-button]:focus-visible:enabled > .control-skin { filter:brightness(1.14); }
+.clay-editor [data-control-button]:active:enabled > .control-skin { box-shadow:var(--clay-press); }
+.clay-editor button[data-control-button]:is(.clay-primary,[aria-pressed=true]) { --control-face:var(--clay-primary); --control-shadow:var(--clay-primary-shadow); }
+.clay-editor button[data-control-button].clay-danger:hover:enabled { --control-face:var(--clay-errorSurface); }
+.clay-editor button[data-control-button]:is(.clay-select-trigger,.clay-color-trigger) { --control-face:var(--clay-well); --control-shadow:var(--clay-inset); }
+.clay-editor button[data-control-button]:is(.clay-select-trigger,.clay-color-trigger):is(:hover,:focus-visible,[aria-expanded=true]) { --control-face:var(--clay-wellActive); }
+.clay-editor :is(.clay-card-heading,.clay-notice,.clay-reader-actions,.canvas-zoom) button[data-control-button], .clay-editor .clay-reader-mode button[data-control-button], .clay-editor .clay-select-menu button[data-control-button], .clay-editor .clay-color-options button[data-control-button] { --control-face:transparent; --control-shadow:none; }
+.clay-editor .clay-reader-mode button[data-control-button][aria-pressed=true] { --control-face:var(--clay-raised); --control-shadow:var(--clay-button); }
+.clay-editor .clay-select-menu button[data-control-button]:is(.is-active,[aria-selected=true]), .clay-editor .clay-color-options button[data-control-button][aria-pressed=true] { --control-face:var(--clay-selected); }
+.clay-select-trigger > .control-content > span, .clay-select-menu .control-content > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.clay-select-trigger .control-content > svg { transition:transform 170ms ease; }
+.clay-select-trigger[aria-expanded=true] .control-content > svg { transform:rotate(180deg); }
+.clay-editor input[type=range]::-webkit-slider-thumb { transform:scale(var(--range-scale-x,1),var(--range-scale-y,1)); background:linear-gradient(var(--clay-ink),var(--clay-muted)); box-shadow:var(--clay-button); }
+.clay-editor input[type=range]::-moz-range-thumb { transform:scale(var(--range-scale-x,1),var(--range-scale-y,1)); background:linear-gradient(var(--clay-ink),var(--clay-muted)); box-shadow:var(--clay-button); }
+.clay-editor input[type=checkbox] { position:relative; isolation:isolate; background:transparent; box-shadow:none; }
+.clay-editor input[type=checkbox]::before { content:''; position:absolute; inset:0; z-index:-1; border-radius:inherit; background:var(--clay-well); box-shadow:var(--clay-inset); pointer-events:none; transform:scale(var(--check-scale-x,1),var(--check-scale-y,1)); }
+.clay-editor input[type=checkbox]:is(:checked,:indeterminate)::before { background:var(--clay-accentBottom); }

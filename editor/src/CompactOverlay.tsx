@@ -1,6 +1,7 @@
+import { ControlButton } from './ControlMotion';
 import { MotionDetails } from './MotionDetails';
 import { useSurfaceMotion } from './SurfaceMotion';
-import { MotionButton, useLiquidMotion } from './LiquidMotion';
+import { MotionButton, presentationMotion, useLiquidMotion } from './LiquidMotion';
 import { Select } from './Select';
 import { ColorField } from './ColorField';
 import { TooltipLayer } from './TooltipLayer';
@@ -169,6 +170,7 @@ export function CompactOverlay(props:Props) {
   },[]);
   function beginDrag(kind:'rail'|'card',event:PointerEvent<HTMLElement>){
     if(event.button!==0||(event.target as Element).closest('button,input,select,textarea'))return;
+    presentationMotion()?.placePanel();
     // 开始手动操作即固定两组当前位置，关闭自动避让；拖动允许跨屏和与其他面板重叠。
     if(rootRef.current)rootRef.current.dataset.motionDragging=kind;
     setPositions({rail:{x:tools.rail.x,y:tools.rail.y},card:{x:tools.card.x,y:tools.card.y}});
@@ -178,13 +180,13 @@ export function CompactOverlay(props:Props) {
   function endDrag(){drag.current=null;if(rootRef.current)delete rootRef.current.dataset.motionDragging;}
   function moveByKey(kind:'rail'|'card',event:KeyboardEvent<HTMLElement>){
     const delta=event.shiftKey?24:8,directions:Record<string,Point>={ArrowLeft:{x:-delta,y:0},ArrowRight:{x:delta,y:0},ArrowUp:{x:0,y:-delta},ArrowDown:{x:0,y:delta}};
-    const direction=directions[event.key];if(!direction)return;event.preventDefault();const current=tools[kind];setPositions(value=>({...value,rail:value.rail??{x:tools.rail.x,y:tools.rail.y},card:value.card??{x:tools.card.x,y:tools.card.y},[kind]:{x:current.x+direction.x,y:current.y+direction.y}}));
+    const direction=directions[event.key];if(!direction)return;event.preventDefault();presentationMotion()?.placePanel(kind==='card');const current=tools[kind];setPositions(value=>({...value,rail:value.rail??{x:tools.rail.x,y:tools.rail.y},card:value.card??{x:tools.card.x,y:tools.card.y},[kind]:{x:current.x+direction.x,y:current.y+direction.y}}));
   }
   const title=visiblePanel==='beauty'?'美化截图':visiblePanel==='text'?'识别与校对':visiblePanel==='properties'?'标注属性':visiblePanel==='recovery'?'历史记录':'更多操作';
   return <div ref={rootRef} data-editor-root className={'clay-editor '+(metadata?'is-overlay':'is-neutral')+(chromeVisible?' is-presented':' is-awaiting')+(preparing?' is-preparing':'')+(props.suspended?' is-suspended':'')+(fullReading?' is-reading':'')} inert={props.locked} onKeyDownCapture={event=>{const target=event.target;if(event.key==='Escape'&&!event.nativeEvent.isComposing&&!composing.current&&target instanceof HTMLElement&&target.matches('input,textarea,select')&&!target.closest('.clay-color-popover')){event.preventDefault();event.stopPropagation();target.blur();}}} onDragOver={event=>{if(Array.from(event.dataTransfer.types).includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();void props.onFiles(event.dataTransfer.files);}}>
     <CaptureSelection viewport={viewport} metadata={metadata} disabled={!!busy||!!aiBusy||props.locked||!canvasSettled} settled={canvasSettled&&!busy} onAdjust={props.onAdjustCapture} onPreview={setSelectionPreview} onDragging={active=>{selectionDragging.current=active;}} hitAnnotation={event=>canvasRef.current?.hasAnnotationAt(event)??false} onBegin={()=>canvasRef.current?.exitSelection()}>
     <div className={metadata?'clay-canvas-fixed':'clay-canvas-stage'} inert={!!busy} style={mapped?{visibility:selectionPreview?'hidden':undefined,left:mapped.frame.x,top:mapped.frame.y,width:mapped.frame.width,height:mapped.frame.height}:undefined}>
-      {hasContent?<EditorCanvas ref={canvasRef} showViewControls={visiblePanel!=='recovery'} document={doc} onDrawingToolChange={setDrawingTool} onSelection={props.onSelection} onRenderStatus={props.onRenderStatus} fixedDisplayScale={mapped?.scale} onReady={()=>{setCanvasReady(true);setPaintedImage(doc.image);}} onAnnotations={(annotations,group)=>update({annotations},group)} onError={props.onError}/>:<div className="clay-launcher"><Frame size={32} aria-hidden="true"/><h1>截图，接着编辑。</h1><p>从托盘或快捷键开始，也可以打开本机文件。</p><button className="clay-primary" disabled={!!busy} onClick={()=>props.onCapture('capture.region')}>区域截图</button><button disabled={!!busy} onClick={props.onOpenImage}>打开图片</button><button disabled={!!busy} onClick={props.onOpenProject}>打开项目</button></div>}
+      {hasContent?<EditorCanvas ref={canvasRef} showViewControls={visiblePanel!=='recovery'} document={doc} onDrawingToolChange={setDrawingTool} onSelection={props.onSelection} onRenderStatus={props.onRenderStatus} fixedDisplayScale={mapped?.scale} onReady={()=>{setCanvasReady(true);setPaintedImage(doc.image);}} onAnnotations={(annotations,group)=>update({annotations},group)} onError={props.onError}/>:<div className="clay-launcher"><Frame size={32} aria-hidden="true"/><h1>截图，接着编辑。</h1><p>从托盘或快捷键开始，也可以打开本机文件。</p><ControlButton className="clay-primary" disabled={!!busy} onClick={()=>props.onCapture('capture.region')}>区域截图</ControlButton><ControlButton disabled={!!busy} onClick={props.onOpenImage}>打开图片</ControlButton><ControlButton disabled={!!busy} onClick={props.onOpenProject}>打开项目</ControlButton></div>}
     </div>
     </CaptureSelection>
     <svg className="liquid-panel-bridge" aria-hidden="true"><path/></svg>
@@ -207,34 +209,48 @@ export function CompactOverlay(props:Props) {
       </div>
       {visiblePanel&&<section id="clay-active-panel" aria-hidden={!panel} inert={!panel} className={'clay-card liquid-panel '+(visiblePanel==='more'?'clay-drawer ':'')+(!panel?'is-closing':'')} role="region" aria-label={title} style={{left:tools.card.x,top:tools.card.y,width:tools.card.width,maxHeight:tools.card.height}}>
         <span className="liquid-panel-skin" aria-hidden="true"/><div className="liquid-panel-content">
-        <header className="clay-card-heading" tabIndex={0} aria-label={'移动'+title+'，方向键微调'} onPointerDown={event=>beginDrag('card',event)} onPointerMove={moveDrag} onPointerUp={endDrag} onLostPointerCapture={endDrag} onKeyDown={event=>{if(event.target===event.currentTarget)moveByKey('card',event);}}><h2>{title}</h2><button aria-label="关闭浮卡" onClick={closePanel}><X aria-hidden="true"/></button></header>
+        <header className="clay-card-heading" tabIndex={0} aria-label={'移动'+title+'，方向键微调'} onPointerDown={event=>beginDrag('card',event)} onPointerMove={moveDrag} onPointerUp={endDrag} onLostPointerCapture={endDrag} onKeyDown={event=>{if(event.target===event.currentTarget)moveByKey('card',event);}}><h2>{title}</h2><ControlButton aria-label="关闭浮卡" onClick={closePanel}><X aria-hidden="true"/></ControlButton></header>
         <div className="clay-card-content" ref={cardContent}>
-          {visiblePanel==='beauty'&&<><StyleTools editor={editor} update={update} onError={props.onError}/><MotionDetails><summary>细调外观</summary><label>背景颜色<ColorField label="背景颜色" value={editor.background} onChange={background=>update({background,mode:'beauty'})}/></label><Range label="留白" value={editor.padding} max={200} onChange={padding=>update({padding,mode:'beauty'})}/><Range label="圆角" value={editor.radius} max={100} onChange={radius=>update({radius,mode:'beauty'})}/><label className="checkbox-row"><input type="checkbox" checked={editor.shadow} onChange={event=>update({shadow:event.target.checked,mode:'beauty'})}/>柔和阴影</label></MotionDetails><button onClick={()=>{update({mode:'raw'});setPanel(null);}}>恢复原样</button></>}
+          {visiblePanel==='beauty'&&<><StyleTools editor={editor} update={update} onError={props.onError}/><MotionDetails><summary>细调外观</summary><label>背景颜色<ColorField label="背景颜色" value={editor.background} onChange={background=>update({background,mode:'beauty'})}/></label><Range label="留白" value={editor.padding} max={200} onChange={(padding,group)=>update({padding,mode:'beauty'},group)}/><Range label="圆角" value={editor.radius} max={100} onChange={(radius,group)=>update({radius,mode:'beauty'},group)}/><label className="checkbox-row"><input type="checkbox" checked={editor.shadow} onChange={event=>update({shadow:event.target.checked,mode:'beauty'})}/>柔和阴影</label></MotionDetails><ControlButton onClick={()=>{update({mode:'raw'});setPanel(null);}}>恢复原样</ControlButton></>}
           {visiblePanel==='text'&&<TextTools {...props.textTools} compact/>}
-          {visiblePanel==='properties'&&<><AnnotationPalette selection={props.selection} disabled={props.renderStatus!=='ready'} canvasRef={canvasRef} onError={props.onError}/><button className="clay-danger" disabled={!props.selection} onClick={()=>canvasRef.current?.remove()}><Trash2 aria-hidden="true"/>删除选中标注</button></>}
+          {visiblePanel==='properties'&&<><AnnotationPalette selection={props.selection} disabled={props.renderStatus!=='ready'} canvasRef={canvasRef} onError={props.onError}/><ControlButton className="clay-danger" disabled={!props.selection} onClick={()=>canvasRef.current?.remove()}><Trash2 aria-hidden="true"/>删除选中标注</ControlButton></>}
           {visiblePanel==='recovery'&&props.recoveryPanel}
           {visiblePanel==='more'&&<>
-            <section className="clay-section"><h3>截图与文件</h3><div className="clay-action-grid"><button onClick={()=>props.onCapture('capture.region')}>重新框选</button><button onClick={props.onOpenImage}><ImagePlus aria-hidden="true"/>打开图片</button><button onClick={props.onOpenProject}><FolderOpen aria-hidden="true"/>打开项目</button><button onClick={props.onPaste}>粘贴图片</button></div></section>
+            <section className="clay-section"><h3>截图与文件</h3><div className="clay-action-grid"><ControlButton onClick={()=>props.onCapture('capture.region')}>重新框选</ControlButton><ControlButton onClick={props.onOpenImage}><ImagePlus aria-hidden="true"/>打开图片</ControlButton><ControlButton onClick={props.onOpenProject}><FolderOpen aria-hidden="true"/>打开项目</ControlButton><ControlButton onClick={props.onPaste}>粘贴图片</ControlButton></div></section>
             <CaptureControls onStart={props.clearNotice} backend={props.captureBackend} disabled={!!busy} onCapture={props.onCapture} onError={props.onError}/>
-            <section className="clay-section"><h3>项目与记录</h3><div className="clay-action-grid"><button disabled={!hasContent} onClick={props.onSaveProject}>保存项目</button><button onClick={()=>setPanel('recovery')}>历史记录</button></div></section>
+            <section className="clay-section"><h3>项目与记录</h3><div className="clay-action-grid"><ControlButton disabled={!hasContent} onClick={props.onSaveProject}>保存项目</ControlButton><ControlButton onClick={()=>setPanel('recovery')}>历史记录</ControlButton></div></section>
             <section className="clay-section"><h3>输出设置</h3>
               <label>复制图片的尺寸<Select aria-label="导出倍率" value={props.scale} disabled={!hasContent} onChange={value=>props.setScale(Number(value))}><option value={1}>1× 当前尺寸</option><option value={2}>2× 尺寸</option></Select></label>
               {canTransform?<MotionDetails><summary>裁剪与缩放</summary><TransformPanel document={doc} onTransform={props.onTransform}/></MotionDetails>:<div className="clay-unavailable-tool"><span>裁剪与缩放</span><p>{editor.mode==='reflow'?'文字卡片不支持图片裁剪。':'截图或打开图片后可用。'}</p></div>}
             </section>
-            <div className="clay-action-grid"><button onClick={()=>{setPanel(null);props.onConfigure();}}><Settings2 aria-hidden="true"/>设置</button><button onClick={()=>setPositions({})}><RotateCcw aria-hidden="true"/>重置工具位置</button></div>
+            <div className="clay-action-grid"><ControlButton onClick={()=>{setPanel(null);props.onConfigure();}}><Settings2 aria-hidden="true"/>设置</ControlButton><ControlButton onClick={()=>setPositions({})}><RotateCcw aria-hidden="true"/>重置工具位置</ControlButton></div>
           </>}
         </div>
         </div>
       </section>}
     </fieldset>
     {readerMounted&&reader&&editor.imageTranslation&&<ImageTranslationReader rootRef={readerRoot} open={reading} data={editor.imageTranslation} box={reader.box} screen={screen} full={reader.full} onClose={closeReader} onBoundsChange={setReaderBounds} onReset={()=>setReaderBounds(null)}/>}
-    {(!adjusting&&busy||aiBusy||hasContent&&props.renderStatus==='loading')&&<div className="clay-status" style={{left:screen.x+16,top:screen.y+12,maxWidth:screen.width-32}}><div role="status" className="clay-task"><span className="spinner"/>{busy||aiBusy||'画布更新中'}…{aiBusy&&<button onClick={props.textTools.onCancelOcr}>取消任务</button>}{busy==='完成截图'&&<button onClick={props.onCancelComplete}>取消完成</button>}</div></div>}
-    {noticeMounted&&notice&&<div ref={noticeRoot} className={'clay-notice '+(notice.error?'is-error':'')} aria-hidden={!props.notice} style={{top:noticeTop,left:screen.x+screen.width/2,maxWidth:screen.width-32}} role={notice.error?'alert':'status'}><div className="liquid-surface-skin" aria-hidden="true"/><div className="liquid-surface-content"><span>{notice.text}</span><button aria-label="关闭提示" disabled={!props.notice} onClick={props.clearNotice}><X aria-hidden="true"/></button></div></div>}
+    {(!adjusting&&busy||aiBusy||hasContent&&props.renderStatus==='loading')&&<div className="clay-status" style={{left:screen.x+16,top:screen.y+12,maxWidth:screen.width-32}}><div role="status" className="clay-task"><span className="spinner"/>{busy||aiBusy||'画布更新中'}…{aiBusy&&<ControlButton onClick={props.textTools.onCancelOcr}>取消任务</ControlButton>}{busy==='完成截图'&&<ControlButton onClick={props.onCancelComplete}>取消完成</ControlButton>}</div></div>}
+    {noticeMounted&&notice&&<div ref={noticeRoot} className={'clay-notice '+(notice.error?'is-error':'')} aria-hidden={!props.notice} style={{top:noticeTop,left:screen.x+screen.width/2,maxWidth:screen.width-32}} role={notice.error?'alert':'status'}><div className="liquid-surface-skin" aria-hidden="true"/><div className="liquid-surface-content"><span>{notice.text}</span><ControlButton aria-label="关闭提示" disabled={!props.notice} onClick={props.clearNotice}><X aria-hidden="true"/></ControlButton></div></div>}
     <OverlayScrollbars/>
     <TooltipLayer/>
   </div>;
 }
-function Range({label,value,max,onChange}:{label:string;value:number;max:number;onChange:(value:number)=>void}){return <label className="clay-range"><span>{label}<output>{value} px</output></span><input aria-label={label} type="range" style={{'--range-progress':`${value/max*100}%`} as CSSProperties} min={0} max={max} value={value} onChange={event=>onChange(Number(event.target.value))}/></label>;}
+/** 单次指针/键盘手势共用一组历史 ID，读数和画布仍即时更新。 */
+function Range({label,value,max,onChange}:{label:string;value:number;max:number;onChange:(value:number,group?:string)=>void}) {
+  const gesture=useRef<string|undefined>(undefined);
+  const begin=()=>{gesture.current??='gesture:'+crypto.randomUUID();},end=()=>{gesture.current=undefined;};
+  useEffect(()=>{
+    const hidden=()=>{if(document.hidden)end();};
+    window.addEventListener('blur',end);document.addEventListener('visibilitychange',hidden);
+    return()=>{window.removeEventListener('blur',end);document.removeEventListener('visibilitychange',hidden);};
+  },[]);
+  const rangeKey=(key:string)=>/^(Arrow(Left|Right|Up|Down)|Home|End|PageUp|PageDown)$/.test(key);
+  return <label className="clay-range"><span>{label}<output>{value} px</output></span><input aria-label={label} type="range" style={{'--range-progress':`${value/max*100}%`} as CSSProperties} min={0} max={max} value={value}
+    onPointerDown={event=>{if(event.button===0){begin();event.currentTarget.setPointerCapture(event.pointerId);}}} onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end} onBlur={end}
+    onKeyDown={event=>{if(rangeKey(event.key))begin();}} onKeyUp={event=>{if(rangeKey(event.key))end();}}
+    onChange={event=>onChange(Number(event.target.value),gesture.current)}/></label>;
+}
 
 /** 图片边框与星芒表示外观美化，避免和用于绘制标注的文字 T 图标混淆。 */
 function ImageAppearanceIcon(){

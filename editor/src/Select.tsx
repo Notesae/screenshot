@@ -1,3 +1,4 @@
+import { ControlButton } from './ControlMotion';
 import { Children, isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown } from 'lucide-react';
@@ -61,10 +62,10 @@ export function Select(props:Props) {
     if(option){const top=option.offsetTop,bottom=top+option.offsetHeight;if(top<scroll.current.scrollTop)scroll.current.scrollTop=top;else if(bottom>scroll.current.scrollTop+scroll.current.clientHeight)scroll.current.scrollTop=bottom-scroll.current.clientHeight;}
   },[open,active,mounted]);
   return <span className={'clay-select '+(props.className??'')}>
-    <button ref={button} id={props.id} type="button" className="clay-select-trigger" role="combobox" aria-label={props['aria-label']} aria-expanded={open} aria-controls={open?id:undefined} aria-haspopup="listbox" data-tooltip={props.title} disabled={props.disabled} onClick={()=>open?setOpen(false):reveal()} onKeyDown={navigate}><span>{options[selected]?.label??options[0]?.label}</span><ChevronDown aria-hidden="true"/></button>
+    <ControlButton ref={button} id={props.id} type="button" className="clay-select-trigger" role="combobox" aria-label={props['aria-label']} aria-expanded={open} aria-controls={open?id:undefined} aria-haspopup="listbox" data-tooltip={props.title} disabled={props.disabled} onClick={()=>open?setOpen(false):reveal()} onKeyDown={navigate}><span>{options[selected]?.label??options[0]?.label}</span><ChevronDown aria-hidden="true"/></ControlButton>
     {mounted&&createPortal(<div ref={menu} id={id} className="clay-select-menu" role="listbox" aria-hidden={!open} inert={!open} tabIndex={-1} aria-label={props['aria-label']} aria-activedescendant={active>=0?`${id}-${active}`:undefined} style={{left:placement.left,top:placement.top,width:placement.width,maxHeight:placement.height}} onKeyDown={navigate}>
       <div className="liquid-surface-skin" aria-hidden="true"/><div ref={scroll} className="liquid-surface-content">
-      {options.map((option,index)=><button key={index} id={`${id}-${index}`} type="button" role="option" tabIndex={-1} data-option-index={index} aria-selected={index===selected} disabled={option.disabled} className={index===active?'is-active':''} onPointerMove={()=>{if(!option.disabled)setActive(index);}} onPointerDown={event=>event.preventDefault()} onClick={()=>choose(index)}><span>{option.label}</span>{index===selected&&<Check aria-hidden="true"/>}</button>)}
+      {options.map((option,index)=><ControlButton key={index} id={`${id}-${index}`} type="button" role="option" tabIndex={-1} data-option-index={index} aria-selected={index===selected} disabled={option.disabled} className={index===active?'is-active':''} onPointerMove={()=>{if(!option.disabled)setActive(index);}} onPointerDown={event=>event.preventDefault()} onClick={()=>choose(index)}><span>{option.label}</span>{index===selected&&<Check aria-hidden="true"/>}</ControlButton>)}
     </div></div>,button.current?.closest('.clay-editor')??document.body)}
   </span>;
 }

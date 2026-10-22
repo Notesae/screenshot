@@ -148,8 +148,6 @@ internal static class SoftClayTrayMenu
     {
         var menu=new ContextMenu{Placement=System.Windows.Controls.Primitives.PlacementMode.MousePoint,StaysOpen=false,HasDropShadow=false,FontFamily=SoftClayTheme.Font};
         SoftClayTheme.Install(menu.Resources);menu.Style=(Style)menu.Resources["ClayTrayMenu"];
-        menu.Opened+=(_,_)=>SoftClayMotion.EnterPopup(menu);
-        menu.Closed+=(_,_)=>SoftClayMotion.StopPopup(menu);
         return menu;
     }
     public static MenuItem Command(string label,string geometry,Action action,string shortcut="")

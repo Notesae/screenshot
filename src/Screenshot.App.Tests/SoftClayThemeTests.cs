@@ -14,6 +14,17 @@ internal static class SoftClayThemeTests
             try
             {
                 void Check(bool value,string name){if(!value)throw new Exception(name);checks++;}
+                foreach (var rate in new[] { 30, 60, 144 })
+                {
+                    var disclosure = new DisclosureTransition(); disclosure.Redirect(1);
+                    for (var frame = 0; frame < rate / 12 + 1; frame++) disclosure.Step(1d / rate);
+                    var current = disclosure.Value; disclosure.Redirect(0);
+                    Check(disclosure.Value == current && current > 0 && current <= 1, "native disclosure redirects from current height at " + rate);
+                    for (var frame = 0; frame < rate; frame++) { disclosure.Step(1d / rate); Check(disclosure.Value >= 0 && disclosure.Value <= 1, "native disclosure height stays bounded"); }
+                    Check(disclosure.Value == 0 && !disclosure.Moving, "native disclosure settles at " + rate);
+                    disclosure.Redirect(1); disclosure.Step(double.PositiveInfinity);
+                    Check(disclosure.Value == 1 && !disclosure.Moving, "native hidden/reduced disclosure reaches semantic state at " + rate);
+                }
                 // 纯状态验证不实例化截图窗口，不读取屏幕或使用系统指针。
                 foreach(var rate in new[]{30,60,144})
                 {
@@ -30,6 +41,25 @@ internal static class SoftClayThemeTests
                 Check(Math.Abs(dip.OffsetX*1.5)<=7.5&&Math.Abs(dip.OffsetY*1.5)<=6,"DPI only scales decorative offset");
                 dip.Step(8);Check(double.IsFinite(dip.OffsetX)&&double.IsFinite(dip.HandleScale),"capture long frame bounded by shared solver");
                 var resources=new ResourceDictionary();SoftClayTheme.Install(resources);
+                var surface = new SoftClayPopupSurface { Content = new TextBlock { Text = "不缩放的正文" } };
+                surface.Resources.MergedDictionaries.Add(resources); surface.Style = (Style)resources[typeof(SoftClayPopupSurface)];
+                Check(surface.ApplyTemplate(), "native shared popup template loads without a window");
+                var material = (FrameworkElement)surface.Template.FindName("Face", surface);
+                var body = (FrameworkElement)surface.Template.FindName("Glyph", surface);
+                Check(ReferenceEquals(VisualTreeHelper.GetParent(material), VisualTreeHelper.GetParent(body)), "native popup text is outside material scale");
+                SoftClayMotion.EnterSurface(surface, material, body);
+                Check(surface.RenderTransform.Value.IsIdentity && body.RenderTransform is TranslateTransform, "native popup keeps fixed layout and unscaled content");
+                SoftClayMotion.StopSurface(surface);
+                Check(material.RenderTransform.Value.IsIdentity && body.Opacity == 1, "native popup unload resets material and content");
+                var expander = new Expander { Content = new TextBox { Height = 72, Text = "固定高度的合成正文" } };
+                expander.Resources.MergedDictionaries.Add(resources); expander.Style = (Style)resources[typeof(Expander)];
+                Check(expander.ApplyTemplate(), "native expander template loads");
+                var expansion = (SoftClayDisclosure)expander.Template.FindName("Expansion", expander);
+                Check(!expansion.IsEnabled && expansion.Visibility == Visibility.Collapsed, "closed disclosure immediately leaves input");
+                expander.IsExpanded = true; expander.Measure(new Size(320, double.PositiveInfinity)); expander.Arrange(new Rect(expander.DesiredSize));
+                Check(expansion.Progress == 1 && expansion.IsEnabled && expansion.Child!.RenderTransform.Value.IsIdentity, "unshown native disclosure resolves without scaling text or starting a window");
+                expander.IsExpanded = false;
+                Check(expansion.Progress == 0 && !expansion.IsEnabled && expansion.Visibility == Visibility.Collapsed, "native disclosure close releases its layout slot");
                 Check(SoftClayTheme.Color("mask").A==128&&SoftClayDrawing.Color("mask").A==128,"CSS mask alpha matches WPF and GDI");
                 Check(SoftClayTheme.Number("motion","toast")==280,"shared native toast timing");
                 var spring=SoftClayTheme.Spring();

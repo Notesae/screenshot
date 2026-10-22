@@ -80,7 +80,7 @@ internal static class SoftClayDialog
             actions.Children.Add(button);
         }
         Grid.SetRow(actions, 2); content.Children.Add(actions);
-        dialog.Content = new SoftClaySurface { Style = (Style)dialog.Resources["ClayFloatingSurface"], Margin = new Thickness(16), Child = content };
+        dialog.Content = new SoftClayPopupSurface { Style = (Style)dialog.Resources[typeof(SoftClayPopupSurface)], Margin = new Thickness(16), Content = content };
         dialog.Loaded += (_, _) => defaultButton?.Focus();
         dialog.ShowDialog();
         return result;

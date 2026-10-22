@@ -97,8 +97,9 @@ export class MotionClock {
     this.wake();
   }
   /** 隐藏时结束表现过渡并保留成功回调；业务退出须由调用者先取消。 */
-  finish() {
+  finish(only?: string) {
     for (const [key, track] of [...this.tracks]) {
+      if (only !== undefined && key !== only) continue;
       if (this.tracks.get(key) !== track) continue;
       this.tracks.delete(key); track.paint(track.spring?.to ?? 1, 0); track.resolve(true);
     }

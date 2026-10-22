@@ -20,10 +20,13 @@ internal static class SoftClayMotion
     private static JsonElement Motion => Tokens.RootElement.GetProperty("motion");
     // 弱表保留重定向状态；只有尚未停稳的控件进入活动帧列表。
     private static readonly ConditionalWeakTable<Button, SurfaceState> Buttons = new();
+    private static readonly ConditionalWeakTable<FrameworkElement, SurfaceState> Surfaces = new();
     private static readonly List<WeakReference<SurfaceState>> Known = new();
     private static readonly Dictionary<FrameworkElement, SurfaceState> Active = new();
+    private static readonly Dictionary<FrameworkElement, Func<double, bool>> Timelines = new();
     private static bool _installed, _rendering;
     private static long _last;
+    internal static double Duration(string name) => Motion.GetProperty("duration").GetProperty(name).GetDouble() / 1000;
 
     /// <summary>仅安装视觉事件，不创建窗口、读取剪贴板或注册系统快捷键。</summary>
     public static void Install()
@@ -80,20 +83,31 @@ internal static class SoftClayMotion
         Wake(state);
     }
 
-    /// <summary>托盘浮卡短位移和淡入，不缩放菜单文字，系统减少动态时直接显示。</summary>
-    public static void EnterPopup(ContextMenu menu)
+    /// <summary>所有原生浮卡沿用同一个材质/正文入口，关闭仍由原生生命周期决定。</summary>
+    public static void EnterSurface(FrameworkElement owner, FrameworkElement face, FrameworkElement glyph)
     {
-        StopPopup(menu);
-        var state = new SurfaceState(menu, null, null) { Popup = true };
-        state.Y.Snap(8); state.Y.To = 0; state.Alpha.Snap(0); state.Alpha.To = 1;
-        menu.RenderTransform = state.Shift;
-        Wake(state);
+        StopSurface(owner); Surfaces.Remove(owner);
+        var state = new SurfaceState(owner, face, glyph) { Floating = true };
+        Surfaces.Add(owner, state); Known.RemoveAll(reference => !reference.TryGetTarget(out _)); Known.Add(new WeakReference<SurfaceState>(state));
+        state.Y.Snap(6); state.Y.To = 0; state.Alpha.Snap(0); state.Alpha.To = 1;
+        state.ScaleX.Snap(.96); state.ScaleX.To = 1; state.ScaleY.Snap(.94); state.ScaleY.To = 1;
+        state.Paint(); Wake(state);
     }
-
-    public static void StopPopup(ContextMenu menu)
+    public static void StopSurface(FrameworkElement owner)
     {
-        if (Active.Remove(menu, out var state)) state.Reset();
-        menu.Opacity = 1;
+        Active.Remove(owner); if (Surfaces.TryGetValue(owner, out var state)) state.Reset(); SleepIfSettled();
+    }
+    /// <summary>折叠等局部布局过渡共用合成订阅，隐藏/卸载或减少动态时归到语义终态。</summary>
+    public static void Animate(FrameworkElement owner, Func<double, bool> advance)
+    {
+        Timelines.Remove(owner);
+        if (!owner.IsLoaded || !owner.IsVisible || !SystemParameters.ClientAreaAnimation) { advance(double.PositiveInfinity); SleepIfSettled(); return; }
+        if (!advance(0)) return;
+        Timelines[owner] = advance; StartRendering();
+    }
+    public static void StopTimeline(FrameworkElement owner)
+    {
+        if (Timelines.Remove(owner, out var advance)) advance(double.PositiveInfinity);
         SleepIfSettled();
     }
 
@@ -102,6 +116,10 @@ internal static class SoftClayMotion
     {
         if (!SystemParameters.ClientAreaAnimation) { state.Reset(); Active.Remove(state.Owner); SleepIfSettled(); return; }
         Active[state.Owner] = state;
+        StartRendering();
+    }
+    private static void StartRendering()
+    {
         if (_rendering) return;
         _last = Stopwatch.GetTimestamp(); _rendering = true;
         CompositionTarget.Rendering += Render;
@@ -117,21 +135,27 @@ internal static class SoftClayMotion
         {
             var state = pair.Value;
             if (!state.Owner.IsLoaded || !state.Owner.IsVisible || !SystemParameters.ClientAreaAnimation) { state.Reset(); Active.Remove(pair.Key); continue; }
-            var config = Motion.GetProperty("spring").GetProperty(state.Popup ? "panel" : state.Pressed ? "press" : "attention");
+            var config = Motion.GetProperty("spring").GetProperty(state.Floating ? "panel" : state.Pressed ? "press" : "attention");
             var moving = false;
             foreach (var spring in new[] { state.X, state.Y, state.Alpha }) moving = spring.Step(elapsed, config) || moving;
-            var press = Motion.GetProperty("spring").GetProperty("press");
+            var press = state.Floating ? config : Motion.GetProperty("spring").GetProperty("press");
             moving = state.ScaleX.Step(elapsed, press) || moving;
             moving = state.ScaleY.Step(elapsed, press) || moving;
             state.Paint();
             if (!moving) Active.Remove(pair.Key);
+        }
+        foreach (var pair in Timelines.ToArray())
+        {
+            if (!Timelines.TryGetValue(pair.Key, out var current) || current != pair.Value) continue;
+            var dt = pair.Key.IsLoaded && pair.Key.IsVisible && SystemParameters.ClientAreaAnimation ? elapsed : double.PositiveInfinity;
+            if (!pair.Value(dt) && Timelines.TryGetValue(pair.Key, out current) && current == pair.Value) Timelines.Remove(pair.Key);
         }
         SleepIfSettled();
     }
 
     private static void SleepIfSettled()
     {
-        if (Active.Count != 0 || !_rendering) return;
+        if (Active.Count != 0 || Timelines.Count != 0 || !_rendering) return;
         CompositionTarget.Rendering -= Render; _rendering = false;
     }
 
@@ -142,6 +166,7 @@ internal static class SoftClayMotion
         // 系统选项切换时连已经休眠的迎向表面也复位，不能留下偏移。
         foreach (var reference in Known) if (reference.TryGetTarget(out var state)) state.Reset();
         foreach (var state in Active.Values) state.Reset();
+        foreach (var pair in Timelines.ToArray()) { Timelines.Remove(pair.Key); pair.Value(double.PositiveInfinity); }
         Active.Clear(); SleepIfSettled();
     }
 
@@ -153,12 +178,14 @@ internal static class SoftClayMotion
         public readonly TranslateTransform Shift = new();
         private readonly ScaleTransform _scale = new(1, 1);
         private readonly TranslateTransform _glyphShift = new();
-        public bool Pressed, Popup;
+        private readonly FrameworkElement? _face, _glyph;
+        public bool Pressed, Floating;
 
         // 命中网格不参与变换；材质与图文分别挂接到模板零件。
         public SurfaceState(FrameworkElement owner, FrameworkElement? face, FrameworkElement? glyph)
         {
             Owner = owner;
+            _face = face; _glyph = glyph;
             if (face != null)
             {
                 face.RenderTransformOrigin = new Point(.5, .5);
@@ -173,7 +200,11 @@ internal static class SoftClayMotion
             _scale.ScaleX = ScaleX.Value; _scale.ScaleY = ScaleY.Value;
             var ratio = Motion.GetProperty("field").GetProperty("iconRatio").GetDouble();
             _glyphShift.X = X.Value * ratio; _glyphShift.Y = Y.Value * ratio;
-            if (Popup) Owner.Opacity = Math.Clamp(Alpha.Value, 0, 1);
+            if (Floating)
+            {
+                if (_face != null) _face.Opacity = Math.Clamp(Alpha.Value * 4, 0, 1);
+                if (_glyph != null) _glyph.Opacity = Math.Clamp((Alpha.Value - .25) / .75, 0, 1);
+            }
         }
 
         public void Reset()

@@ -1,3 +1,4 @@
+import { ControlButton } from './ControlMotion';
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from 'react';
 import { GripVertical, Minus, Plus, RotateCcw, X } from 'lucide-react';
 import type { ImageTranslationDocument } from './imageTranslationLayout';
@@ -75,11 +76,11 @@ export function ImageTranslationReader({rootRef,open,data,box,screen,full,onClos
     <div className="liquid-surface-skin" aria-hidden="true"/><div className="liquid-surface-content">
     <header data-surface-drag className="clay-reader-heading" tabIndex={0} aria-label="移动阅读窗口，拖动标题栏或使用方向键" onPointerDown={event=>begin('move',event)} onPointerMove={move} onPointerUp={end} onPointerCancel={()=>{gesture.current=null;}} onLostPointerCapture={()=>{gesture.current=null;}} onKeyDown={event=>key('move',event)}>
       <GripVertical className="clay-reader-grip" size={18} aria-hidden="true"/><h2>阅读译文</h2><span className="clay-reader-count">{data.blocks.length} 处</span>
-      <div className="clay-reader-actions"><button data-tooltip="恢复阅读窗口默认位置和大小" aria-label="恢复阅读窗口默认位置和大小" onClick={onReset}><RotateCcw size={16} aria-hidden="true"/></button><button ref={close} aria-label="关闭阅读，返回截图" onClick={onClose}><X aria-hidden="true"/></button></div>
+      <div className="clay-reader-actions"><ControlButton data-tooltip="恢复阅读窗口默认位置和大小" aria-label="恢复阅读窗口默认位置和大小" onClick={onReset}><RotateCcw size={16} aria-hidden="true"/></ControlButton><ControlButton ref={close} aria-label="关闭阅读，返回截图" onClick={onClose}><X aria-hidden="true"/></ControlButton></div>
     </header>
     <div className="clay-reader-toolbar">
-      <div className="clay-reader-mode" role="group" aria-label="阅读方式"><button aria-pressed={!comparison} onClick={()=>setComparison(false)}>译文</button><button aria-pressed={comparison} onClick={()=>setComparison(true)}>对照</button></div>
-      <div className="clay-reader-type" role="group" aria-label="阅读字号"><button aria-label="缩小阅读文字" disabled={fontSize<=16} onClick={()=>setFontSize(value=>Math.max(16,value-2))}><Minus size={16}/></button><output aria-label="阅读字号">{fontSize}</output><button aria-label="放大阅读文字" disabled={fontSize>=28} onClick={()=>setFontSize(value=>Math.min(28,value+2))}><Plus size={16}/></button></div>
+      <div className="clay-reader-mode" role="group" aria-label="阅读方式"><ControlButton aria-pressed={!comparison} onClick={()=>setComparison(false)}>译文</ControlButton><ControlButton aria-pressed={comparison} onClick={()=>setComparison(true)}>对照</ControlButton></div>
+      <div className="clay-reader-type" role="group" aria-label="阅读字号"><ControlButton aria-label="缩小阅读文字" disabled={fontSize<=16} onClick={()=>setFontSize(value=>Math.max(16,value-2))}><Minus size={16}/></ControlButton><output aria-label="阅读字号">{fontSize}</output><ControlButton aria-label="放大阅读文字" disabled={fontSize>=28} onClick={()=>setFontSize(value=>Math.min(28,value+2))}><Plus size={16}/></ControlButton></div>
     </div>
     <div className="clay-reader-content" tabIndex={0} aria-label="完整译文" style={{fontSize}}>
       <div className="clay-reader-article">
@@ -90,7 +91,7 @@ export function ImageTranslationReader({rootRef,open,data,box,screen,full,onClos
         </article>)}
       </div>
     </div>
-    <button data-surface-drag className="clay-reader-resize" aria-label="调整阅读窗口大小，拖动或使用方向键" data-tooltip="拖动调整阅读窗口大小" onPointerDown={event=>begin('resize',event)} onPointerMove={move} onPointerUp={end} onPointerCancel={()=>{gesture.current=null;}} onLostPointerCapture={()=>{gesture.current=null;}} onKeyDown={event=>key('resize',event)}><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M5 13 13 5M10 13l3-3"/></svg></button>
+    <ControlButton data-surface-drag className="clay-reader-resize" aria-label="调整阅读窗口大小，拖动或使用方向键" data-tooltip="拖动调整阅读窗口大小" onPointerDown={event=>begin('resize',event)} onPointerMove={move} onPointerUp={end} onPointerCancel={()=>{gesture.current=null;}} onLostPointerCapture={()=>{gesture.current=null;}} onKeyDown={event=>key('resize',event)}><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M5 13 13 5M10 13l3-3"/></svg></ControlButton>
     </div>
   </section>;
 }

@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, type ComponentPropsWithRef, type RefObject } from 'react';
 import { clamp, liquidBridge, motionTokens as T, MotionClock, MotionSpring, type MotionRect } from './motion';
+import { ControlFeedback } from './ControlMotion';
 
 /** 固定语义槽位承接输入，材质与图文各自变形，避免按钮追着光标改变命中区。 */
 export function MotionButton({ children, group = 'end', ...props }: ComponentPropsWithRef<'button'> & { group?: string }) {
@@ -36,6 +37,9 @@ export class LiquidMotion {
   private panelMaterial = 0;
   private panelElement: HTMLElement | null = null;
   private panelVersion = 0;
+  private panelContent = '';
+  private manualPanel = false;
+  private controls: ControlFeedback;
   // 尺寸读数即时变化，只有胶囊外壳保留 5/4px 以内的短惯性。
   private sizePosition: MotionRect | null = null;
   private sizeX = new MotionSpring();
@@ -57,6 +61,7 @@ export class LiquidMotion {
     root.dataset.motionEconomy = String(this.economy);
     this.clock.onIdle = () => { root.dataset.motionState = 'sleep'; };
     this.clock.listen((dt, time) => this.paint(dt, time));
+    this.controls = new ControlFeedback(root, this.clock);
     const invalidate = () => { this.dirty = true; this.wake(); };
     this.resize = new ResizeObserver(invalidate); this.resize.observe(rail); this.resize.observe(root);
     this.mutation = new MutationObserver(invalidate);
@@ -97,7 +102,7 @@ export class LiquidMotion {
       if (document.hidden) {
         this.pointer.inside = false; release();
         // 先取消业务退出，再结束表现过渡，避免隐藏时误发完成或留下半张浮卡。
-        this.restore(); this.clock.finish(); this.clock.stop();
+        this.restore(); this.controls.reset(); this.clock.finish(); this.clock.stop();
         this.animations.forEach(animation => animation.cancel());
       } else invalidate();
     });
@@ -106,7 +111,7 @@ export class LiquidMotion {
     }) as EventListener, true);
     const updateReduced = () => {
       root.dataset.motionReduced = String(this.reduced.matches);
-      if (this.reduced.matches) { for (const animation of this.animations) animation.finish(); this.bridge = null; }
+      if (this.reduced.matches) { this.controls.reset(); for (const animation of this.animations) animation.finish(); this.bridge = null; }
       this.clock.setReduced(this.reduced.matches); this.wake();
     };
     this.reduced.addEventListener('change', updateReduced);
@@ -114,12 +119,18 @@ export class LiquidMotion {
     updateReduced();
   }
   invalidate(){this.dirty=true;this.wake();}
+  /** 只结束浮卡轨道；键盘的下一次位置提交需即时，拖动由手势作用域接管。 */
+  placePanel(immediate = false) {
+    const panel = this.root.querySelector<HTMLElement>('.clay-card:not(.is-closing)');
+    if (!panel) return;
+    this.clock.finish('panel'); this.panelRect = rect(panel.getBoundingClientRect()); this.manualPanel = immediate;
+  }
   private wake() { if (!this.destroyed && !document.hidden) { this.root.dataset.motionState = 'awake'; this.clock.wake(); } }
   /** 只在宿主真正撤挡后入场；挂起旧截图时取消时间线，不提前消费动画。 */
   present(presented: boolean) {
     if (this.active === presented) return;
     this.active = presented;
-    if (!presented) { this.restore(); this.clock.finish(); this.clock.stop(); return; }
+    if (!presented) { this.restore(); this.controls.reset(); this.clock.finish(); this.clock.stop(); return; }
     this.measure();
     this.body.snap(this.clock.reduced ? 1 : .06); this.body.to = 1;
     const now = performance.now();
@@ -250,7 +261,7 @@ export class LiquidMotion {
     return moving;
   }
   /** 浮卡仅缩放材质，正文单独淡入；快速切换从正在显示的矩形续接。 */
-  panel(element: HTMLElement, source: HTMLElement | null, open: boolean) {
+  panel(element: HTMLElement, source: HTMLElement | null, open: boolean, contentKey: string) {
     if (this.panelElement !== element) {
       if (this.panelElement) this.resize.unobserve(this.panelElement);
       this.panelElement = element; this.resize.observe(element);
@@ -261,8 +272,12 @@ export class LiquidMotion {
     const target = rect(element.getBoundingClientRect()), skin = element.querySelector<HTMLElement>('.liquid-panel-skin')!;
     const content = element.querySelector<HTMLElement>('.liquid-panel-content')!;
     const origin = this.panelRect ?? (source ? rect(source.getBoundingClientRect()) : target);
-    const destination = open ? target : source ? rect(source.getBoundingClientRect()) : { ...origin, y: origin.y + 8 };
-    const alpha = this.panelOpacity, material = this.panelMaterial;
+    // 关闭只向来源回收少量距离，不把整张大浮卡拖过截图再挤回按钮。
+    const directionX = sourceRect ? clamp((sourceRect.x - origin.x) / Math.max(1, origin.width), -1, 1) : 0;
+    const directionY = sourceRect && sourceRect.y < origin.y ? -1 : 1;
+    const destination = open ? target : { ...origin, x: origin.x + directionX * 6, y: origin.y + directionY * 6, width: origin.width * .98, height: origin.height * .97 };
+    const alpha = open && this.panelContent !== contentKey ? 0 : this.panelOpacity, material = this.panelMaterial;
+    if (open) this.panelContent = contentKey;
     this.clock.cancel('panel');
     const paint = (value: number) => {
       const p = clamp(value), box = { x: origin.x + (destination.x - origin.x) * p, y: origin.y + (destination.y - origin.y) * p, width: origin.width + (destination.width - origin.width) * p, height: origin.height + (destination.height - origin.height) * p };
@@ -285,16 +300,17 @@ export class LiquidMotion {
         link.setAttribute('d',d);
       }
     };
-    if(this.root.dataset.motionDragging){paint(1);return Promise.resolve(true);}
-    const result = open ? this.clock.spring('panel', paint, 0, 1, 'panel') : this.clock.tween('panel', 170, paint);
-    void result.then(completed => {
+    const settled = (completed: boolean) => {
       if (version !== this.panelVersion) return;
       link?.setAttribute('d', '');
       if (completed && !open) {
         this.panelRect = null; this.panelOpacity = this.panelMaterial = 0;
         this.resize.unobserve(element); this.panelElement = null;
       }
-    });
+    };
+    if(this.root.dataset.motionDragging || this.manualPanel){this.manualPanel=false;paint(1);settled(true);return Promise.resolve(true);}
+    const result = open ? this.clock.spring('panel', paint, 0, 1, 'panel') : this.clock.tween('panel', 170, paint);
+    void result.then(settled);
     return result;
   }
   /** 只有已确认业务成功的调用者才能请求成功收束；副本来自现有画布，绝不改写导出。 */
@@ -355,7 +371,7 @@ export class LiquidMotion {
     this.root.querySelectorAll<HTMLElement>('.clay-canvas-fixed,.clay-canvas-stage,.clay-capture-selection,.clay-selection-mask,.clay-card,.clay-reader,.clay-notice,.clay-status').forEach(el => { el.style.removeProperty('opacity'); el.style.removeProperty('transform'); });
   }
   destroy() {
-    this.restore(); this.destroyed = true; this.clock.dispose(); this.resize.disconnect(); this.mutation.disconnect();
+    this.restore(); this.destroyed = true; this.controls.destroy(); this.clock.dispose(); this.resize.disconnect(); this.mutation.disconnect();
     this.cleanup.forEach(clean => clean()); this.animations.forEach(animation => animation.cancel());
   }
 }
@@ -376,7 +392,7 @@ export function useLiquidMotion(root: RefObject<HTMLDivElement | null>, rail: Re
     const element = root.current?.querySelector<HTMLElement>('.clay-card');
     if (!element || !controller.current || panel && panel !== visiblePanel) return;
     let cancelled = false;
-    void controller.current.panel(element, source.current, Boolean(panel)).then(completed => { if (completed && !cancelled && !panel) onClosed(); });
+    void controller.current.panel(element, source.current, Boolean(panel), visiblePanel ?? '').then(completed => { if (completed && !cancelled && !panel) onClosed(); });
     return () => { cancelled = true; controller.current?.clock.cancel('panel'); };
   }, [panel, visiblePanel, position.x, position.y, position.width, presented]);
 }

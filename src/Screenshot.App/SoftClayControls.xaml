@@ -74,14 +74,25 @@
     </DataTemplate></Setter.Value></Setter>
   </Style>
 
+  <!-- 独立材质承接体积变化，ContentPresenter 不在其缩放子树中。 -->
+  <Style TargetType="local:SoftClayPopupSurface" BasedOn="{StaticResource ClayControl}">
+    <Setter Property="Background" Value="{DynamicResource ClaySurface}"/><Setter Property="CornerRadius" Value="{DynamicResource ClayFloatingRadius}"/>
+    <Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="VerticalContentAlignment" Value="Stretch"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="local:SoftClayPopupSurface">
+      <Grid Background="Transparent">
+        <local:SoftClaySurface x:Name="Face" IsHitTestVisible="False" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}" Material="Floating" Effect="{DynamicResource ClayShadow}"/>
+        <ContentPresenter x:Name="Glyph" Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+      </Grid>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
   <Style TargetType="ToolTip" BasedOn="{StaticResource ClayControl}">
     <Setter Property="Background" Value="{DynamicResource ClayWell}"/><Setter Property="Padding" Value="10,7"/><Setter Property="MaxWidth" Value="280"/>
     <Setter Property="FontSize" Value="{DynamicResource ClayLabelSize}"/>
     <Setter Property="HasDropShadow" Value="False"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ToolTip">
-      <Border Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}" CornerRadius="8" Margin="8" Effect="{DynamicResource ClayShadow}">
+      <local:SoftClayPopupSurface Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}" CornerRadius="8" Margin="8">
         <ContentPresenter><ContentPresenter.Resources><Style TargetType="TextBlock"><Setter Property="TextWrapping" Value="Wrap"/></Style></ContentPresenter.Resources></ContentPresenter>
-      </Border>
+      </local:SoftClayPopupSurface>
     </ControlTemplate></Setter.Value></Setter>
   </Style>
   <Style x:Key="ClayMenuItem" TargetType="MenuItem" BasedOn="{StaticResource ClayControl}">
@@ -111,9 +122,9 @@
     <Setter Property="MinWidth" Value="180"/><Setter Property="HasDropShadow" Value="False"/>
     <Setter Property="ItemContainerStyle" Value="{StaticResource ClayMenuItem}"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ContextMenu">
-      <local:SoftClaySurface Style="{StaticResource ClayFloatingSurface}" Margin="16" Padding="4">
+      <local:SoftClayPopupSurface Margin="16" Padding="4">
         <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
-      </local:SoftClaySurface>
+      </local:SoftClayPopupSurface>
     </ControlTemplate></Setter.Value></Setter>
   </Style>
   <Style TargetType="ContextMenu" BasedOn="{StaticResource ClayMenu}"/>
@@ -226,9 +237,9 @@
         <ContentPresenter Margin="12,9,36,9" Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}" ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}" VerticalAlignment="Center" IsHitTestVisible="False"/>
         <Border x:Name="Focus" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayFocusFill}" BorderThickness="0" Visibility="Collapsed" IsHitTestVisible="False"/>
         <Popup x:Name="PART_Popup" Placement="Bottom" VerticalOffset="4" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False">
-          <local:SoftClaySurface Style="{StaticResource ClayFloatingSurface}" Margin="12" Padding="4" MinWidth="{Binding ActualWidth,RelativeSource={RelativeSource TemplatedParent}}">
+          <local:SoftClayPopupSurface Margin="12" Padding="4" MinWidth="{Binding ActualWidth,RelativeSource={RelativeSource TemplatedParent}}">
             <ScrollViewer MaxHeight="{TemplateBinding MaxDropDownHeight}" CanContentScroll="True" HorizontalScrollBarVisibility="Disabled"><ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/></ScrollViewer>
-          </local:SoftClaySurface>
+          </local:SoftClayPopupSurface>
         </Popup>
       </Grid>
       <ControlTemplate.Triggers>
@@ -292,9 +303,11 @@
           </ControlTemplate></ToggleButton.Template>
           <ContentPresenter Content="{TemplateBinding Header}" TextElement.Foreground="{DynamicResource ClayInk}"/>
         </ToggleButton>
-        <ContentPresenter x:Name="Expansion" Visibility="Collapsed" Margin="12,12,12,0"/>
+        <local:SoftClayDisclosure x:Name="Expansion" IsExpanded="{Binding IsExpanded,RelativeSource={RelativeSource TemplatedParent}}">
+          <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}" Margin="12,12,12,0"/>
+        </local:SoftClayDisclosure>
       </StackPanel>
-      <ControlTemplate.Triggers><Trigger Property="IsExpanded" Value="True"><Setter TargetName="Expansion" Property="Visibility" Value="Visible"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="{DynamicResource ClayDisabledOpacity}"/></Trigger></ControlTemplate.Triggers>
+      <ControlTemplate.Triggers><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="{DynamicResource ClayDisabledOpacity}"/></Trigger></ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>
   </Style>
 

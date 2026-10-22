@@ -82,6 +82,64 @@ async function interruptPanel(action){
   try{await page.clock.runFor(80);}finally{await page.clock.resume();}
   return interrupted;
 }
+/** 直接操作生产组件；滑杆、控件反馈和文档历史共用同一合成页面。 */
+async function componentChecks(click,load){
+  const document=()=>page.evaluate(()=>window.screenshotPrepareUpdate().document);
+  const settled=()=>page.waitForFunction(()=>document.querySelector('.liquid-panel-content')?.style.opacity==='1');
+  await click('美化图片');await settled();
+  const preset=page.getByRole('button',{name:'简洁截图',exact:true}),fixed=await preset.boundingBox();
+  await preset.focus();await page.keyboard.down('Space');
+  await page.waitForFunction(()=>new DOMMatrixReadOnly(getComputedStyle([...document.querySelectorAll('[data-control-button]')].find(el=>el.textContent==='简洁截图').querySelector('.control-skin')).transform).m22<.95);
+  assert.deepEqual(await preset.boundingBox(),fixed);
+  assert.equal(await preset.locator('.control-content').evaluate(el=>{const m=new DOMMatrixReadOnly(getComputedStyle(el).transform);return m.m11===1&&m.m22===1;}),true);
+  await preset.evaluate(el=>el.disabled=true);await page.keyboard.up('Space');
+  assert.equal(await preset.locator('.control-skin').evaluate(el=>new DOMMatrixReadOnly(getComputedStyle(el).transform).isIdentity),true,'禁用立即复位按压，不遗留形变');
+  await preset.evaluate(el=>el.disabled=false);checks.push('panel-controls-fixed-hitbox-and-unscaled-content');
+  await page.mouse.move(fixed.x+fixed.width*.8,fixed.y+fixed.height*.7);await page.waitForTimeout(130);
+  assert.ok(await preset.locator('.control-skin').evaluate(el=>new DOMMatrixReadOnly(getComputedStyle(el).transform).m41>0));
+  assert.deepEqual(await preset.boundingBox(),fixed);
+  await page.emulateMedia({reducedMotion:'reduce'});
+  assert.equal(await preset.locator('.control-skin').evaluate(el=>new DOMMatrixReadOnly(getComputedStyle(el).transform).isIdentity),true);
+  await page.emulateMedia({reducedMotion:'no-preference'});checks.push('ordinary-control-hover-and-reduced-reset');
+  const heading=page.getByRole('region',{name:'美化截图',exact:true}).getByLabel('移动美化截图，方向键微调');
+  const beforeMove=await page.locator('.clay-card').boundingBox();await heading.focus();await page.keyboard.press('ArrowLeft');
+  const placement=await page.locator('.clay-card').boundingBox(),material=await page.locator('.liquid-panel-skin').boundingBox();
+  assert.ok(Math.abs(placement.x-(beforeMove.x-8))<.5&&Math.abs(material.x-placement.x)<.5&&Math.abs(material.width-placement.width)<.5,'手动微调不留材质追赶');
+  // 只抓住标题又松开也不能把“手动放置”留给后续关闭动画。
+  const grab=await heading.boundingBox();await page.mouse.move(grab.x+8,grab.y+10);await page.mouse.down();await page.mouse.up();
+  checks.push('manual-panel-placement-takes-over-immediately');
+  await page.clock.pauseAt(await page.evaluate(()=>Date.now()+100));
+  const closingFrom=await page.locator('.liquid-panel-skin').boundingBox();
+  await page.getByRole('button',{name:'关闭浮卡',exact:true}).evaluate(el=>el.click());await page.clock.runFor(100);
+  const closingAt=await page.locator('.liquid-panel-skin').boundingBox();
+  assert.ok(Math.hypot(closingAt.x-closingFrom.x,closingAt.y-closingFrom.y)<10&&closingAt.width>closingFrom.width*.97,'关闭只短距回收，不飞过截图');
+  await page.clock.resume();await page.waitForSelector('.clay-card',{state:'detached'});checks.push('panel-exit-is-short-directional-retraction');
+  await click('美化图片');await settled();await click('提取文字');
+  assert.ok(Number(await page.locator('.liquid-panel-skin').evaluate(el=>el.style.opacity))>.9);
+  assert.ok(Number(await page.locator('.liquid-panel-content').evaluate(el=>el.style.opacity))<.95,'新内容在材质后段独立进入');
+  await settled();await click('关闭浮卡');await page.waitForSelector('.clay-card',{state:'detached'});checks.push('panel-switch-keeps-material-and-delays-new-content');
+  await click('美化图片');await settled();await page.getByText('细调外观',{exact:true}).click();
+  await page.waitForFunction(()=>{const d=[...document.querySelectorAll('details')].find(el=>el.querySelector('summary')?.textContent==='细调外观');return d?.open&&!d.style.height;});
+  const checkbox=page.getByRole('checkbox',{name:'柔和阴影',exact:true}),checkboxBox=await checkbox.boundingBox();
+  await checkbox.focus();await page.keyboard.down('Space');
+  await page.waitForFunction(()=>parseFloat(document.querySelector('input[type=checkbox]').style.getPropertyValue('--check-scale-y'))<.95);
+  assert.deepEqual(await checkbox.boundingBox(),checkboxBox);
+  assert.equal(await checkbox.evaluate(el=>getComputedStyle(el).transform),'none','只形变复选框材质，命中和勾选图形不缩放');
+  await page.keyboard.up('Space');checks.push('checkbox-material-feedback-keeps-fixed-input');
+  const initial=await document(),range=page.getByRole('slider',{name:'留白',exact:true}),box=await range.boundingBox();
+  await page.screenshot({path:path.join(out,'06-components.png')});
+  await page.mouse.move(box.x+box.width*.35,box.y+box.height/2);await page.mouse.down();
+  await page.mouse.move(box.x+box.width*.55,box.y+box.height/2,{steps:3});
+  await page.waitForFunction(()=>parseFloat(document.querySelector('input[aria-label="留白"]').style.getPropertyValue('--range-scale-x'))>1.02);
+  await page.waitForTimeout(900);await page.mouse.move(box.x+box.width*.8,box.y+box.height/2,{steps:3});await page.mouse.up();
+  const first=await document();assert.notEqual(first.editor.padding,initial.editor.padding);
+  await click('撤销');assert.deepEqual((await document()).editor,initial.editor,'长拖动只占一次撤销');
+  await click('重做');assert.deepEqual((await document()).editor,first.editor);
+  await range.focus();await page.keyboard.press('ArrowLeft');assert.notEqual((await document()).editor.padding,first.editor.padding);
+  await click('撤销');assert.deepEqual((await document()).editor,first.editor,'下一次紧接的键盘手势必须单独撤销');
+  checks.push('range-pressure-and-one-undo-per-gesture');
+  await load();
+}
 /** 在正式构建页面中验证表现层与真实业务入口的先后顺序。 */
 async function main(){
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
@@ -125,6 +183,7 @@ async function main(){
   await page.waitForFunction(()=>!document.querySelector('fieldset').disabled);
   assert.equal(await page.evaluate(()=>window.__motionTest.state.completed),0,'隐藏只取消收束，不能确认完成');
   assert.equal(await page.locator('[data-motion-exit]').count(),0);assert.equal(await page.locator('canvas.lower-canvas').count(),1);checks.push('hidden-exit-does-not-send-stale-completion');
+  await componentChecks(click,load);
   const rectTool=page.getByRole('button',{name:'矩形标注',exact:true}),arrowTool=page.getByRole('button',{name:'箭头标注',exact:true});
   const fixed=await rectTool.boundingBox();await page.mouse.move(fixed.x+fixed.width*.75,fixed.y+8);await page.waitForTimeout(160);
   assert.deepEqual(await rectTool.boundingBox(),fixed,'迎向不能移动命中槽位');

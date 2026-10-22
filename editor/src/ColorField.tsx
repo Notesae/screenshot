@@ -1,3 +1,4 @@
+import { ControlButton } from './ControlMotion';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { containsScrollTarget } from './OverlayScrollbars';
@@ -63,16 +64,16 @@ export function ColorField({ label, value, disabled, onChange }: { label: string
     return () => { document.removeEventListener('pointerdown', outside, true); document.removeEventListener('focusin', outside); window.removeEventListener('resize', moved); window.removeEventListener('scroll', moved, true); };
   }, [open, disabled]);
   return <>
-    <button ref={trigger} type="button" className="clay-color-trigger" disabled={disabled} aria-label={label} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => { if (open) close(); else { setDraft(value); setError(false); setOpen(true); } }}>
+    <ControlButton ref={trigger} type="button" className="clay-color-trigger" disabled={disabled} aria-label={label} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => { if (open) close(); else { setDraft(value); setError(false); setOpen(true); } }}>
       <span className="clay-color-swatch" style={{ background: value }} aria-hidden="true"/><span>{value.toUpperCase()}</span>
-    </button>
+    </ControlButton>
     {mounted && createPortal(<div ref={popup} id={id} role="dialog" aria-hidden={!open} inert={!open} aria-label={label} className="clay-color-popover" style={position} onKeyDown={navigate}>
       <div className="liquid-surface-skin" aria-hidden="true"/><div className="liquid-surface-content">
       <label htmlFor={id + '-hex'}>颜色值<input ref={input} id={id + '-hex'} value={draft} maxLength={7} autoComplete="off" spellCheck={false} aria-invalid={error || undefined} aria-describedby={id + '-hint'} onChange={event => { setDraft(event.target.value); setError(false); }}/></label>
-      <div className="clay-color-options" role="group" aria-label="快捷颜色">{SWATCHES.map(color => <button key={color} type="button" data-swatch aria-label={color} aria-pressed={color.toLowerCase() === value.toLowerCase()} onClick={() => commit(color)}><span className="clay-color-swatch" style={{ background: color }} aria-hidden="true"/></button>)}</div>
+      <div className="clay-color-options" role="group" aria-label="快捷颜色">{SWATCHES.map(color => <ControlButton key={color} type="button" data-swatch aria-label={color} aria-pressed={color.toLowerCase() === value.toLowerCase()} onClick={() => commit(color)}><span className="clay-color-swatch" style={{ background: color }} aria-hidden="true"/></ControlButton>)}</div>
       <MotionDetails><summary>精调 RGB</summary><div className="clay-color-channels">{['红', '绿', '蓝'].map((label, index) => <label key={label} className="clay-range"><span>{label}<output>{channels[index]}</output></span><input type="range" aria-label={label + '色通道'} min={0} max={255} value={channels[index]} style={{ '--range-progress': `${channels[index] / 255 * 100}%` } as CSSProperties} onChange={event => setChannel(index, Number(event.target.value))}/></label>)}</div></MotionDetails>
       <p id={id + '-hint'} className={error ? 'field-error' : 'clay-hint'} role={error ? 'alert' : undefined}>{error ? '请输入有效颜色，例如 #3B82F6。' : '支持 #RGB 或 #RRGGBB。'}</p>
-      <button type="button" className="clay-primary" onClick={() => commit()}>应用颜色</button>
+      <ControlButton type="button" className="clay-primary" onClick={() => commit()}>应用颜色</ControlButton>
     </div></div>, trigger.current?.closest('.clay-editor') ?? document.body)}
   </>;
 }
