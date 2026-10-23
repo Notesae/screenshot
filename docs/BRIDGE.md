@@ -1,5 +1,9 @@
 # Native bridge v1
 
+## 2026-10-23 图片美化预览
+
+第一轮美化无新增桥方法或项目字段。预设、参数、恢复原样继续调用现有文档历史；美化预设只应用 mode/padding/radius/background/shadow/borderWidth/borderColor。旧文字样式仍可读取，编辑器不通过美化入口切换 reflow。缩略图和原样对比仅从当前本地文档合成，包含已提交标注、遮盖和译文，不捕获额外桌面、不写盘或发送服务请求。对比副本不成为 exportPng 的来源；完成仍从已提交文档生成 PNG，并遵守现有复制确认与收起时序。
+
 ## 2026-10-23 仅选区画布提供背景跟随输入
 
 presentation.background 新增可选 pointer:{x:number,y:number}，两轴必须是 -1..1 的有限数，原有 captureId、严格递增 sequence、enabled 与 holding 约束继续生效。坐标相对当前可见选区中心归一化；仅网页真正命中截图 canvas 且落在选区镂空范围内的无按键鼠标移动可以携带此字段，浮卡、轨道、遮罩、手柄和控件不提供目标。输入发送前再次核对实际 DOM 命中，排除排队期间覆盖上来的浮层。

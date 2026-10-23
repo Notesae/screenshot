@@ -5,20 +5,21 @@ import { Canvas, StaticCanvas, FabricImage, FabricObject, Path, Point, Textbox }
 import { Minus, Plus } from 'lucide-react';
 import { renderBase } from './render';
 import { baseRenderKey } from './renderIdentity';
-import { outputSize, type Annotation, type AnnotationKind, type ProjectDocument } from './document';
+import { contentGeometry, outputSize, type Annotation, type AnnotationKind, type ProjectDocument } from './document';
 import { annotationFromObject as serialize, annotationToObject as restore, patchAnnotationObject, positionArrow } from './annotations';
+import { renderBeautyContent } from './beautyPreview';
 
 export type CanvasSelection = Pick<Annotation, 'id' | 'type' | 'color' | 'fontSize'>;
 export type CanvasRenderStatus = 'loading' | 'ready' | 'error';
 export type CanvasHandle = { exportPng: (scale: number) => Promise<string>; add: (type: AnnotationKind) => void; remove: () => void; patchSelection: (change: {color: string; fontSize: number}) => boolean; interactionState: () => { editing: boolean; selected: boolean }; exitSelection: () => void; hasAnnotationAt: (event:PointerEvent) => boolean; getDisplayScale?: () => number };
 // 设置与历史面板可隐藏视图工具，不卸载画布或影响文档。
-type Props = { showViewControls?:boolean; document: ProjectDocument; onAnnotations: (objects: Annotation[], group?: string) => void; onError: (error: unknown) => void; fixedDisplayScale?: { x: number; y: number }; onReady?: () => void; onRenderStatus?: (status: CanvasRenderStatus) => void; onSelection?: (selection:CanvasSelection|null)=>void; onDrawingToolChange?: (tool:AnnotationKind|null)=>void };
+type Props = { compareRaw?:boolean;onCompareError?:(error:unknown)=>void; showViewControls?:boolean; document: ProjectDocument; onAnnotations: (objects: Annotation[], group?: string) => void; onError: (error: unknown) => void; fixedDisplayScale?: { x: number; y: number }; onReady?: () => void; onRenderStatus?: (status: CanvasRenderStatus) => void; onSelection?: (selection:CanvasSelection|null)=>void; onDrawingToolChange?: (tool:AnnotationKind|null)=>void };
 // 每个底图都是renderBase私有canvas；替换/卸载时归零背板，避免等待GC回收大图像素。
 function releaseBackground(canvas:Canvas){
   for(const object of canvas.getObjects())if(object instanceof FabricImage&&!object.selectable){const source=object.getElement();if(source instanceof HTMLCanvasElement)source.width=source.height=0;object.dispose();}
 }
 /** 保持真实像素尺寸，CSS 只缩放显示，不改变导出分辨率。 */
-export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanvas({ document: doc, onAnnotations, onError, fixedDisplayScale, onReady, onRenderStatus, onSelection, onDrawingToolChange, showViewControls=true }, ref) {
+export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanvas({ document: doc, onAnnotations, onError, fixedDisplayScale, onReady, onRenderStatus, onSelection, onDrawingToolChange, showViewControls=true,compareRaw=false,onCompareError }, ref) {
   const element = useRef<HTMLCanvasElement>(null);
   const wrapper = useRef<HTMLDivElement>(null);
   const fabric = useRef<Canvas | null>(null);
@@ -233,10 +234,26 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
     const candidates = direction > 0 ? steps : [...steps].reverse();
     changeZoom(candidates.find(value => direction > 0 ? value > actualZoom + .001 : value < actualZoom - .001) ?? actualZoom);
   }
-  const sheet = <div className="canvas-sheet" style={{ width:size.width * displayScale.x, height:size.height * displayScale.y }}><canvas ref={element}/></div>;
+  // 对比占用同一个内容锚点，真正 Fabric 文档和 exportPng 始终保留美化后的配置。
+  const sheet = <div className="canvas-sheet" inert={compareRaw} style={{ width:size.width * displayScale.x, height:size.height * displayScale.y }}><canvas ref={element}/>{compareRaw&&<BeautyComparison document={doc} scale={displayScale} onError={onCompareError??onError}/>}</div>;
   // Fabric 会包装原始 canvas；呈现切换必须保留祖先结构，避免 React 移除已被包装的节点。
   return <div className="canvas-workspace" ref={wrapper} data-drawing-tool={activeTool??undefined} onPointerDownCapture={beginDrawing} onPointerMoveCapture={moveDrawing} onPointerUpCapture={endDrawing} onPointerCancel={()=>cancelDrawing()} onLostPointerCapture={()=>{if(drawing.current)cancelDrawing();}}>
     <div className="canvas-viewport" ref={viewport} tabIndex={fixedDisplayScale?-1:0} aria-label={fixedDisplayScale?'选区画布':'可滚动画布'} style={fixedDisplayScale?{position:'relative',inset:'auto',overflow:'visible'}:undefined}><div className="canvas-surface" style={fixedDisplayScale?{width:size.width*displayScale.x,height:size.height*displayScale.y,padding:0,minWidth:0,minHeight:0,alignItems:'flex-start',justifyContent:'flex-start'}:{width:size.width * displayScale.x + 64,height:size.height * displayScale.y + 64}}>{sheet}</div></div>
     <div className="canvas-zoom" hidden={!showViewControls||Boolean(fixedDisplayScale)} style={!showViewControls||fixedDisplayScale?{display:'none'}:undefined} role="group" aria-label="画布缩放"><ControlButton aria-label="缩小画布" disabled={actualZoom <= .1} onClick={() => stepZoom(-1)}><Minus size={14}/></ControlButton><Select aria-label="画布缩放比例" value={manualZoom ?? 'fit'} onChange={value=> changeZoom(value === 'fit' ? null : Number(value))}><option value="fit">适应窗口 · {Math.round(zoom * 100)}%</option>{steps.map(value => <option key={value} value={value}>{Math.round(value * 100)}%</option>)}</Select><ControlButton aria-label="放大画布" disabled={actualZoom >= 2} onClick={() => stepZoom(1)}><Plus size={14}/></ControlButton><span className="zoom-label">{size.width} × {size.height} px</span></div>
   </div>;
 });
+
+/** 完整原样内容准备好后原子换入；旧结果、关闭或卸载释放背板，不改变主画布状态。 */
+function BeautyComparison({document:doc,scale,onError}:{document:ProjectDocument;scale:{x:number;y:number};onError:(error:unknown)=>void}) {
+  const root=useRef<HTMLDivElement>(null),[ready,setReady]=useState(false),errorHandler=useRef(onError);errorHandler.current=onError;
+  const content=contentGeometry(doc.image,doc.editor),padding=doc.editor.mode==='beauty'?doc.editor.padding:0;
+  useEffect(()=>{
+    let cancelled=false,backing:HTMLCanvasElement|null=null;const node=root.current!,sheet=node.parentElement!;
+    void renderBeautyContent(doc,16000).then(canvas=>{
+      if(cancelled){canvas.width=canvas.height=0;return;}
+      backing=canvas;node.append(canvas);sheet.dataset.beautyComparing='';setReady(true);
+    }).catch(error=>{if(!cancelled)errorHandler.current(error);});
+    return()=>{cancelled=true;delete sheet.dataset.beautyComparing;if(backing){backing.remove();backing.width=backing.height=0;}};
+  },[doc]);
+  return <><div ref={root} className="beauty-comparison" role="img" aria-label="原样对比，保留标注、遮盖与译文" style={{left:padding*scale.x,top:padding*scale.y,width:content.width*scale.x,height:content.height*scale.y}}/>{!ready&&<span className="beauty-comparison-pending" role="status">正在准备原样对比…</span>}</>;
+}
