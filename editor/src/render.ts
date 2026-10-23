@@ -25,8 +25,10 @@ export async function renderBase(doc: ProjectDocument, scale = 1): Promise<HTMLC
   const canvas = document.createElement('canvas');
   canvas.width = Math.ceil(size.width * scale); canvas.height = Math.ceil(size.height * scale);
   const ctx = canvas.getContext('2d')!; ctx.scale(scale, scale);
+  // 背板像素反算为当前逻辑尺寸，避免缩略背景被重复缩小，并覆盖向上取整的右、下边缘。
+  const backgroundWidth = canvas.width / scale, backgroundHeight = canvas.height / scale;
   if (editor.mode === 'reflow') {
-    ctx.fillStyle = '#faf5eb'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#faf5eb'; ctx.fillRect(0, 0, backgroundWidth, backgroundHeight);
     ctx.fillStyle = '#b4432c'; ctx.fillRect(48, 48, 36, 4);
     ctx.textBaseline = 'top'; ctx.fillStyle = '#302d27'; ctx.font = `600 32px ${FONT}`;
     const layout = textLayout(editor); let y = 78;
@@ -44,7 +46,7 @@ export async function renderBase(doc: ProjectDocument, scale = 1): Promise<HTMLC
   const content = contentGeometry(image, editor);
   const padding = editor.mode === 'beauty' ? editor.padding : 0;
   if (editor.mode === 'beauty') {
-    ctx.fillStyle = editor.background; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = editor.background; ctx.fillRect(0, 0, backgroundWidth, backgroundHeight);
     ctx.save();
     if (editor.shadow) { ctx.shadowColor = '#30271c55'; ctx.shadowBlur = Math.min(padding * .5, 32); ctx.shadowOffsetY = Math.min(padding * .2, 12); }
     ctx.fillStyle = '#faf5eb'; ctx.beginPath(); ctx.roundRect(padding, padding, content.width, content.height, Math.min(editor.radius, content.width / 2, content.height / 2)); ctx.fill();
@@ -94,7 +96,7 @@ export async function normalizeImage(value: LoadedImage): Promise<LoadedImage> {
   return parseImage({ ...image, dataUrl });
 }
 
-/** OCR 只用当前内容和实色隐私遮盖；装饰与其他标注不参与，原图仍供本地编辑。 */
+/** OCR 只用当前内容，马赛克与旧遮盖区域统一实色封闭；装饰与其他标注不参与，原图留在本地。 */
 export async function imageForProcessing(doc: ProjectDocument): Promise<LoadedImage> {
   if (!doc.image) throw new Error('请先载入图片。');
   const masks = processingMasks(doc);

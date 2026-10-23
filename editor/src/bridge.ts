@@ -21,6 +21,10 @@ export class NativeBridge {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
+        // 前端兜底超时也终止宿主任务，避免丢掉回执后仍占用下一次翻译的门控。
+        if (['ai.ocr','ai.translate','ai.translateImage','ai.test','ocr.local'].includes(method) && 'taskId' in payload && typeof payload.taskId === 'string') {
+          try { this.send?.({ id: `cancel-${id}`, method: 'ai.cancel', payload: { taskId: payload.taskId } }); } catch { /* 原请求仍以超时结束。 */ }
+        }
         reject(new Error('操作超时，请检查服务或桌面应用后重试。'));
       }, this.timeoutMs);
       this.pending.set(id, { resolve: value => resolve(value as T), reject, timer });
@@ -55,11 +59,11 @@ declare global {
 const webview = typeof window === 'undefined' ? undefined : window.chrome?.webview;
 export const native = new NativeBridge(webview ? message => webview.postMessage(message) : undefined);
 // 主动捕获事件不属于某个请求，其图片仍由项目解析器校验。
-export function subscribeNative(onImage: (image: unknown) => void, onPresentation?: (presentation: { presentation: 'workbench' | 'hidden'; reason?: string; timedOutCaptureId?: string; invalidatedCaptureId?: string | null }) => void, onAction?: (action: string, text?: string) => void) {
+export function subscribeNative(onImage: (image: unknown) => void, onPresentation?: (presentation: { presentation: 'workbench' | 'hidden'; reason?: string; timedOutCaptureId?: string; invalidatedCaptureId?: string | null }) => void, onAction?: (action: string, text?: string, error?: boolean) => void) {
   const receive = (event: MessageEvent) => {
     const data = event.data;
     if (data?.event === 'image.loaded') onImage(data.payload);
-    else if (data?.event === 'editor.action' && ['continue','open-image','open-project','paste','recovery','settings','settings-updated','notice'].includes(data.payload?.action)) onAction?.(data.payload.action, typeof data.payload.text === 'string' ? data.payload.text.slice(0,2000) : undefined);
+    else if (data?.event === 'editor.action' && ['continue','open-image','open-project','paste','recovery','settings','settings-updated','notice'].includes(data.payload?.action)) onAction?.(data.payload.action, typeof data.payload.text === 'string' ? data.payload.text.slice(0,2000) : undefined, typeof data.payload.error === 'boolean' ? data.payload.error : undefined);
     else if (data?.event === 'presentation.changed' && (data.payload?.presentation === 'workbench' || data.payload?.presentation === 'hidden')) onPresentation?.(data.payload);
     else native.receive(data);
   };

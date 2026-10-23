@@ -1,0 +1,47 @@
+/* 美化内容沿用公共材质和动效，成品大预览与样式选择各占独立区域。 */
+.clay-editor .clay-style-tools { gap: 12px; }
+.beauty-heading, .beauty-footer, .beauty-range-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.beauty-current { color: var(--clay-muted); font-size: var(--clay-type-label); overflow-wrap: anywhere; }
+.clay-editor .beauty-quiet { min-height: 32px; padding: 6px 8px; background: transparent; box-shadow: none; white-space: nowrap; }
+.beauty-quiet svg { width: 15px; height: 15px; }
+.beauty-tabs { display: flex; gap: 4px; padding: 4px; background: var(--clay-well); border-radius: var(--clay-radius-control); box-shadow: var(--clay-inset); }
+.clay-editor .beauty-tabs button { flex: 1; min-height: 32px; padding: 6px 10px; background: transparent; box-shadow: none; color: var(--clay-muted); }
+.clay-editor .beauty-tabs button[aria-pressed=true] { color: var(--clay-ink); background: var(--clay-raised); box-shadow: var(--clay-button); }
+.beauty-preview { display: grid; gap: 6px; min-width: 0; }
+.beauty-preview-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: var(--clay-type-label); color: var(--clay-muted); }
+.beauty-preview-modes { display: flex; gap: 4px; }
+.clay-editor .beauty-preview-modes button { min-height: 32px; padding: 6px 8px; white-space: nowrap; }
+.beauty-preview-viewport { position: relative; height: 168px; padding: 12px; overflow: hidden; border-radius: var(--clay-radius-control); background: var(--clay-well); }
+.beauty-preview-viewport img { display: block; width: 100%; height: 100%; object-fit: contain; user-select: none; }
+/* 以完整预览为基准放大三倍，固定左上角；不改成品比例，也不额外放大阴影参数。 */
+.beauty-preview-viewport[data-detail] img { object-position: left top; transform: scale(3); transform-origin: left top; }
+.beauty-preview-message { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--clay-ink); background: var(--clay-well); font-size: var(--clay-type-label); }
+.beauty-preview-viewport img + .beauty-preview-message { inset: auto 8px 8px auto; padding: 4px 8px; border-radius: var(--clay-radius-control); }
+.beauty-presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-height: 200px; overflow: auto; padding: 2px; }
+.clay-editor .beauty-preset { display: block; min-width: 0; min-height: 44px; padding: 8px 10px; text-align: left; color: var(--clay-ink); }
+.clay-editor .beauty-preset > .control-content { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: center; width: 100%; gap: 8px; }
+.beauty-preset-swatch { width: 24px; height: 24px; border-radius: 6px; }
+.beauty-preset-name { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: var(--clay-type-label); overflow-wrap: anywhere; }
+.beauty-preset-name svg { width: 14px; height: 14px; flex-shrink: 0; visibility: hidden; }
+.clay-editor .beauty-preset[aria-pressed=true] { background: var(--clay-raised); color: var(--clay-focus); }
+.beauty-preset[aria-pressed=true] .beauty-preset-name svg { visibility: visible; }
+.beauty-range { display: grid; gap: 4px; }
+.beauty-range-heading > label { margin: 0; }
+.clay-editor .beauty-number { display: flex; align-items: center; gap: 6px; color: var(--clay-muted); font-size: var(--clay-type-label); }
+.clay-editor .beauty-number input { width: 64px; min-height: 32px; padding: 5px 8px; text-align: right; }
+.beauty-manage-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.beauty-footer { font-size: var(--clay-type-label); color: var(--clay-muted); font-variant-numeric: tabular-nums; }
+/* 对比只替换可见层，保持 Fabric 与其导出文档；画面原子换入，不对文字缩放或叠影。 */
+.canvas-sheet { position: relative; }
+.canvas-sheet[data-beauty-comparing] > .canvas-container { visibility: hidden; }
+.beauty-comparison { position: absolute; z-index: 2; pointer-events: auto; }
+.beauty-comparison canvas { display: block; width: 100%; height: 100%; }
+.beauty-comparison-pending { position: absolute; right: 8px; top: 8px; z-index: 2; padding: 6px 10px; border-radius: var(--clay-radius-control); background: var(--clay-card-face); color: var(--clay-ink); font-size: var(--clay-type-label); line-height: 1.6; }
+/* 控件的实际材质由 v2 独立皮肤绘制，不能只设置被公共规则移走的按钮背景。 */
+.clay-editor .clay-style-tools button[data-control-button].beauty-quiet { --control-face: transparent; --control-shadow: none; }
+.clay-editor .clay-style-tools button[data-control-button].beauty-quiet[aria-pressed=true] { --control-face: var(--clay-raised); --control-shadow: var(--clay-button); color: var(--clay-focus); }
+.clay-editor .beauty-tabs button[data-control-button] { --control-face: transparent; --control-shadow: none; }
+.clay-editor .beauty-preview-modes button[data-control-button] { --control-face: transparent; --control-shadow: none; color: var(--clay-muted); }
+.clay-editor .beauty-preview-modes button[data-control-button][aria-pressed=true] { --control-face: var(--clay-raised); --control-shadow: var(--clay-button); color: var(--clay-ink); }
+.clay-editor .beauty-tabs button[data-control-button][aria-pressed=true], .clay-editor .clay-style-tools button[data-control-button].beauty-preset[aria-pressed=true] { --control-face: var(--clay-raised); --control-shadow: var(--clay-button); }
+@media (max-width: 420px) { .beauty-footer { flex-wrap: wrap; } .beauty-heading { gap: 4px; } }

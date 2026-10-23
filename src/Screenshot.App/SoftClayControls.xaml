@@ -28,15 +28,17 @@
     <Setter Property="Effect" Value="{DynamicResource ClayButtonShadow}"/><Setter Property="HorizontalContentAlignment" Value="Center"/>
     <Setter Property="VerticalContentAlignment" Value="Center"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
-      <Grid>
-        <local:SoftClaySurface x:Name="Face" Background="{TemplateBinding Background}" CornerRadius="{DynamicResource ClayControlRadius}"
+      <!-- 透明根网格保持命中区域；材质和图文各自运动。 -->
+      <Grid Background="Transparent">
+        <local:SoftClaySurface x:Name="Face" IsHitTestVisible="False" Background="{TemplateBinding Background}" CornerRadius="{DynamicResource ClayControlRadius}"
                 BorderThickness="0" Material="{Binding Path=(local:SoftClaySurface.Material),RelativeSource={RelativeSource TemplatedParent}}">
           <Grid>
             <Border x:Name="State" CornerRadius="{DynamicResource ClayControlRadius}" Background="Transparent"/>
-            <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" RecognizesAccessKey="True"/>
+
           </Grid>
         </local:SoftClaySurface>
+        <ContentPresenter x:Name="Glyph" IsHitTestVisible="False" Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}" RecognizesAccessKey="True"/>
         <Border x:Name="Focus" Background="{DynamicResource ClayFocusFill}" BorderThickness="0"
                 CornerRadius="{DynamicResource ClayControlRadius}" Visibility="Collapsed" IsHitTestVisible="False"/>
       </Grid>
@@ -72,14 +74,34 @@
     </DataTemplate></Setter.Value></Setter>
   </Style>
 
+  <!-- 独立材质承接体积变化，ContentPresenter 不在其缩放子树中。 -->
+  <Style TargetType="local:SoftClayPopupSurface" BasedOn="{StaticResource ClayControl}">
+    <Setter Property="Background" Value="{DynamicResource ClaySurface}"/><Setter Property="CornerRadius" Value="{DynamicResource ClayFloatingRadius}"/>
+    <Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="VerticalContentAlignment" Value="Stretch"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="local:SoftClayPopupSurface">
+      <Grid Background="Transparent">
+        <local:SoftClaySurface x:Name="Face" IsHitTestVisible="False" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}" Material="Floating" Effect="{DynamicResource ClayShadow}"/>
+        <ContentPresenter x:Name="Glyph" Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+      </Grid>
+      <ControlTemplate.Triggers><Trigger Property="IsClosing" Value="True"><Setter Property="IsHitTestVisible" Value="False"/></Trigger></ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <!-- 通知的关闭槽位使用独立 HWND，透明材质仍复用 Popup 的有界退出。 -->
+  <Style x:Key="ClayNoticeClose" TargetType="local:SoftClayPopupSurface" BasedOn="{StaticResource {x:Type local:SoftClayPopupSurface}}">
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="local:SoftClayPopupSurface">
+      <!-- 极低非零 alpha 保留分层窗口完整的 32px 命中槽位，避免只能点中叉号笔画。 -->
+      <Grid Background="#01000000"><Border x:Name="Face" IsHitTestVisible="False"/><ContentPresenter x:Name="Glyph"/></Grid>
+      <ControlTemplate.Triggers><Trigger Property="IsClosing" Value="True"><Setter Property="IsHitTestVisible" Value="False"/></Trigger></ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
   <Style TargetType="ToolTip" BasedOn="{StaticResource ClayControl}">
     <Setter Property="Background" Value="{DynamicResource ClayWell}"/><Setter Property="Padding" Value="10,7"/><Setter Property="MaxWidth" Value="280"/>
     <Setter Property="FontSize" Value="{DynamicResource ClayLabelSize}"/>
     <Setter Property="HasDropShadow" Value="False"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ToolTip">
-      <Border Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}" CornerRadius="8" Margin="8" Effect="{DynamicResource ClayShadow}">
+      <local:SoftClayPopupSurface Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}" CornerRadius="8" Margin="8">
         <ContentPresenter><ContentPresenter.Resources><Style TargetType="TextBlock"><Setter Property="TextWrapping" Value="Wrap"/></Style></ContentPresenter.Resources></ContentPresenter>
-      </Border>
+      </local:SoftClayPopupSurface>
     </ControlTemplate></Setter.Value></Setter>
   </Style>
   <Style x:Key="ClayMenuItem" TargetType="MenuItem" BasedOn="{StaticResource ClayControl}">
@@ -109,9 +131,9 @@
     <Setter Property="MinWidth" Value="180"/><Setter Property="HasDropShadow" Value="False"/>
     <Setter Property="ItemContainerStyle" Value="{StaticResource ClayMenuItem}"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ContextMenu">
-      <local:SoftClaySurface Style="{StaticResource ClayFloatingSurface}" Margin="16" Padding="4">
+      <local:SoftClayPopupSurface Margin="16" Padding="4">
         <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
-      </local:SoftClaySurface>
+      </local:SoftClayPopupSurface>
     </ControlTemplate></Setter.Value></Setter>
   </Style>
   <Style TargetType="ContextMenu" BasedOn="{StaticResource ClayMenu}"/>
@@ -169,13 +191,16 @@
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="CheckBox">
       <Grid Background="Transparent" MinHeight="28">
         <Grid.ColumnDefinitions><ColumnDefinition Width="26"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <Grid Width="18" Height="18" HorizontalAlignment="Left" VerticalAlignment="Center">
-          <local:SoftClaySurface x:Name="Face" CornerRadius="5" Background="{DynamicResource ClayWell}" BorderThickness="0" Material="Inset"/>
-          <Path x:Name="Mark" Data="M 4,9 L 8,12 L 14,5" Stroke="{DynamicResource ClayOnAccent}" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed"/>
-          <Path x:Name="Mixed" Data="M 5,9 H 13" Stroke="{DynamicResource ClayOnAccent}" StrokeThickness="2" Visibility="Collapsed"/>
-          <Border x:Name="Focus" CornerRadius="5" Background="{DynamicResource ClayFocusFill}" BorderThickness="0" Visibility="Collapsed" IsHitTestVisible="False"/>
+        <local:SoftClaySurface x:Name="Face" Width="18" Height="18" HorizontalAlignment="Left" VerticalAlignment="Center" CornerRadius="5" Background="{DynamicResource ClayWell}" BorderThickness="0" Material="Inset"/>
+        <Grid x:Name="Glyph" Grid.ColumnSpan="2" IsHitTestVisible="False">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="26"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+          <Grid Width="18" Height="18" HorizontalAlignment="Left" VerticalAlignment="Center">
+            <Path x:Name="Mark" Data="M 4,9 L 8,12 L 14,5" Stroke="{DynamicResource ClayOnAccent}" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed"/>
+            <Path x:Name="Mixed" Data="M 5,9 H 13" Stroke="{DynamicResource ClayOnAccent}" StrokeThickness="2" Visibility="Collapsed"/>
+          </Grid>
+          <ContentPresenter Grid.Column="1" VerticalAlignment="Center" RecognizesAccessKey="True"/>
         </Grid>
-        <ContentPresenter Grid.Column="1" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+        <Border x:Name="Focus" Width="18" Height="18" HorizontalAlignment="Left" VerticalAlignment="Center" CornerRadius="5" Background="{DynamicResource ClayFocusFill}" BorderThickness="0" Visibility="Collapsed" IsHitTestVisible="False"/>
       </Grid>
       <ControlTemplate.Triggers>
         <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayWellActive}"/></Trigger>
@@ -210,27 +235,39 @@
     <Setter Property="MaxDropDownHeight" Value="280"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBox">
       <Grid>
-        <ToggleButton x:Name="Toggle" Focusable="False" IsChecked="{Binding IsDropDownOpen,Mode=TwoWay,RelativeSource={RelativeSource TemplatedParent}}">
+        <!-- 内部按钮显式沿用下拉框字体与前景色，避免系统 ToggleButton 样式将选中文字改回黑色。 -->
+        <ToggleButton x:Name="Toggle" Focusable="False" Foreground="{TemplateBinding Foreground}" FontFamily="{TemplateBinding FontFamily}" FontSize="{TemplateBinding FontSize}"
+                      IsChecked="{Binding IsDropDownOpen,Mode=TwoWay,RelativeSource={RelativeSource TemplatedParent}}">
           <ToggleButton.Template><ControlTemplate TargetType="ToggleButton">
-            <local:SoftClaySurface x:Name="Face" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayWell}" BorderThickness="0" Material="Inset">
-              <Path Data="M 0,0 L 4,4 L 8,0" Stroke="{DynamicResource ClayMuted}" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0"/>
-            </local:SoftClaySurface>
+            <!-- 固定输入槽位；底板承接形变，文字与箭头共享不缩放的图文层。 -->
+            <Grid Background="Transparent">
+              <local:SoftClaySurface x:Name="Face" IsHitTestVisible="False" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayWell}" BorderThickness="0" Material="Inset">
+                <Border x:Name="Focus" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayFocusFill}" Visibility="Collapsed"/>
+              </local:SoftClaySurface>
+              <Grid x:Name="Glyph" IsHitTestVisible="False">
+                <ContentPresenter Margin="12,9,36,9" VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}"
+                                  Content="{Binding SelectionBoxItem,RelativeSource={RelativeSource AncestorType={x:Type ComboBox}}}"
+                                  ContentTemplate="{Binding SelectionBoxItemTemplate,RelativeSource={RelativeSource AncestorType={x:Type ComboBox}}}"
+                                  ContentTemplateSelector="{Binding ItemTemplateSelector,RelativeSource={RelativeSource AncestorType={x:Type ComboBox}}}"
+                                  ContentStringFormat="{Binding SelectionBoxItemStringFormat,RelativeSource={RelativeSource AncestorType={x:Type ComboBox}}}"/>
+                <Path x:Name="Arrow" Data="M 0,0 L 4,4 L 8,0" Stroke="{DynamicResource ClayMuted}" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0"/>
+              </Grid>
+            </Grid>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayWellActive}"/></Trigger>
               <Trigger Property="IsChecked" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayWellActive}"/></Trigger>
+              <!-- 焦点底色随材质运动，不能用固定外层覆盖出矩形边缘。 -->
+              <DataTrigger Binding="{Binding IsKeyboardFocusWithin,RelativeSource={RelativeSource AncestorType={x:Type ComboBox}}}" Value="True"><Setter TargetName="Focus" Property="Visibility" Value="Visible"/></DataTrigger>
             </ControlTemplate.Triggers>
           </ControlTemplate></ToggleButton.Template>
         </ToggleButton>
-        <ContentPresenter Margin="12,9,36,9" Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}" ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}" VerticalAlignment="Center" IsHitTestVisible="False"/>
-        <Border x:Name="Focus" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayFocusFill}" BorderThickness="0" Visibility="Collapsed" IsHitTestVisible="False"/>
         <Popup x:Name="PART_Popup" Placement="Bottom" VerticalOffset="4" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False">
-          <local:SoftClaySurface Style="{StaticResource ClayFloatingSurface}" Margin="12" Padding="4" MinWidth="{Binding ActualWidth,RelativeSource={RelativeSource TemplatedParent}}">
+          <local:SoftClayPopupSurface Margin="12" Padding="4" MinWidth="{Binding ActualWidth,RelativeSource={RelativeSource TemplatedParent}}">
             <ScrollViewer MaxHeight="{TemplateBinding MaxDropDownHeight}" CanContentScroll="True" HorizontalScrollBarVisibility="Disabled"><ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/></ScrollViewer>
-          </local:SoftClaySurface>
+          </local:SoftClayPopupSurface>
         </Popup>
       </Grid>
       <ControlTemplate.Triggers>
-        <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Focus" Property="Visibility" Value="Visible"/></Trigger>
         <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="{DynamicResource ClayDisabledOpacity}"/></Trigger>
       </ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>
@@ -273,26 +310,29 @@
     <Setter Property="Padding" Value="12,10"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Expander">
       <StackPanel>
-        <ToggleButton IsChecked="{Binding IsExpanded,Mode=TwoWay,RelativeSource={RelativeSource TemplatedParent}}" FocusVisualStyle="{x:Null}"
+        <ToggleButton x:Name="HeaderToggle" IsChecked="{Binding IsExpanded,Mode=TwoWay,RelativeSource={RelativeSource TemplatedParent}}" FocusVisualStyle="{x:Null}"
                       Padding="{TemplateBinding Padding}" MinHeight="{DynamicResource ClayControlHeight}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center">
           <ToggleButton.Template><ControlTemplate TargetType="ToggleButton">
-            <Border x:Name="Face" Background="Transparent" BorderThickness="0" CornerRadius="{DynamicResource ClayControlRadius}" Padding="{TemplateBinding Padding}">
-              <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <Grid Background="Transparent">
+              <Border x:Name="Face" Background="Transparent" BorderThickness="0" CornerRadius="{DynamicResource ClayControlRadius}"/>
+              <Grid x:Name="Glyph" Margin="{TemplateBinding Padding}" IsHitTestVisible="False"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <ContentPresenter Margin="0,0,12,0" VerticalAlignment="Center"/>
                 <Path x:Name="Arrow" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center" Data="M 0,0 L 4,4 L 8,0" Stroke="{DynamicResource ClayMuted}" StrokeThickness="1.8" RenderTransformOrigin="0.5,0.5"/>
               </Grid>
-            </Border>
+            </Grid>
             <ControlTemplate.Triggers>
-              <Trigger Property="IsChecked" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayHover}"/><Setter TargetName="Arrow" Property="RenderTransform"><Setter.Value><RotateTransform Angle="180"/></Setter.Value></Setter></Trigger>
+              <Trigger Property="IsChecked" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayHover}"/></Trigger>
               <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayHover}"/></Trigger>
               <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayFocusFill}"/></Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate></ToggleButton.Template>
           <ContentPresenter Content="{TemplateBinding Header}" TextElement.Foreground="{DynamicResource ClayInk}"/>
         </ToggleButton>
-        <ContentPresenter x:Name="Expansion" Visibility="Collapsed" Margin="12,12,12,0"/>
+        <local:SoftClayDisclosure x:Name="Expansion" IsExpanded="{Binding IsExpanded,RelativeSource={RelativeSource TemplatedParent}}">
+          <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}" Margin="12,12,12,0"/>
+        </local:SoftClayDisclosure>
       </StackPanel>
-      <ControlTemplate.Triggers><Trigger Property="IsExpanded" Value="True"><Setter TargetName="Expansion" Property="Visibility" Value="Visible"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="{DynamicResource ClayDisabledOpacity}"/></Trigger></ControlTemplate.Triggers>
+      <ControlTemplate.Triggers><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="{DynamicResource ClayDisabledOpacity}"/></Trigger></ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>
   </Style>
 

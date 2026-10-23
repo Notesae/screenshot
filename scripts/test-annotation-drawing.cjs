@@ -1,3 +1,4 @@
+const ui=require('../editor/scripts/test-ui.cjs');
 // 独立无头页面只使用合成图片和内存桥；不读取桌面、剪贴板、真实窗口或网络服务。
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -69,7 +70,7 @@ function installHost() {
     },
   } });
   window.__drawingHost = { state, capture() {
-    state.captureId = 'synthetic-drawing-' + Date.now();
+    state.paintedObservation=null;state.readyFrames=0;state.captureId = 'synthetic-drawing-' + Date.now();
     emit({ event:'image.loaded', payload:{ image:sample, overlay:{ captureId:state.captureId,
       desktopBounds:{ x:0, y:0, width:1280, height:800 }, selection:{ x:300, y:180, width:560, height:300 },
       screens:[{ bounds:{ x:0, y:0, width:1280, height:800 }, workArea:{ x:0, y:0, width:1280, height:760 }, primary:true }],
@@ -78,7 +79,7 @@ function installHost() {
 }
 
 async function annotations(page) { return page.evaluate(() => window.screenshotPrepareUpdate().document.editor.annotations); }
-async function click(page, name) { await page.getByRole('button', { name, exact:true }).click(); }
+async function click(page, name) { await ui.click(page,name); }
 async function settle(page) { await page.waitForFunction(() => !window.screenshotPrepareUpdate?.().error && !document.querySelector('button[aria-label="完成"]').disabled); }
 
 /** 坐标均相对合成画布，输入只发送给 headless 页面的虚拟指针。 */
@@ -91,6 +92,7 @@ async function draw(page, from, to) {
 
 /** 记录布局属性而非动画后的包围盒，退出时允许缩放，但浮卡不能更换停靠位置。 */
 async function closeWithoutJump(page) {
+  const kind=(await annotations(page)).at(-1)?.type??'rect';await ui.inspect(page,({'rect':'矩形标注','ellipse':'圆形标注','arrow':'箭头标注','highlight':'高亮标注','text':'文字标注'})[kind]);
   const card = page.locator('.clay-card');
   await card.waitFor();
   await card.evaluate(element => element.getAnimations().forEach(animation => animation.finish()));
@@ -142,7 +144,8 @@ cases.push({ name:'ready-gate', async run(page) {
   await page.waitForFunction(() => typeof window.__drawingHost.state.releasePainted === 'function');
   const observed = await page.evaluate(() => window.__drawingHost.state.paintedObservation);
   assert.equal(observed.captureId, await page.evaluate(() => window.__drawingHost.state.captureId), '第二阶段确认必须属于当前截图');
-  assert.ok(observed.readyFrames >= 2, '解除原生遮挡之前必须完成至少两个浏览器绘制帧');
+  // 布局核对允许 32ms 定时后备；真实撤挡仍由原生合成验帧门控制。
+  assert.ok(observed.readyFrames >= 1, '绘制确认前当前画布必须得到浏览器绘制机会');
   assert.equal(observed.preparing, true, '第二阶段先恢复底图绘制，再等待宿主释放遮挡');
   assert.equal(observed.canvasVisible, true, '报告绘制完成时当前画布必须可绘制');
   assert.equal(observed.selectionVisible, true, '报告绘制完成时当前选区装饰必须就绪');
@@ -153,11 +156,11 @@ cases.push({ name:'ready-gate', async run(page) {
   assert.equal(await page.locator('.clay-canvas-fixed').isVisible(), true);
 } });
 
-for (const [type, label] of [['rect','矩形标注'], ['arrow','箭头标注'], ['highlight','高亮标注'], ['cover','实色遮盖']]) {
+for (const [type, label] of [['rect','矩形标注'], ['arrow','箭头标注'], ['highlight','高亮标注'], ['ellipse','圆形标注']]) {
   cases.push({ name:'draw-' + type, async run(page) {
     await click(page, label);
     assert.equal((await annotations(page)).length, 0, '选择工具只应待绘制，不能自动插入' + label);
-    assert.equal(await page.getByRole('button', { name:label, exact:true }).getAttribute('aria-pressed'), 'true', '待绘制工具需明确显示选中状态');
+    assert.equal(await ui.button(page,label).getAttribute('aria-pressed'), 'true', '待绘制工具需明确显示选中状态');
     await draw(page, { x:280, y:210 }, { x:80, y:80 });
     await page.waitForFunction(() => window.screenshotPrepareUpdate().document.editor.annotations.length === 1);
     const [object] = await annotations(page);
@@ -192,7 +195,7 @@ cases.push({ name:'property-close-position', async run(page) {
   await click(page, '矩形标注');
   // 单独复现退出布局缺陷：同时兼容旧版的立即插入和新版的手绘，以便分别记录红灯证据。
   if (!(await annotations(page)).length) await draw(page, { x:90, y:90 }, { x:260, y:190 });
-  await page.getByRole('region', { name:'标注属性', exact:true }).waitFor();
+  await ui.inspect(page,'矩形标注');
   await closeWithoutJump(page);
 } });
 
@@ -238,7 +241,7 @@ cases.push({ name:'cancel-and-tiny-drag', async run(page) {
   await click(page, '矩形标注');
   assert.equal((await annotations(page)).length, 0);
   await page.keyboard.press('Escape');
-  assert.notEqual(await page.getByRole('button', { name:'矩形标注', exact:true }).getAttribute('aria-pressed'), 'true', 'Escape 必须退出待绘制状态');
+  assert.notEqual(await ui.button(page,'矩形标注').getAttribute('aria-pressed'), 'true', 'Escape 必须退出待绘制状态');
   await click(page, '箭头标注'); await draw(page, { x:120, y:100 }, { x:121, y:101 });
   assert.equal((await annotations(page)).length, 0, '不到最小绘制距离不应留下意外标注');
   assert.equal(await page.evaluate(() => window.__drawingHost.state.cropRequests), 0);

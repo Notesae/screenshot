@@ -1,4 +1,4 @@
-<Window x:Class="Screenshot.App.ProviderSettingsWindow"
+<local:SoftClayWindow x:Class="Screenshot.App.ProviderSettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Screenshot.App"
@@ -12,7 +12,7 @@
         <Style x:Key="FeedbackText" TargetType="TextBlock" BasedOn="{StaticResource FieldHint}"><Setter Property="Margin" Value="0,0,0,12"/><Setter Property="AutomationProperties.LiveSetting" Value="Polite"/><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers></Style>
     </Window.Resources>
     <!-- 与编辑器属性卡相同的暖灰渐变、圆角、高光和外投影；窗口只承担原生安全边界。 -->
-    <local:SoftClaySurface Margin="16" Style="{StaticResource ClayFloatingSurface}">
+    <local:SoftClayPopupSurface Margin="16">
 
     <Grid Margin="20,12,20,18">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
@@ -128,5 +128,5 @@
             <TabItem Header="应用更新" x:Name="UpdateTab"/>
         </TabControl>
     </Grid>
-    </local:SoftClaySurface>
-</Window>
+    </local:SoftClayPopupSurface>
+</local:SoftClayWindow>

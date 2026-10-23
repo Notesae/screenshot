@@ -6,10 +6,13 @@
     <Nullable>enable</Nullable><ImplicitUsings>disable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets/Screenshot.ico</ApplicationIcon>
-    <AssemblyName>Screenshot</AssemblyName><Version>0.4.10</Version><Copyright>© 2026 Notesae</Copyright>
+    <AssemblyName>Screenshot</AssemblyName><Version>0.5.0</Version><Copyright>© 2026 Notesae</Copyright>
   </PropertyGroup>
   <ItemGroup>
     <Resource Include="Assets/Screenshot.ico" />
+    <!-- 仅复用 v2 motion 节，生产材质与尺寸保持原 token。 -->
+    <EmbeddedResource Include="../../design/motion.tokens.json" LogicalName="Screenshot.LiquidMotionTokens"/>
+    <EmbeddedResource Include="../../design/background-motion.tokens.json" LogicalName="Screenshot.BackgroundMotionTokens"/>
     <EmbeddedResource Include="../../design/soft-clay.tokens.json" LogicalName="Screenshot.SoftClayTokens" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3179.45" />
     <ProjectReference Include="../Screenshot.AI/Screenshot.AI.csproj" />

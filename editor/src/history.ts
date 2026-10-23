@@ -6,7 +6,8 @@ function metadata(document: ProjectDocument) { return JSON.stringify(document.ed
 /** 合并相邻输入事务，限制最多80步与8MiB元数据；新编辑始终丢弃重做分支。 */
 export function commitHistory(state: HistoryState, document: ProjectDocument, options: { group?: string; now?: number } = {}): HistoryState {
   if (state.present.image === document.image && metadata(state.present) === metadata(document)) return state;
-  const now = options.now ?? Date.now(), merge = Boolean(options.group && state.group === options.group && now - state.time < 800 && !state.future.length);
+  // 手势组每次按下生成独立 ID，中途停顿也不能把一次滑杆操作拆成多次撤销。
+  const now = options.now ?? Date.now(), merge = Boolean(options.group && state.group === options.group && (options.group.startsWith('gesture:') || now - state.time < 800) && !state.future.length);
   let past = merge ? state.past : [...state.past, state.present];
   let bytes = metadata(document).length * 2;
   for (let index = past.length - 1; index >= 0; index--) {

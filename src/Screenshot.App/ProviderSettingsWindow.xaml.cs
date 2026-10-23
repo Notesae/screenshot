@@ -12,7 +12,7 @@ using Screenshot.App.Updates;
 namespace Screenshot.App;
 
 /// <summary>原生服务商设置窗口，编辑密钥时不会向前端或网络发送配置。</summary>
-public partial class ProviderSettingsWindow : Window
+public partial class ProviderSettingsWindow : SoftClayWindow
 {
     private readonly AiService _service;
     private string? _selectedId;
@@ -90,17 +90,24 @@ public partial class ProviderSettingsWindow : Window
         ProviderSidebar.IsEnabled = ProviderScroll.IsEnabled = SaveButton.IsEnabled = DeleteButton.IsEnabled = TestConnectionButton.IsEnabled = false;
         CancelConnectionTestButton.Visibility = Visibility.Visible;
         TestConnectionButton.Content = "测试中…";
-        SetStatus("正在测试当前配置…");
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        var stage = "正在准备请求";
+        // 只显示阶段和耗时，既不显示密钥，也不把短暂等待误报为连接失败。
+        void ShowProgress() { if (!_settingsClosed && ReferenceEquals(_connectionTest, cancellation)) SetStatus($"{stage} · 已等待 {elapsed.Elapsed.TotalSeconds:0} 秒（最多 30 秒，可随时取消）"); }
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        EventHandler tick = (_, _) => ShowProgress();
+        timer.Tick += tick; timer.Start(); ShowProgress();
+        var progress = new Progress<string>(value => { stage = value; ShowProgress(); });
         try
         {
             var draft = new ProviderUpdate(_selectedId ?? "connection-draft", ProviderName.Text,
                 ProviderKind.SelectedIndex == 1 ? "ollama" : "openai-compatible", ProviderBaseUrl.Text, ProviderModel.Text,
                 ApiKey.Password.Length == 0 ? null : ApiKey.Password, ClearKey.IsChecked == true, MakeDefault.IsChecked == true);
-            await _service.ProbeDraftAsync(draft, cancellation.Token);
+            await _service.ProbeDraftAsync(draft, cancellation.Token, progress);
             cancellation.Token.ThrowIfCancellationRequested();
             if (!_settingsClosed)
             {
-                SetStatus("文字翻译请求成功。");
+                SetStatus($"文字翻译请求成功，用时 {elapsed.Elapsed.TotalSeconds:0.0} 秒。");
             }
         }
         catch (Exception error)
@@ -113,6 +120,7 @@ public partial class ProviderSettingsWindow : Window
         }
         finally
         {
+            timer.Stop(); timer.Tick -= tick;
             _connectionTest = null;
             if (!_settingsClosed)
             {

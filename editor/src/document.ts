@@ -5,8 +5,11 @@ import type { LoadedImage } from './bridge';
 import { parseImageTranslationDocument, type ImageTranslationDocument } from './imageTranslationLayout';
 export type Mode = 'raw' | 'beauty' | 'reflow';
 // 标注只保存受支持字段，不恢复可以加载资源或执行行为的 Fabric 对象 JSON。
-export type AnnotationKind = 'text' | 'rect' | 'arrow' | 'highlight' | 'cover';
-export type Annotation = { id?: string; type: AnnotationKind; left: number; top: number; width: number; height: number; scaleX: number; scaleY: number; angle: number; text: string; color: string; fontSize: number; backgroundColor?: string };
+export type AnnotationKind = 'text' | 'rect' | 'ellipse' | 'arrow' | 'brush' | 'highlight' | 'mosaic' | 'cover';
+// 画笔只保存有限的局部坐标，马赛克只保存块大小；旧 cover 继续按原来的不透明遮盖恢复。
+export type Annotation = { id?: string; type: AnnotationKind; left: number; top: number; width: number; height: number; scaleX: number; scaleY: number; angle: number; text: string; color: string; fontSize: number; backgroundColor?: string; points?: [number, number][]; strokeWidth?: number; blockSize?: number };
+// 限制单笔序列化体积；长手势达到上限后稀疏采样，仍保留后续轨迹。
+export const MAX_BRUSH_POINTS = 1024;
 export type SourceCrop = { x: number; y: number; width: number; height: number };
 export type ContentResize = { width: number; height: number };
 export type EditorState = { mode: Mode; padding: number; radius: number; background: string; shadow: boolean; borderWidth: number; borderColor: string; lineSpacing: number; paragraphSpacing: number; translationSource: string | null; translationData:TranslationDocument|null; imageTranslation?:ImageTranslationDocument|null; text: string; title: string; fontSize: number; textWidth: number; annotations: Annotation[]; ocr: OcrData | null; translation: string; textLayout: TextLayoutMode; crop: SourceCrop | null; resize: ContentResize | null };
@@ -60,10 +63,19 @@ export function parseDocument(value: unknown): ProjectDocument {
   if (!['raw', 'beauty', 'reflow'].includes(String(e.mode)) || typeof e.shadow !== 'boolean' || !Array.isArray(e.annotations) || e.annotations.length > 100) throw new Error('项目编辑数据无效。');
   const annotations = e.annotations.map((value, index) => {
     const a = record(value);
-    if (!['text', 'rect', 'arrow', 'highlight', 'cover'].includes(String(a.type))) throw new Error('不支持此标注类型。');
+    if (!['text', 'rect', 'ellipse', 'arrow', 'brush', 'highlight', 'mosaic', 'cover'].includes(String(a.type))) throw new Error('不支持此标注类型。');
     const id = a.id === undefined ? `legacy-${index}` : string(a.id, 80);
     if (!/^[a-z0-9-]+$/i.test(id)) throw new Error('标注标识无效。');
-    return { id, type: a.type, left: number(a.left, -32000, 32000), top: number(a.top, -32000, 32000), width: number(a.width, 1, 16000), height: number(a.height, 1, 16000), scaleX: number(a.scaleX, .01, 100), scaleY: number(a.scaleY, .01, 100), angle: number(a.angle, -360, 360), text: string(a.text, 5000), color: color(a.color), fontSize: number(a.fontSize, 8, 240), ...(a.type === 'text' && a.backgroundColor !== undefined ? { backgroundColor: color(a.backgroundColor) } : {}) } as Annotation;
+    // 不接受任意 SVG 路径；逐点校验后只由本地代码构造折线。
+    let points: [number, number][] | undefined;
+    if (a.type === 'brush') {
+      if (!Array.isArray(a.points) || a.points.length < 2 || a.points.length > MAX_BRUSH_POINTS) throw new Error('画笔轨迹格式或长度无效。');
+      points = a.points.map(point => {
+        if (!Array.isArray(point) || point.length !== 2) throw new Error('画笔坐标无效。');
+        return [number(point[0], 0, 16000), number(point[1], 0, 16000)];
+      });
+    }
+    return { id, type: a.type, left: number(a.left, -32000, 32000), top: number(a.top, -32000, 32000), width: number(a.width, 1, 16000), height: number(a.height, 1, 16000), scaleX: number(a.scaleX, .01, 100), scaleY: number(a.scaleY, .01, 100), angle: number(a.angle, -360, 360), text: string(a.text, 5000), color: color(a.color), fontSize: number(a.fontSize, 8, 240), ...(a.type === 'text' && a.backgroundColor !== undefined ? { backgroundColor: color(a.backgroundColor) } : {}), ...(points ? { points } : {}), ...(['rect','ellipse','arrow','brush'].includes(String(a.type)) ? { strokeWidth: number(a.strokeWidth ?? 3, 1, 48) } : {}), ...(a.type === 'mosaic' ? { blockSize: number(a.blockSize ?? 12, 6, 64) } : {}) } as Annotation;
   });
   const image = doc.image === null ? null : parseImage(doc.image);
   if (new Set(annotations.map(annotation => annotation.id)).size !== annotations.length) throw new Error('项目中存在重复标注标识。');

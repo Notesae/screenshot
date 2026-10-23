@@ -1,0 +1,136 @@
+/* v2 只接管表现层；所有布局、颜色、圆角和物理截图映射仍由生产 token 决定。 */
+.clay-editor .liquid-rail { isolation: isolate; background: transparent; box-shadow: none; animation: none !important; }
+/* 按钮按可用宽度换行；入场形变的横向溢出不应产生可交互的滚动条，纵向仍供窄屏使用。 */
+.clay-editor .liquid-rail { overflow-x: hidden; overflow-y: auto; }
+/* 裁切仅随真实内容溢出改变；入场与落定共用规则，避免结束那一帧切掉外围阴影。 */
+.clay-editor .liquid-rail:not([data-motion-scroll=true]) { overflow: visible; }
+.clay-editor .liquid-rail[data-motion-scroll=true] { overflow-x: hidden; overflow-y: auto; }
+/* 底座轮廓、材质和投影由同一 SVG 路径提供，长边可以弯曲，外壳仍保留固定布局。 */
+.liquid-rail-body { position: absolute; inset: 0; z-index: 0; border-radius: inherit; transform-origin: center; pointer-events: none; }
+.clay-editor svg.liquid-rail-contour { display: block; width: 100%; height: 100%; overflow: visible; }
+.clay-editor[data-motion-economy=true] .liquid-rail-face { filter: none; }
+/* 分组与语义按钮不隔离材质；灰皮肤、共享选中面、图文按 0/1/2 层排列。 */
+.liquid-rail > :not(.liquid-rail-body,.liquid-sweep,.liquid-active) { position: relative; z-index: auto; }
+.liquid-rail > .clay-grip { z-index: 2; }
+.clay-editor .liquid-rail button[data-motion-button] { position: relative; z-index: auto; isolation: auto; background: transparent !important; box-shadow: none !important; filter: none !important; transform: none !important; transition: none !important; }
+.liquid-skin { position: absolute; inset: 0; z-index: 0; border-radius: inherit; pointer-events: none; background: var(--clay-raised); --liquid-rest-shadow: var(--clay-button); }
+/* 高光与凹影常驻同一形变表面，只混合权重；浮卡关闭不能硬切上沿阴影。 */
+.liquid-skin::before, .liquid-skin-depth { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; }
+.liquid-skin::before { content: ''; box-shadow: var(--liquid-rest-shadow); opacity: calc((1 - var(--liquid-depth,0)) * (1 - var(--tool-edit-state,0)) * (1 - var(--tool-draw-state,0))); }
+.liquid-skin-depth { box-shadow: var(--clay-press); opacity: var(--liquid-depth,0); }
+.liquid-skin::after, .liquid-active::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(40px circle at var(--liquid-light-x,50%) var(--liquid-light-y,25%), #fff, transparent); opacity: var(--liquid-light,0); }
+.liquid-glyph { position: relative; z-index: 2; display: inline-flex; align-items: center; justify-content: center; gap: 8px; pointer-events: none; }
+.clay-editor .liquid-glyph > svg { width: var(--clay-size-icon); height: var(--clay-size-icon); }
+.clay-editor .liquid-glyph svg { overflow: visible; }
+.clay-editor .clay-image-tools .liquid-glyph > svg { width: 21px; height: 21px; }
+/* 两个按钮共享一张软体外壳完成拉扯、断开与余振，结束后交回原控件皮肤。 */
+.clay-translation-tools { position: relative; display: inline-flex; align-items: center; flex: none; isolation: isolate; --split-source-shift: 0px; --split-alpha: 1; --split-offset: 0px; }
+.clay-editor .liquid-rail .clay-translation-tools > button[data-motion-button] { z-index: 2; }
+.clay-translation-split-slot { position: relative; display: inline-block; flex: none; width: 44px; height: 36px; }
+.clay-translation-split-face { position: absolute; left: 6px; top: 0; transform: translateX(var(--split-offset)); }
+.clay-translation-split-slot .liquid-glyph > svg { opacity: var(--split-alpha); }
+.clay-translation-source-glyph { display: inline-flex; transform: translateX(var(--split-source-shift)); }
+.clay-editor .clay-translation-source-glyph > svg { width: 21px; height: 21px; }
+.clay-editor svg.clay-translation-material { position: absolute; left: -14px; top: -12px; width: 140px; height: 60px; overflow: visible; opacity: var(--split-material,0); pointer-events: none; filter: drop-shadow(0 5px 5px #0005); }
+.clay-translation-tools[data-split-active=true] .liquid-skin { opacity: calc(1 - var(--split-material,1)) !important; }
+.clay-editor[data-motion-economy=true] .clay-translation-material > path { filter: none; }
+[data-motion-action=done] > .liquid-skin { background: var(--clay-primary); --liquid-rest-shadow: var(--clay-primary-shadow); }
+/* 材质交接由连续状态控制；逻辑取消选中不能提前恢复一张独立灰皮肤。 */
+[data-motion-button][data-motion-material=true] > .liquid-skin { visibility: hidden; }
+[data-motion-button][data-hover-panel=beauty][aria-pressed=true] > .liquid-skin { background: var(--clay-primary); --liquid-rest-shadow: var(--clay-primary-shadow); }
+[data-motion-button]:focus-visible > .liquid-skin { filter: brightness(1.2); }
+[data-motion-button]:disabled > .liquid-skin { --liquid-rest-shadow: inset 0 1px 2px #ffffff0d; }
+/* 灰底、蓝色涂层和凹陷阴影共用一个变换与圆角，颜色和深度按弹簧进度混合。 */
+.liquid-active { position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none; border-radius: var(--clay-radius-control); background: var(--clay-raised); opacity: 0; transform-origin: center; }
+.liquid-active::before, .liquid-active-color, .liquid-active-color::before, .liquid-active-depth { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; }
+.liquid-active::before { content: ""; box-shadow: var(--clay-button); opacity: calc((1 - var(--liquid-selection,0)) * (1 - var(--liquid-press,0))); }
+.liquid-active-color { background: var(--clay-primary); opacity: var(--liquid-selection,0); }
+.liquid-active-color::before { content: ""; box-shadow: var(--clay-primary-shadow); opacity: calc(1 - var(--liquid-press,0)); }
+.liquid-active-depth { box-shadow: var(--clay-press); opacity: var(--liquid-press,0); }
+/* 焦点保留在语义按钮，蓝色材质同步承接原皮肤的键盘焦点亮度。 */
+.clay-editor .liquid-rail:has([data-motion-button][data-motion-material=true]:focus-visible) > .liquid-active { filter: brightness(1.2); }
+.liquid-sweep { position: absolute; inset: 0; z-index: 3; pointer-events: none; border-radius: inherit; opacity: 0; background: linear-gradient(115deg,transparent 38%,#ffffff40 50%,transparent 62%); }
+.clay-editor .liquid-panel { background: transparent; box-shadow: none; overflow: visible; animation: none !important; }
+.liquid-panel-body { position: relative; display: flex; flex-direction: column; min-height: 0; border-radius: inherit; transform-origin: top left; isolation: isolate; }
+.liquid-panel-skin { position: absolute; inset: 0; z-index: 0; border-radius: inherit; background: var(--clay-card-face); box-shadow: var(--clay-elevation); pointer-events: none; }
+.liquid-panel-content { position: relative; z-index: 1; display: flex; flex-direction: column; min-height: 0; border-radius: inherit; overflow: hidden; }
+.liquid-panel-page { display: flex; flex-direction: column; min-height: 0; border-radius: inherit; }
+.clay-editor .liquid-panel.is-closing { animation: none; }
+.clay-editor .liquid-image-copy { position: fixed; z-index: 4; pointer-events: none; transform-origin: center; }
+.clay-editor[data-motion-exit] :where(.clay-chrome,.clay-capture-layer,.clay-reader) { pointer-events: none !important; }
+.clay-editor[data-motion-exit] button { pointer-events: none !important; }
+/* 浮层槽位与正文保持真实尺寸，只有独立材质形变；关闭后立即停止命中。 */
+.clay-editor :is(.clay-select-menu,.clay-color-popover,.clay-tooltip,.clay-reader,.clay-notice,.clay-status) { isolation:isolate; background:transparent; box-shadow:none; animation:none; overflow:visible; }
+.liquid-surface-skin { position:absolute; inset:0; z-index:0; border-radius:inherit; background:var(--clay-card-face); box-shadow:var(--clay-elevation); transform-origin:top left; pointer-events:none; opacity:0; }
+.liquid-surface-content { position:relative; z-index:1; min-width:0; min-height:0; border-radius:inherit; opacity:0; }
+.clay-editor [aria-hidden=true]:is(.clay-select-menu,.clay-color-popover,.clay-tooltip,.clay-reader,.clay-notice,.clay-status), .clay-editor [aria-hidden=true]:is(.clay-select-menu,.clay-color-popover,.clay-reader,.clay-notice,.clay-status) * { pointer-events:none !important; }
+.clay-editor :is(.clay-select-menu,.clay-color-popover) { padding:0; }
+:is(.clay-select-menu,.clay-color-popover) > .liquid-surface-content { overflow-y:auto; overflow-x:hidden; max-height:inherit; overscroll-behavior:contain; padding:4px; }
+.clay-color-popover > .liquid-surface-content { padding:12px; }
+.clay-editor .clay-tooltip { padding:0; }
+.clay-tooltip > .liquid-surface-skin { background:var(--clay-well); box-shadow:var(--clay-shadow); }
+.clay-tooltip > .liquid-surface-content { padding:7px 10px; }
+.clay-reader > .liquid-surface-content { display:flex; flex-direction:column; height:100%; overflow:hidden; }
+.clay-editor :is(.clay-notice,.clay-status) { padding:0; pointer-events:none; }
+.clay-status > .liquid-surface-content { padding:12px 16px; }
+.clay-status > .liquid-surface-skin { background:var(--clay-face); }
+.clay-status button { pointer-events:auto; }
+.clay-editor:is(.is-awaiting,.is-suspended,[data-motion-hidden=true]) .spinner, .clay-status[aria-hidden=true] .spinner { animation-play-state:paused; }
+.clay-notice > .liquid-surface-content { display:flex; align-items:center; gap:12px; padding:12px 16px; }
+.clay-notice button { pointer-events:auto; }
+.clay-editor[data-motion-reduced=true] *, .clay-editor[data-motion-reduced=true] *::before, .clay-editor[data-motion-reduced=true] *::after { animation: none !important; transition: none !important; }
+.clay-editor[data-motion-economy=true] .liquid-sweep, .clay-editor[data-motion-reduced=true] .liquid-sweep, .clay-editor[data-motion-reduced=true] :is(.liquid-skin,.liquid-active)::after { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .liquid-sweep, .liquid-skin::after, .liquid-active::after { display: none !important; }
+}
+
+/* 折叠只改变容器高度，字段正文保持静止。 */
+.liquid-details-content { display:grid; gap:12px; }
+
+.clay-editor > svg.liquid-panel-bridge { position:absolute; inset:0; width:100%; height:100%; z-index:4; overflow:hidden; fill:var(--clay-surfaceMid); pointer-events:none; }
+.clay-editor[data-motion-reduced=true] > .liquid-panel-bridge, .clay-editor.is-reading > .liquid-panel-bridge { display:none; }
+
+/* 通知使用原有状态色和关闭槽位，正文不拦截截图输入。 */
+.clay-notice > .liquid-surface-skin { background:var(--clay-face); }
+.clay-notice.is-error > .liquid-surface-skin { background:var(--clay-errorSurface); }
+.clay-editor .clay-notice > .liquid-surface-content > button { width:32px; height:32px; min-height:32px; padding:6px; flex-shrink:0; color:var(--clay-muted); background:transparent; box-shadow:none; }
+
+/* 普通按钮沿用所属控件的材质，固定命中层不再带着长标签一起缩放。 */
+.clay-editor button[data-control-button] { position:relative; isolation:isolate; --control-face:var(--clay-raised); --control-shadow:var(--clay-button); background:transparent !important; box-shadow:none !important; transform:none !important; filter:none !important; transition:none !important; }
+.control-skin { position:absolute; inset:0; z-index:-1; border-radius:inherit; background:var(--control-face); box-shadow:var(--control-shadow); pointer-events:none; }
+.control-content { display:inline-flex; align-items:center; justify-content:inherit; gap:inherit; min-width:0; width:100%; pointer-events:none; }
+.control-soft-body { position:absolute; inset:0; display:flex; align-items:center; justify-content:inherit; gap:inherit; padding:inherit; border-radius:inherit; isolation:isolate; pointer-events:none; }
+.clay-editor [data-control-button]:hover:enabled .control-skin { filter:brightness(1.04); }
+.clay-editor [data-control-button]:focus-visible:enabled .control-skin { filter:brightness(1.14); }
+.clay-editor [data-control-button]:active:enabled .control-skin { box-shadow:var(--clay-press); }
+.clay-editor button[data-control-button]:is(.clay-primary,[aria-pressed=true]):not([data-soft-selection]) { --control-face:var(--clay-primary); --control-shadow:var(--clay-primary-shadow); }
+.clay-editor button[data-control-button].clay-danger:hover:enabled { --control-face:var(--clay-errorSurface); }
+.clay-editor button[data-control-button]:is(.clay-select-trigger,.clay-color-trigger) { --control-face:var(--clay-well); --control-shadow:var(--clay-inset); }
+.clay-editor button[data-control-button]:is(.clay-select-trigger,.clay-color-trigger):is(:hover,:focus-visible,[aria-expanded=true]) { --control-face:var(--clay-wellActive); }
+.clay-editor :is(.clay-card-heading,.clay-notice,.clay-reader-actions,.canvas-zoom) button[data-control-button], .clay-editor .clay-reader-mode button[data-control-button], .clay-editor .clay-select-menu button[data-control-button], .clay-editor .clay-color-options button[data-control-button] { --control-face:transparent; --control-shadow:none; }
+.clay-editor .clay-reader-mode button[data-control-button][aria-pressed=true] { --control-face:var(--clay-raised); --control-shadow:var(--clay-button); }
+.clay-editor .clay-select-menu button[data-control-button]:is(.is-active,[aria-selected=true]), .clay-editor .clay-color-options button[data-control-button][aria-pressed=true]:not([data-soft-selection]) { --control-face:var(--clay-selected); }
+.clay-select-trigger > .control-content > span, .clay-select-menu .control-content > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.clay-select-trigger .control-content > svg { transition:transform 170ms ease; }
+.clay-select-trigger[aria-expanded=true] .control-content > svg { transform:rotate(180deg); }
+.clay-editor input[type=range]::-webkit-slider-thumb { transform:scale(var(--range-scale-x,1),var(--range-scale-y,1)); background:linear-gradient(var(--clay-ink),var(--clay-muted)); box-shadow:var(--clay-button); }
+.clay-editor input[type=range]::-moz-range-thumb { transform:scale(var(--range-scale-x,1),var(--range-scale-y,1)); background:linear-gradient(var(--clay-ink),var(--clay-muted)); box-shadow:var(--clay-button); }
+/* 可见滑块与真实 range 分层；值即时提交，材质沿同一速度拉长、反向和回弹。 */
+.clay-slider { position: relative; display: block; width: 100%; height: 28px; flex: none; }
+.clay-slider-track { position: absolute; left: 9px; right: 9px; top: 12px; height: 4px; border-radius: 99px; background: var(--clay-well); box-shadow: var(--clay-inset); pointer-events: none; }
+.clay-slider-fill { position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(90deg,color-mix(in srgb,var(--clay-focus) 40%,#777570),color-mix(in srgb,var(--clay-focus) 55%,#b4b0a9)); transform-origin: left; pointer-events: none; }
+.clay-slider-thumb { position: absolute; left: 0; top: 5px; width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(155deg,#f0ede8,#bcb8b1); box-shadow: inset 0 1px 1px #fff8,0 2px 4px #0006,0 0 1px #0005; pointer-events: none; }
+.clay-editor .clay-slider > input[type=range] { position: absolute; inset: 0; margin: 0; width: 100%; height: 28px; opacity: 0; }
+.clay-slider:has(input:focus-visible) .clay-slider-thumb { filter: brightness(1.2); box-shadow: var(--clay-button),0 0 10px color-mix(in srgb,var(--clay-focus) 45%,transparent); }
+.clay-slider[data-disabled=true] { opacity: .45; }
+.clay-editor input[type=checkbox] { position:relative; isolation:isolate; background:transparent; box-shadow:none; }
+.clay-editor input[type=checkbox]::before { content:''; position:absolute; inset:0; z-index:-1; border-radius:inherit; background:var(--clay-well); box-shadow:var(--clay-inset); pointer-events:none; transform:scale(var(--check-scale-x,1),var(--check-scale-y,1)); }
+.clay-editor input[type=checkbox]:is(:checked,:indeterminate)::before { background:var(--clay-accentBottom); }
+
+/* 唯一可见边框由曲线路径绘制，固定矩形仅保留几何与无脚本的静态回退。 */
+.clay-editor svg.clay-selection-jelly { position:absolute; inset:0; width:100%; height:100%; z-index:3; overflow:hidden; pointer-events:none; opacity:0; }
+.selection-jelly-border { fill:none; stroke:var(--clay-accent); stroke-width:var(--clay-size-selectionBorder); vector-effect:non-scaling-stroke; }
+.clay-editor .clay-capture-selection[data-elastic-border=true] { outline:none; box-shadow:none; }
+.clay-editor:has(.clay-capture-selection:focus-visible,.clay-selection-handle:focus-visible) .selection-jelly-border { stroke:var(--clay-focus); }
+/* 遮挡、隐藏和退场时同步回到精确矩形，不能留下旧会话的曲线。 */
+.clay-editor:is(.is-awaiting,.is-suspended,[data-motion-exit]) .clay-selection-jelly { visibility:hidden; }

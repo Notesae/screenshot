@@ -58,6 +58,7 @@ public partial class MainWindow : Window
     {
         _terms = terms; terms.RequireAccepted();
         InitializeComponent();
+        InitializeBackdropMotion();
         Editor.DefaultBackgroundColor = System.Drawing.Color.Transparent;
         Closing += ProtectClosing;
         SourceInitialized += (_, _) =>
@@ -131,7 +132,13 @@ public partial class MainWindow : Window
             core.Settings.AreDefaultContextMenusEnabled = false; core.Settings.IsStatusBarEnabled = false;
             core.Settings.IsPasswordAutosaveEnabled = false; core.Settings.IsGeneralAutofillEnabled = false;
             core.SetVirtualHostNameToFolderMapping("app.screenshot.local", assets, CoreWebView2HostResourceAccessKind.DenyCors);
-            core.NavigationStarting += (_, args) => { if (!BridgePolicy.IsTrustedSource(args.Uri)) args.Cancel = true; };
+            core.NavigationStarting += (_, args) =>
+            {
+                if (!BridgePolicy.IsTrustedSource(args.Uri)) { args.Cancel = true; return; }
+                // 新网页拥有新的消息序列；加载失败时也不能沿用旧页的运动许可。
+                FrozenBackdrop.Suspend(); _backdropGate.Reset(_presentation.Overlay?.CaptureId);
+            };
+            core.ProcessFailed += (_, _) => { FrozenBackdrop.Suspend(); _backdropGate.Reset(_presentation.Overlay?.CaptureId); };
             core.FrameNavigationStarting += (_, args) => args.Cancel = true;
             core.NewWindowRequested += (_, args) => args.Handled = true;
             core.PermissionRequested += (_, args) => args.State = CoreWebView2PermissionState.Deny;
@@ -180,7 +187,7 @@ public partial class MainWindow : Window
     {
         if (!_terms.IsAuthorized) return;
         if (!_ready || !_editorMounted.Task.IsCompletedSuccessfully) { ShowEditorAction("notice", "编辑器尚未就绪，请重试加载。"); return; }
-        if (!_requests.TryEnter("capture.region", out var lease)) { ShowEditorNotice("正在处理另一项本地操作，请稍后重试。"); return; }
+        if (!_requests.TryEnter("capture.region", out var lease)) { ShowEditorNotice("正在处理另一项本地操作，请稍后重试。", error: false); return; }
         try
         {
             var image = await CaptureAsync(request);
@@ -203,13 +210,14 @@ public partial class MainWindow : Window
         var wasVisible = IsVisible;
         var previousWindowState = WindowState;
         if (_presentation.Mode == PresentationMode.Workbench) RememberWorkbenchPlacement();
-        _presentation.BeginCapture();
+        _presentation.BeginCapture(); FrozenBackdrop.Suspend();
         var completed = false;
         try
         {
+            var noticeDismissed = await ClearNativeNoticeAsync();
             // 先隐藏完整 HWND；已在托盘时直接取帧，可见窗口只等待本进程撤离合成，不固定睡眠。
             Hide();trace.Mark("host_hidden");
-            if(wasVisible)await Task.Run(()=>Marshal.ThrowExceptionForHR(DwmFlush()),_lifetime.Token);
+            if(wasVisible||noticeDismissed)await Task.Run(()=>Marshal.ThrowExceptionForHR(DwmFlush()),_lifetime.Token);
             trace.Mark("capture_started");
             if (!_captureBackends.TryGetValue(request.Backend, out var backend)) throw new CaptureException("invalid_capture_backend", "不支持的截图后端。");
             var frame = await backend.CaptureAsync(request, _lifetime.Token);
@@ -220,6 +228,7 @@ public partial class MainWindow : Window
                 if(!_presentation.IsSelecting){completed=true;return null;}
                 PrepareOverlay(frame);
                 if(!_presentation.CompleteCapture(frame))return null;
+                _backdropGate.Reset(frame.CaptureId);
                 _captureHandoff.Take(frame);transferred=true;completed=true;
                 trace.CaptureId=frame.CaptureId;trace.Mark("image_delivered");trace.Flush();
                 _=WaitForOverlayReadyAsync(frame.CaptureId);
@@ -250,6 +259,7 @@ public partial class MainWindow : Window
     // 始终读取实际 Win32 客户区，不使用某一显示器 DPI 推算跨屏窗口尺寸。
     private void ApplyOverlayBounds(PixelRect target)
     {
+        FrozenBackdrop.Suspend();
         var handle = new WindowInteropHelper(this).Handle;
         const uint flags = 0x0010 | 0x0020; // 不抢激活；刷新无边框样式，但不显示隐藏窗口。
         if (!SetWindowPos(handle, new IntPtr(-1), target.X, target.Y, target.Width, target.Height, flags))
@@ -264,6 +274,7 @@ public partial class MainWindow : Window
             if (!SetWindowPos(handle, new IntPtr(-1), adjusted.X, adjusted.Y, adjusted.Width, adjusted.Height, flags))
                 throw new InvalidOperationException("无法对齐截图覆盖层客户区。");
         }
+        RefreshBackdropMotion();
     }
     // 记录工作台的 DIP 布局供主动返回时恢复；覆盖层仍独立使用物理坐标。
     private void RememberWorkbenchPlacement()
@@ -277,6 +288,7 @@ public partial class MainWindow : Window
     {
         _captureHandoff.Release();_composedCaptureId=null;Opacity=1;ShowActivated=true;
         _presentation.ShowWorkbench();
+        _backdropGate.Reset(null);
         FrozenBackdrop.Source = null; FrozenBackdrop.Visibility = Visibility.Collapsed;
         Background = new SolidColorBrush(Color.FromRgb(32, 32, 34));
         StatusBar.Visibility = _ready ? Visibility.Collapsed : Visibility.Visible;
@@ -293,6 +305,7 @@ public partial class MainWindow : Window
     // 隐藏覆盖层并解除冻结桌面的所有宿主持有引用；不关闭 WebView 或清除文档。
     private void DismissPresentation()
     {
+        _backdropGate.Reset(null); FrozenBackdrop.Suspend();
         if (_presentation.Mode == PresentationMode.Workbench) RememberWorkbenchPlacement();
         Hide(); Opacity=1;ShowActivated=true; _captureHandoff.Release(); _presentation.Dismiss(); FrozenBackdrop.Source = null;
         FrozenBackdrop.Visibility = Visibility.Collapsed; Topmost = false;
@@ -377,6 +390,7 @@ public partial class MainWindow : Window
                     if(_composedCaptureId==captureId&&OverlayViewportMatches(viewport,expected)&&!_captureHandoff.IsCancelled(captureId)&&_presentation.TryAcceptPainted(captureId))
                     {
                         Opacity=1;ShowActivated=true;_captureHandoff.Release(captureId);Activate();accepted=true;
+                        RefreshBackdropMotion();
                         if(_captureDiagnostics?.CaptureId==captureId){_captureDiagnostics.Mark("handoff_released");_captureDiagnostics.Flush();}
                     }
                 }
@@ -422,6 +436,7 @@ public partial class MainWindow : Window
             if (wasVisible) { Show(); ApplyOverlayBounds(overlay.DesktopBounds); Activate(); }
         }
         else { FrozenBackdrop.Source = null; Hide(); }
+        RefreshBackdropMotion();
     }
     // 校验来源和请求结构，取得对应门控，并以相同请求 ID 返回结果或错误。
     private async void OnWebMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs args)
@@ -460,7 +475,7 @@ public partial class MainWindow : Window
         _terms.RequireAccepted();
         switch (method)
         {
-            case "app.info": return new { version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "unknown", platform = "windows", presentation = _presentation.Mode.ToString().ToLowerInvariant(), capture = new { backend = _captureBackend, colorMode = "sdr", supportsHdr = false, availableBackends = new[] { "wgc", "gdi" }, targets = new[] { "desktop", "monitor", "window" }, availability = "checked-on-capture" }, capabilities = new[] { "image.open", "image.paste", "capture.adjust", "capture.screen", "capture.region", "capture.current", "capture.monitors", "capture.settings", "capture.configure", "hotkey.read", "hotkey.configure", "image.save", "image.copy", "text.copy", "project.open", "project.save", "ai.ocr", "ai.translate", "ai.translateImage", "ocr.local", "ocr.cancel", "ocr.status", "ai.cancel", "ai.usage", "ai.test", "recovery.list", "recovery.load", "recovery.delete", "recovery.usage", "recovery.deleteMany", "presentation.workbench", "presentation.editor", "presentation.dismiss", "presentation.ready", "presentation.complete", "document.preserve", "app.terms" } };
+            case "app.info": return new { version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "unknown", platform = "windows", presentation = _presentation.Mode.ToString().ToLowerInvariant(), capture = new { backend = _captureBackend, colorMode = "sdr", supportsHdr = false, availableBackends = new[] { "wgc", "gdi" }, targets = new[] { "desktop", "monitor", "window" }, availability = "checked-on-capture" }, capabilities = new[] { "image.open", "image.paste", "capture.adjust", "capture.screen", "capture.region", "capture.current", "capture.monitors", "capture.settings", "capture.configure", "hotkey.read", "hotkey.configure", "image.save", "image.copy", "image.pin", "text.copy", "project.open", "project.save", "ai.ocr", "ai.translate", "ai.translateImage", "ocr.local", "ocr.cancel", "ocr.status", "ai.cancel", "ai.usage", "ai.test", "recovery.list", "recovery.load", "recovery.delete", "recovery.usage", "recovery.deleteMany", "presentation.workbench", "presentation.editor", "presentation.dismiss", "presentation.ready", "presentation.background", "presentation.complete", "document.preserve", "app.terms" } };
             case "document.preserve": await CheckEditorAsync("replace"); return new { checkedState = true, saved = false };
             case "image.open": await CheckEditorAsync("replace"); return NativeImages.Open(this);
             case "image.paste": await CheckEditorAsync("replace"); return NativeImages.Paste();
@@ -470,7 +485,10 @@ public partial class MainWindow : Window
             case "capture.region": return await CaptureAsync(ParseCaptureRequest(payload, true));
             case "capture.adjust":
                 var area = payload.GetProperty("selection");
-                return await _presentation.AdjustAsync(RequiredString(payload, "captureId"), new PixelRect(area.GetProperty("x").GetInt32(), area.GetProperty("y").GetInt32(), area.GetProperty("width").GetInt32(), area.GetProperty("height").GetInt32()),_lifetime.Token);
+                // 同一冻结桌面的裁剪只保持当前姿态；清零位移和暗角会让整个画面闪一下。
+                _backdropAdjusting = true; RefreshBackdropMotion();
+                try { return await _presentation.AdjustAsync(RequiredString(payload, "captureId"), new PixelRect(area.GetProperty("x").GetInt32(), area.GetProperty("y").GetInt32(), area.GetProperty("width").GetInt32(), area.GetProperty("height").GetInt32()),_lifetime.Token); }
+                finally { _backdropAdjusting = false; RefreshBackdropMotion(); }
             case "hotkey.read": return _hotkeys?.State??new HotkeyStatus(HotkeyBinding.Default,false,false,"快捷键尚未就绪。");
             case "hotkey.configure":
                 if(_hotkeys is null)throw new InvalidOperationException("快捷键尚未就绪。");
@@ -515,6 +533,7 @@ public partial class MainWindow : Window
                 if (dismissed) { if (wasWorkbench) RememberWorkbenchPlacement(); DismissPresentation(); }
                 return new { presentation = _presentation.Mode.ToString().ToLowerInvariant(), accepted = dismissed, captureId = _presentation.Overlay?.CaptureId };
             case "presentation.ready": return ReadyPresentation(RequiredString(payload, "captureId"));
+            case "presentation.background": return UpdateBackdropMotion(payload);
             case "presentation.painted":
                 var viewport=payload.GetProperty("viewport");
                 return await PaintedPresentationAsync(RequiredString(payload,"captureId"),new(viewport.GetProperty("width").GetDouble(),viewport.GetProperty("height").GetDouble(),viewport.GetProperty("scale").GetDouble()));
@@ -522,6 +541,7 @@ public partial class MainWindow : Window
             case "image.save": return NativeImages.Save(this, RequiredString(payload, "dataUrl"), OptionalString(payload, "suggestedName"));
             case "text.copy": return NativeImages.CopyText(RequiredString(payload, "text"));
             case "image.copy": return NativeImages.Copy(RequiredString(payload, "dataUrl"));
+            case "image.pin": return await PinImageAsync(payload);
             case "project.open": await CheckEditorAsync("replace"); return NativeImages.OpenProject(this);
             case "project.save": return NativeImages.SaveProject(this, payload.GetProperty("document"), OptionalString(payload, "suggestedName"));
             case "settings.read": return await _ai.ReadSettingsAsync(_lifetime.Token);

@@ -63,8 +63,10 @@
 .clay-editor summary:hover { background: var(--clay-hover); }
 .clay-editor details[open] > summary { background: var(--clay-hover); }
 .clay-editor summary:focus-visible { background: var(--clay-focusFill); }
-.clay-editor summary::after { content: ''; width: 7px; height: 7px; flex-shrink: 0; border-right: 1.5px solid var(--clay-muted); border-bottom: 1.5px solid var(--clay-muted); transform: rotate(45deg); }
-.clay-editor details[open] > summary::after { transform: rotate(225deg); }
+.clay-editor summary::after { content: ''; width: 7px; height: 7px; flex-shrink: 0; border-right: 1.5px solid var(--clay-muted); border-bottom: 1.5px solid var(--clay-muted); transform: rotate(45deg); transition: transform 190ms cubic-bezier(.22,1,.36,1); }
+/* 关闭动画结束前 details 仍保持 open；箭头按逻辑状态同步回收。 */
+.clay-editor summary[aria-expanded=true]::after,
+.clay-editor details[open] > summary:not([aria-expanded])::after { transform: rotate(225deg); }
 .clay-editor details[open] > :not(summary) { margin-top: 12px; }
 .clay-editor details[open] > label + label { margin-top: 16px; }
 .clay-unit-field { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: var(--clay-size-control); padding: 0 12px; border: 0; border-radius: var(--clay-radius-control); background: var(--clay-well); box-shadow: var(--clay-inset); }
@@ -89,10 +91,10 @@
 .clay-select-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .clay-select-trigger > svg { width: 16px; height: 16px; color: var(--clay-muted); }
 .clay-select-menu, .clay-color-popover { position: fixed; z-index: 40; overflow-y: auto; overflow-x: hidden; pointer-events: auto; padding: 4px; border: 0; outline: none; border-radius: var(--clay-radius-floating); background: var(--clay-card-face); box-shadow: var(--clay-elevation); overscroll-behavior: contain; }
-.clay-editor .clay-select-menu > button { display: flex; width: 100%; min-height: var(--clay-size-compact); justify-content: space-between; padding: 8px 12px; border-color: transparent; background: transparent; box-shadow: none; text-align: left; font-weight: 400; }
-.clay-select-menu > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.clay-editor .clay-select-menu > button.is-active { background: var(--clay-selected); }
-.clay-editor .clay-select-menu > button[aria-selected=true] { color: var(--clay-focus); background: var(--clay-selected); }
+.clay-editor .clay-select-menu > .liquid-surface-content > button { display: flex; width: 100%; min-height: var(--clay-size-compact); justify-content: space-between; padding: 8px 12px; border-color: transparent; background: transparent; box-shadow: none; text-align: left; font-weight: 400; }
+.clay-select-menu > .liquid-surface-content > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clay-editor .clay-select-menu > .liquid-surface-content > button.is-active { background: var(--clay-selected); }
+.clay-editor .clay-select-menu > .liquid-surface-content > button[aria-selected=true] { color: var(--clay-focus); background: var(--clay-selected); }
 .clay-editor .clay-color-trigger { width: 100%; justify-content: flex-start; background: var(--clay-well); box-shadow: var(--clay-inset); font-variant-numeric: tabular-nums; font-weight: 400; }
 .clay-color-swatch { width: 22px; height: 22px; flex-shrink: 0; border: 0; border-radius: 6px; }
 .clay-color-popover { width: 240px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); padding: 12px; }
@@ -133,8 +135,11 @@
 .clay-editor .clay-select-trigger[aria-expanded=true] { background: var(--clay-wellActive); filter: none; box-shadow: var(--clay-inset); }
 .clay-editor .clay-select-trigger:active:enabled,
 .clay-editor .clay-color-trigger:active:enabled { transform: none; }
-.clay-editor .clay-select-menu > button,
+.clay-editor .clay-select-menu > .liquid-surface-content > button,
 .clay-editor .clay-color-options > button { transform: none; filter: none; }
-.clay-editor .clay-select-menu > button:hover:enabled { background: var(--clay-hover); filter: none; }
-.clay-editor .clay-select-menu > button:active:enabled,
+.clay-editor .clay-select-menu > .liquid-surface-content > button:hover:enabled { background: var(--clay-hover); filter: none; }
+.clay-editor .clay-select-menu > .liquid-surface-content > button:active:enabled,
 .clay-editor .clay-color-options > button:active:enabled { transform: none; box-shadow: none; }
+
+/* 系统减少动态同时关闭折叠箭头的过渡。 */
+@media (prefers-reduced-motion: reduce) { .clay-editor summary::after { transition: none; } }

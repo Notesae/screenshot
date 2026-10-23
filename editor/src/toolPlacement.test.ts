@@ -1,10 +1,10 @@
 import {expect,it} from 'vitest';
 import {boundTool,placeTools} from './toolPlacement';
-it('工具位置在屏内，空间足够时浮卡与轨留出48px净空，不修改图像坐标',()=>{
+it('工具位置在屏内，浮卡就近留出16px净空，不修改图像坐标',()=>{
   const frame={x:400,y:200,width:500,height:300},original=JSON.stringify(frame);
   const layout=placeTools({x:0,y:0,width:1600,height:1000},frame,{width:800,height:52},{width:340,height:420});
   const a=layout.card,b=layout.rail;
-  expect(a.x+a.width+48<=b.x||b.x+b.width+48<=a.x||a.y+a.height+48<=b.y||b.y+b.height+48<=a.y).toBe(true);
+  expect(a.x+a.width+16<=b.x||b.x+b.width+16<=a.x||a.y+a.height+16<=b.y||b.y+b.height+16<=a.y).toBe(true);
   expect(JSON.stringify(frame)).toBe(original);
 });
 it('在窄显示器自动缩短浮卡滚动区，不覆盖横跨屏宽的动作轨',()=>{

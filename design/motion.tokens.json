@@ -81,6 +81,13 @@
         "k": 680,
         "c": 27
       },
+      "selection": { "k": 280, "c": 17 },
+      "toolLayout": { "k": 400, "c": 38 },
+      "toolRecoil": { "k": 340, "c": 14 },
+      "selectionCorner": { "k": 310, "c": 24 },
+      "selectionRipple": { "k": 390, "c": 22 },
+      "selectionRelease": { "k": 340, "c": 19 },
+      "selectionCreate": { "k": 340, "c": 26 },
       "indicator": {
         "k": 470,
         "c": 30
@@ -105,6 +112,43 @@
       "bodyBulge": 3.2,
       "iconRatio": 0.38,
       "intensity": 1
+    },
+    "selection": {
+      "maxLag": 14,
+      "gain": 0.65,
+      "leading": 0.2,
+      "radius": 14,
+      "bend": 4,
+      "pulse": 0.7,
+      "cornerCarry": 0.22,
+      "ripple": 3.5,
+      "rippleGain": 0.24,
+      "squash": 4,
+      "releaseImpulse": 90,
+      "creation": {
+        "seed": 6,
+        "lag": 22,
+        "gain": 0.62,
+        "gripLag": 0.12,
+        "sideLag": 0.75,
+        "neck": 10,
+        "compactAt": 96,
+        "radius": 22,
+        "roundness": 0.3,
+        "held": 0.28
+      }
+    },
+    "contact": {
+      "duration": 300,
+      "delay": 28,
+      "lead": 4.6,
+      "follow": 2.2,
+      "yield": 1.2,
+      "impulse": 18,
+      "squash": 0.09,
+      "bulge": 0.08,
+      "flatten": 4,
+      "maxGap": 12
     },
     "press": {
       "x": 1.065,

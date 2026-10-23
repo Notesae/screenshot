@@ -5,10 +5,10 @@ public sealed partial class AiService
     public Task<AiTextResult> ProbeAsync(string providerId,string kind,CancellationToken token=default)=>ProbeCoreAsync(providerId,kind,null,token);
 
     /// <summary>测试原生表单草稿，空密钥沿用本机已存密钥；不会保存草稿或把密钥返回前端。</summary>
-    public Task<AiTextResult> ProbeDraftAsync(ProviderUpdate draft,CancellationToken token=default)=>ProbeCoreAsync(draft.Id,"text",draft,token);
+    public Task<AiTextResult> ProbeDraftAsync(ProviderUpdate draft,CancellationToken token=default,IProgress<string>? progress=null)=>ProbeCoreAsync(draft.Id,"text",draft,token,progress);
 
     // 已保存配置与未保存草稿共用固定输入和协议，始终绕过缓存，避免旧成功伪装为当前可连接。
-    private Task<AiTextResult> ProbeCoreAsync(string providerId,string kind,ProviderUpdate? draft,CancellationToken token)=>ExecuteAsync(async ct=>{
+    private Task<AiTextResult> ProbeCoreAsync(string providerId,string kind,ProviderUpdate? draft,CancellationToken token,IProgress<string>? progress=null)=>ExecuteAsync(async ct=>{
         if(kind is not ("text" or "image"))throw new AiProviderException("invalid_probe","请选择文字或图片测试。");
         StoredProvider provider;
         if(draft is null)provider=await GetProviderAsync(providerId,ct);
@@ -31,8 +31,10 @@ public sealed partial class AiService
             :new[]{new{role="user",content=new object[]{new{type="text",text=prompt},new{type="image_url",image_url=new{url="data:image/png;base64,"+image}}}}};
         // 设置里的连接测试使用实际翻译示例，兼容只接受 user 文本的专用翻译模型。
         if(draft is not null)messages=new[]{new{role="user",content="把下面的文本翻译成简体中文，不要额外解释。\n\nHello."}};
-        var result=await SendAsync(provider,messages,ct);
+        // 探测只需要短响应，避免固定短句也等待服务默认的长输出预算。
+        var result=await SendAsync(provider,messages,ct,outputLimit:64,progress:progress);
+        ct.ThrowIfCancellationRequested();
         lock(_cacheSync)Record("probe-"+kind,result);
         return result;
-    },token);
+    },token,TimeSpan.FromSeconds(30));
 }

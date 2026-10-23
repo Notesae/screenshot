@@ -25,9 +25,9 @@ describe('离开编辑前的状态检查',()=>{
     expect(prepareLeaveSnapshot({...state,operation:'完成截图'},'complete')).toMatchObject({documentId:'isolated',revision:7,projectSaved:false,empty:false});
     expect(prepareLeaveSnapshot({...state,projectSaved:true},'close')).toHaveProperty('projectSaved',true);
   });
-  it('允许 AI 运行时替换文档，完成仍等待任务',()=>{
+  it('允许 AI 运行时替换或关闭文档以取消任务，完成仍等待任务',()=>{
     expect(prepareLeaveSnapshot({...state,aiBusy:true,operation:'导入图片'},'replace')).toHaveProperty('document');
-    expect(prepareLeaveSnapshot({...state,aiBusy:true},'close')).toHaveProperty('error');
+    expect(prepareLeaveSnapshot({...state,aiBusy:true},'close')).toHaveProperty('document');
     expect(prepareLeaveSnapshot({...state,aiBusy:true,operation:'完成截图'},'complete')).toHaveProperty('error');
   });
   it.each(['editing','loading'] as const)('拒绝丢弃尚未提交的 %s 状态',key=>{

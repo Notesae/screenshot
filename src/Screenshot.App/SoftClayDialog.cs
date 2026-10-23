@@ -21,7 +21,7 @@ internal static class SoftClayDialog
         var result = buttons == MessageBoxButton.OK ? MessageBoxResult.OK
             : buttons == MessageBoxButton.YesNo ? MessageBoxResult.No : MessageBoxResult.Cancel;
         if (defaultResult == MessageBoxResult.None) defaultResult = result;
-        var dialog = new Window
+        var dialog = new SoftClayWindow
         {
             Title = title, Width = Math.Min(520, SystemParameters.WorkArea.Width - 32),
             MaxHeight = Math.Max(240, SystemParameters.WorkArea.Height - 32), SizeToContent = SizeToContent.Height,
@@ -80,7 +80,7 @@ internal static class SoftClayDialog
             actions.Children.Add(button);
         }
         Grid.SetRow(actions, 2); content.Children.Add(actions);
-        dialog.Content = new SoftClaySurface { Style = (Style)dialog.Resources["ClayFloatingSurface"], Margin = new Thickness(16), Child = content };
+        dialog.Content = new SoftClayPopupSurface { Style = (Style)dialog.Resources[typeof(SoftClayPopupSurface)], Margin = new Thickness(16), Content = content };
         dialog.Loaded += (_, _) => defaultButton?.Focus();
         dialog.ShowDialog();
         return result;

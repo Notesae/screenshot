@@ -1,37 +1,63 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useSurfaceMotion } from './SurfaceMotion';
+import { motionTokens } from './motion';
+import { motionSuspended, observeMotionScope } from './motionScope';
 
-/** 统一鼠标与键盘提示，不使用浏览器无法换肤的 title 弹层。 */
+/** 统一鼠标与键盘提示；移开时保留退场，激活控件时立即撤去提示。 */
 export function TooltipLayer() {
   const anchor = useRef<HTMLSpanElement>(null), popup = useRef<HTMLDivElement>(null), id = useId();
   const [target, setTarget] = useState<HTMLElement | null>(null), [position, setPosition] = useState({ left: 0, top: 0 });
+  // 激活操作不保留退场节点，避免提示收回按钮时遮住按压和面板展开。
+  const [dismissed, setDismissed] = useState(false);
+  // 只为退场保留最后一条提示，不继续追踪已离开的按钮。
+  const retained = useRef<HTMLElement | null>(null), shown = target ?? retained.current;
+  const mounted = useSurfaceMotion(!!target, popup, shown, position.left + ':' + position.top);
+  useLayoutEffect(() => { if (target) retained.current = target; }, [target]);
   useEffect(() => { if (target && !target.isConnected) setTarget(null); });
   useEffect(() => {
     const root = anchor.current?.parentElement;
     if (!root) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const clear = () => { clearTimeout(timer); setTarget(null); };
+    let keyboard = false; // 键盘焦点提示不被无关表面的 pointerout 清除。
+    const clear = () => { clearTimeout(timer); keyboard = false; setTarget(null); };
+    // 捕获阶段先隐藏像素；即使按钮停止冒泡或本次点击触发焦点变化，也不闪回旧提示。
+    const dismiss = () => {
+      if (popup.current) popup.current.hidden = true;
+      retained.current = null; setDismissed(true); clear();
+    };
     const show = (event: Event) => {
       const element = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-tooltip]') : null;
       if (!element || !root.contains(element)) return;
-      clearTimeout(timer); timer = setTimeout(() => setTarget(element), event.type === 'focusin' ? 0 : 500);
+      if (event.type === 'focusin' && !element.matches(':focus-visible')) return;
+      if (motionSuspended(root) || element.matches(':disabled') || element.closest('[inert]')) { clear(); return; }
+      keyboard = event.type === 'focusin';
+      clearTimeout(timer); timer = setTimeout(() => {
+        if (motionSuspended(root) || !element.isConnected || element.matches(':disabled') || element.closest('[inert]')) clear();
+        else { setDismissed(false); setTarget(element); }
+      }, event.type === 'focusin' ? 0 : motionTokens.duration.tooltip);
     };
     const leave = (event: Event) => {
+      if (event.type === 'pointerout' && keyboard) return;
       if (event.type === 'pointerout' && event.target instanceof Element && event.target.closest('[data-tooltip]')?.contains((event as PointerEvent).relatedTarget as Node | null)) return;
       clear();
     };
     root.addEventListener('pointerover', show); root.addEventListener('focusin', show);
-    root.addEventListener('pointerout', leave); root.addEventListener('focusout', leave); root.addEventListener('pointerdown', clear); root.addEventListener('keydown', clear);
+    root.addEventListener('pointerout', leave); root.addEventListener('focusout', leave); root.addEventListener('pointerdown', dismiss, true); root.addEventListener('keydown', dismiss, true);
     window.addEventListener('resize', clear); window.addEventListener('scroll', clear, true);
-    return () => { clearTimeout(timer); root.removeEventListener('pointerover', show); root.removeEventListener('focusin', show); root.removeEventListener('pointerout', leave); root.removeEventListener('focusout', leave); root.removeEventListener('pointerdown', clear); root.removeEventListener('keydown', clear); window.removeEventListener('resize', clear); window.removeEventListener('scroll', clear, true); };
+    const stopScope = observeMotionScope(root, suspended => { if (suspended) clear(); });
+    return () => { stopScope(); clearTimeout(timer); root.removeEventListener('pointerover', show); root.removeEventListener('focusin', show); root.removeEventListener('pointerout', leave); root.removeEventListener('focusout', leave); root.removeEventListener('pointerdown', dismiss, true); root.removeEventListener('keydown', dismiss, true); window.removeEventListener('resize', clear); window.removeEventListener('scroll', clear, true); };
   }, []);
   useLayoutEffect(() => {
     if (!target || !popup.current) return;
     const rect = target.getBoundingClientRect(), panel = popup.current.getBoundingClientRect();
     setPosition({ left: Math.max(8, Math.min(rect.left + (rect.width - panel.width) / 2, window.innerWidth - panel.width - 8)), top: Math.max(8, rect.bottom + panel.height + 14 < window.innerHeight ? rect.bottom + 6 : rect.top - panel.height - 6) });
+  }, [target, mounted]);
+  useLayoutEffect(() => {
+    if (!target) return;
     const original = target.getAttribute('aria-describedby');
     target.setAttribute('aria-describedby', [original, id].filter(Boolean).join(' '));
     return () => { if (original) target.setAttribute('aria-describedby', original); else target.removeAttribute('aria-describedby'); };
   }, [target, id]);
-  return <><span ref={anchor} hidden/>{target && createPortal(<div ref={popup} id={id} role="tooltip" className="clay-tooltip" style={position}>{target.dataset.tooltip}</div>, anchor.current?.parentElement ?? document.body)}</>;
+  return <><span ref={anchor} hidden/>{!dismissed && mounted && shown && createPortal(<div ref={popup} id={id} role="tooltip" aria-hidden={!target} className="clay-tooltip" style={position}><div className="liquid-surface-skin" aria-hidden="true"/><div className="liquid-surface-content">{shown.dataset.tooltip}</div></div>, anchor.current?.parentElement ?? document.body)}</>;
 }

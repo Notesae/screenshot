@@ -5,6 +5,16 @@ const image = { dataUrl: 'data:image/png;base64,iVBORw0KGgo=', name: '合成图.
 const original: ProjectDocument = { schemaVersion: 2, image, editor: defaultEditor() };
 const changed = (text: string): ProjectDocument => ({ ...original, editor: { ...original.editor, text } });
 describe('bounded document history', () => {
+  it('把一次长滑杆手势合成一步，并把紧接的下一次手势分开', () => {
+    let history = commitHistory(createHistory(original), changed('first'), { group: 'gesture:a', now: 10 });
+    history = commitHistory(history, changed('last'), { group: 'gesture:a', now: 5010 });
+    expect(history.past).toHaveLength(1); expect(history.revision).toBe(2);
+    history = commitHistory(history, changed('next'), { group: 'gesture:b', now: 5020 });
+    expect(history.past).toHaveLength(2);
+    history = undoHistory(history); expect(history.present.editor.text).toBe('last');
+    history = undoHistory(history); expect(history.present).toBe(original);
+    expect(redoHistory(history).present.editor.text).toBe('last');
+  });
   it('undoes complete state changes and redoes without cloning image data', () => {
     let history = createHistory(original);
     history = commitHistory(history, changed('识别结果'));

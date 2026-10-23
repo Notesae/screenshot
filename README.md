@@ -1,6 +1,6 @@
 # Screenshot
 
-0.4.10 预发布版统一 Soft Clay 界面与“完成并复制”流程，改进图片原位翻译，并提供可移动、可调整大小的译文阅读窗口。关闭自动保存，完成后收起并结束本次编辑。[0.4.10 下载页](https://github.com/Notesae/screenshot/releases/tag/v0.4.10)提供当前用户 MSI 安装版和便携 ZIP；应用更新使用官方公开源，预发布通道需主动选择。真实 Windows 桌面、安装和更新交接仍未验收。见[本版说明](docs/RELEASE-NOTES-0.4.10.md)、[安装与目录说明](docs/DISTRIBUTION.md)及[更新说明](docs/UPDATES.md)。
+0.5 预发布版统一工具轨、浮卡、绘制元素和图标的软体受力效果，支持连续绘制与悬停参数卡，完善翻译取消和阅读入口，并整理归档旧设计 demo。[0.5 下载页](https://github.com/Notesae/screenshot/releases/tag/v0.5.0)提供当前用户 MSI 安装版和便携 ZIP；应用更新使用官方公开源，预发布通道需主动选择。真实 Windows 桌面、安装和更新交接仍未验收。见[本版说明](docs/RELEASE-NOTES-0.5.0.md)、[设计归档](docs/archive/design/README.md)、[安装与目录说明](docs/DISTRIBUTION.md)及[更新说明](docs/UPDATES.md)。
 
 Windows 截图与内容美化应用。支持原样、美化和文字重排三种编辑意图，原生 WPF 宿主加载本地 React/Fabric 编辑器；当前在框架基础上交付首批 P0 功能，完整产品验收仍以验证记录为准。
 

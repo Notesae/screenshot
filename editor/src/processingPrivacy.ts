@@ -1,8 +1,8 @@
 import { contentGeometry, type ProjectDocument } from './document';
 export type ProcessingMask = { x: number; y: number; width: number; height: number; color: string };
-/** 遮盖先映回裁剪原图，再缩放；旋转对象按外接矩形保守遮盖，边缘额外扩展以隔离采样。 */
+/** 识别副本将马赛克和旧实色遮盖都实色封闭，再缩放；旋转范围保守扩大以隔离采样。 */
 export function processingMasks(doc: ProjectDocument): ProcessingMask[] {
-  const covers = doc.editor.annotations.filter(a => a.type === 'cover');
+  const covers = doc.editor.annotations.filter(a => a.type === 'cover' || a.type === 'mosaic');
   if (!covers.length) return [];
   // 文字卡片的对象属于另一坐标空间，无法证明对应原图时拒绝发送。
   if (doc.editor.mode === 'reflow') throw new Error('文字卡片含遮盖，无法对应原图。请返回原样或美化模式核对遮盖后识别。');
@@ -15,6 +15,6 @@ export function processingMasks(doc: ProjectDocument): ProcessingMask[] {
     const ys = points.map(([x, y]) => (a.top - pad + x * s + y * c) * crop.height / height);
     const x = Math.max(0, Math.floor(Math.min(...xs)) - 2), y = Math.max(0, Math.floor(Math.min(...ys)) - 2);
     const right = Math.min(crop.width, Math.ceil(Math.max(...xs)) + 2), bottom = Math.min(crop.height, Math.ceil(Math.max(...ys)) + 2);
-    return right > x && bottom > y ? [{ x, y, width: right - x, height: bottom - y, color: a.color }] : [];
+    return right > x && bottom > y ? [{ x, y, width: right - x, height: bottom - y, color: a.type === 'mosaic' ? '#30332e' : a.color }] : [];
   });
 }

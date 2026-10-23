@@ -18,7 +18,8 @@ public partial class MainWindow
     private bool _preserving;
     private bool _startingInTray;
     private Window? _startupNotice; // 仅错误或用户在预热期间操作时显示的小型提示。
-    private Window? _transientNotice; // 隐藏时的错误只用不激活的短提示，不能切换到编辑器。
+    private SoftClayNoticeWindow? _transientNotice; // 托盘通知不激活工作台，错误保留到明确关闭。
+    private readonly NativeNoticeSequence _noticeSequence = new();
     private ProviderSettingsWindow? _settingsWindow; // 托盘与编辑器共用单个设置窗口，不恢复历史图片。
 
     // 屏外无边框宿主只负责 WebView 预热，用户桌面不展示主窗口或加载黑底。
@@ -53,7 +54,7 @@ public partial class MainWindow
     private void ShowStartupNotice(string text,string actionText="关闭提示",Action? action=null)
     {
         _startupNotice?.Close();
-        var notice=new Window{FontFamily=SoftClayTheme.Font,FontSize=SoftClayTheme.Number("type","body"),Width=440,SizeToContent=SizeToContent.Height,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,ShowInTaskbar=false,Topmost=true,AllowsTransparency=true,Background=Brushes.Transparent,WindowStartupLocation=WindowStartupLocation.CenterScreen};
+        var notice=new SoftClayWindow{FontFamily=SoftClayTheme.Font,FontSize=SoftClayTheme.Number("type","body"),Width=440,SizeToContent=SizeToContent.Height,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,ShowInTaskbar=false,Topmost=true,AllowsTransparency=true,Background=Brushes.Transparent,WindowStartupLocation=WindowStartupLocation.CenterScreen};
         var panel=new StackPanel{Margin=new Thickness(18)};
         panel.Children.Add(new TextBlock{Text="Screenshot",FontSize=SoftClayTheme.Number("type","title"),FontWeight=FontWeights.SemiBold,Foreground=SoftClayTheme.Brush("ink")});
         panel.Children.Add(new TextBlock{Text=text,TextWrapping=TextWrapping.Wrap,Foreground=SoftClayTheme.Brush("muted"),Margin=new Thickness(0,10,0,16)});
@@ -62,7 +63,7 @@ public partial class MainWindow
         retry.Click+=(_,_)=>{notice.Close();action?.Invoke();};actions.Children.Add(retry);
         var exit=new Button{Content="退出应用",Style=SoftClayTheme.ButtonStyle(),Margin=new Thickness(10,0,0,0)};
         exit.Click+=(_,_)=>{notice.Close();Close();};actions.Children.Add(exit);panel.Children.Add(actions);
-        notice.Content=new SoftClaySurface{Style=(Style)FindResource("ClayFloatingSurface"),Margin=new Thickness(16),Child=panel};
+        notice.Content=new SoftClayPopupSurface{Style=(Style)FindResource(typeof(SoftClayPopupSurface)),Margin=new Thickness(16),Content=panel};
         notice.Closed+=(_,_)=>{if(ReferenceEquals(_startupNotice,notice))_startupNotice=null;};
         _startupNotice=notice;notice.Show();
     }
@@ -95,7 +96,7 @@ public partial class MainWindow
     // 设置直接在原生层打开；隐藏宿主不作为 Owner，避免模态窗口顺带唤起旧编辑画面。
     private void OpenSettingsWindow(string section = "capture")
     {
-        if (_settingsWindow is not null) { _settingsWindow.Activate(); return; }
+        if (_settingsWindow is not null) { _settingsWindow.ResumePresentation(); _settingsWindow.Activate(); return; }
         var window = new ProviderSettingsWindow(_ai, SaveBeforeUpdateAsync, ExecuteAsync,
             owner => new TermsWindow(_terms, reviewOnly: true) { Owner = owner }.ShowDialog(), section);
         if (IsVisible) window.Owner = this;
@@ -108,30 +109,38 @@ public partial class MainWindow
     // 托盘入口仍受本地操作互斥保护，和网页设置共享行为但不经过 ShowWorkbenchFromTray。
     private void ShowSettingsFromTray()
     {
-        if (_settingsWindow is not null) { _settingsWindow.Activate(); return; }
+        if (_settingsWindow is not null) { _settingsWindow.ResumePresentation(); _settingsWindow.Activate(); return; }
         if (_presentation.IsSelecting) return;
-        if (!_requests.TryEnter("settings.configure", out var lease)) { ShowEditorNotice("正在处理另一项操作，请稍后打开设置。"); return; }
+        if (!_requests.TryEnter("settings.configure", out var lease)) { ShowEditorNotice("正在处理另一项操作，请稍后打开设置。", error: false); return; }
         try { _terms.RequireAccepted(); OpenSettingsWindow(); }
         catch (Exception error) { ShowEditorNotice("无法打开设置：" + error.Message); }
         finally { lease?.Dispose(); }
     }
 
-    private void ShowEditorNotice(string text)
+    // 同步界面回调可发出通知；异步等待旧窗口的真实 Closed，连续提示只留下最后一条。
+    private async void ShowEditorNotice(string text, bool error = true)
     {
+        // 冻结帧取得前不叠加重复操作提示；实际捕获错误在取消选区后再报告。
+        if (_presentation.IsSelecting || _lifetime.IsCancellationRequested || Dispatcher.HasShutdownStarted) return;
         // 可见时就地提示；驻留托盘时保持原呈现，不为展示错误唤起工作台。
-        if (_ready && IsVisible) Post(new { @event = "editor.action", payload = new { action = "notice", text } });
-        else
+        await _noticeSequence.ReplaceAsync(async () => { await ClearNativeNoticeAsync(cancelPending: false); }, () =>
         {
-            _transientNotice?.Close();
-            var area=SystemParameters.WorkArea;
-            var notice=new Window{FontFamily=SoftClayTheme.Font,FontSize=SoftClayTheme.Number("type","body"),Width=Math.Min(440,area.Width-32),SizeToContent=SizeToContent.Height,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,ShowActivated=false,ShowInTaskbar=false,Topmost=true,AllowsTransparency=true,Background=Brushes.Transparent,IsHitTestVisible=false};
-            notice.Content=new SoftClaySurface{Style=(Style)FindResource("ClayFloatingSurface"),Margin=new Thickness(16),Padding=new Thickness(16,12,16,12),Child=new TextBlock{Text=text,TextWrapping=TextWrapping.Wrap,Foreground=SoftClayTheme.Brush("ink"),FontSize=SoftClayTheme.Number("type","body")}};
-            var timer=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromSeconds(4)};
-            timer.Tick+=(_,_)=>notice.Close();
-            notice.Loaded+=(_,_)=>{notice.Left=area.Right-notice.ActualWidth-16;notice.Top=area.Bottom-notice.ActualHeight-16;timer.Start();};
-            notice.Closed+=(_,_)=>{timer.Stop();if(ReferenceEquals(_transientNotice,notice))_transientNotice=null;};
-            _transientNotice=notice;notice.Show();
-        }
+            if (_presentation.IsSelecting || _lifetime.IsCancellationRequested || Dispatcher.HasShutdownStarted) return;
+            if (_ready && IsVisible) Post(new { @event = "editor.action", payload = new { action = "notice", text, error } });
+            else
+            {
+                var notice=new SoftClayNoticeWindow(text,error);
+                notice.Closed+=(_,_)=>{if(ReferenceEquals(_transientNotice,notice))_transientNotice=null;};
+                _transientNotice=notice;notice.Show();
+            }
+        });
+    }
+    // 新截图必须等旧通知及其关闭槽位退场，不能把本进程提示带进冻结帧。
+    private async Task<bool> ClearNativeNoticeAsync(bool cancelPending = true)
+    {
+        if (cancelPending) _noticeSequence.Cancel();
+        if (_transientNotice is not { } notice) return false;
+        notice.Close(); await notice.ClosedTask; return true;
     }
 
     // 外部更新器已接手后允许退出；更新与退出均不自动保存编辑内容。
