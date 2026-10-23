@@ -5,6 +5,8 @@ export type SurfaceStrain = { x:number; y:number; stretch:number };
 
 /** 剩余时间内从当前 x/v 收束到终点；目标改道时也不重置起始速度。 */
 export function settleMotion(spring: MotionSpring, target: number, elapsed: number, remaining: number) {
+  // 显示前的零时间步只重算布局，不能经乘除运算扰动继承的速度。
+  if (elapsed === 0 && remaining > 0) return;
   if (remaining <= elapsed || remaining <= 0) { spring.snap(target); return; }
   const t = elapsed / remaining, p = t * t * (3 - 2 * t), tangent = t * (1 - t) * (1 - t);
   const distance = target - spring.x, velocity = spring.v * remaining;

@@ -1,3 +1,4 @@
+const ui=require('../editor/scripts/test-ui.cjs');
 // 独立无头合成桥验证连续截图交接；不访问桌面、真实窗口、剪贴板或捕获 API。
 const fs = require('node:fs');
 const path = require('node:path');
@@ -140,8 +141,8 @@ async function presented(page, key) {
 }
 async function snapshot(page) { return page.evaluate(() => window.screenshotPrepareUpdate()); }
 async function clickRecapture(page) {
-  const more=page.getByRole('button',{name:'更多操作',exact:true});
-  if(await more.getAttribute('aria-expanded')!=='true')await more.click();
+  const more=ui.button(page,'更多操作');
+  if(await more.getAttribute('aria-expanded')!=='true')await ui.inspect(page,'更多操作');
   await page.getByRole('button', { name:'重新框选', exact:true }).click();
 }
 

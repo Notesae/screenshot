@@ -1,4 +1,4 @@
-import candidate from '../../docs/motion/liquid-symbiosis/v2/tokens.json';
+import candidate from '../../design/motion.tokens.json';
 
 /** 仅消费 v2 动效参数，生产主题、控件尺寸和文档格式继续沿用原配置。 */
 export const motionTokens = candidate.motion;

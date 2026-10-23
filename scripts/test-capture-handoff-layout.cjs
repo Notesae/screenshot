@@ -59,15 +59,15 @@ function installProbe(config) {
     let maskHole = null;
     if (maskPath && frame) {
       const maskBounds = mask.getBoundingClientRect(), bounds = frame.getBoundingClientRect();
-      const x = bounds.left - maskBounds.left, y = bounds.top - maskBounds.top, width = bounds.width, height = bounds.height;
+      const rim=frame.dataset.elasticBorder==='true'?document.querySelector('.selection-jelly-border'):null;const contour=rim?.getAttribute('d')?rim.getBBox():null;const x = contour?.x ?? bounds.left - maskBounds.left, y = contour?.y ?? bounds.top - maskBounds.top, width = contour?.width ?? bounds.width, height = contour?.height ?? bounds.height;
       const filled = (px, py) => maskPath.isPointInFill(new DOMPoint(px, py));
       // 同时检查每条边内外两侧，避免只检查中心而漏掉遮罩洞尺寸偏差。
-      maskHole = { fillRule:getComputedStyle(maskPath).fillRule, centerClear:!filled(x + width / 2, y + height / 2),
-        leftInsideClear:!filled(x + 2, y + height / 2), rightInsideClear:!filled(x + width - 2, y + height / 2),
-        topInsideClear:!filled(x + width / 2, y + 2), bottomInsideClear:!filled(x + width / 2, y + height - 2),
-        leftOutsideFilled:filled(x - 2, y + height / 2), rightOutsideFilled:filled(x + width + 2, y + height / 2),
-        topOutsideFilled:filled(x + width / 2, y - 2), bottomOutsideFilled:filled(x + width / 2, y + height + 2),
-        desktopCornerFilled:filled(.5, .5), attributeWidth:mask.getAttribute('width'), attributeHeight:mask.getAttribute('height') };
+      const samples=[[x+width/2,y+height/2],[x+2,y+height/2],[x+width-2,y+height/2],[x+width/2,y+2],[x+width/2,y+height-2],[x-2,y+height/2],[x+width+2,y+height/2],[x+width/2,y-2],[x+width/2,y+height+2]];
+      // 弯曲边的包围盒极值不在边中点；动效中逐点核对遮罩与可见轮廓互补，静态仍核对准确矩形。
+      maskHole = { fillRule:getComputedStyle(maskPath).fillRule, centerClear:!filled(x+width/2,y+height/2),
+        sharedContour:!rim||maskPath.getAttribute('d').endsWith(rim.getAttribute('d')),
+        contourAgreement:rim?samples.every(([px,py])=>filled(px,py)!==rim.isPointInFill(new DOMPoint(px,py))):samples.every(([px,py],i)=>filled(px,py)===(i>=5)),
+        desktopCornerFilled:filled(.5,.5),attributeWidth:mask.getAttribute('width'),attributeHeight:mask.getAttribute('height') };
     }
     return { time:rounded(performance.now()), label, viewport:{ width:innerWidth, height:innerHeight, dpr:devicePixelRatio,
       visualWidth:visualViewport?.width, visualHeight:visualViewport?.height, visualScale:visualViewport?.scale },

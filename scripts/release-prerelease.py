@@ -106,7 +106,7 @@ def main():
     sums=out/'SHA256SUMS.txt';sums.write_text(''.join(sha(p)+'  '+p.name+'\n' for p in assets),encoding='utf-8',newline='\n');assets.append(sums)
     existing=get('releases/tags/'+tag,missing=True)
     if existing and (not existing['draft'] or existing['target_commitish']!=commit or marker not in existing['body']):raise RuntimeError('Version already exists; preserved without modification')
-    release=existing or get('releases',method='POST',data={'tag_name':tag,'target_commitish':commit,'name':'Screenshot '+tag+' 预发布版','body':body,'draft':True,'prerelease':True,'make_latest':'false'})
+    release=existing or get('releases',method='POST',data={'tag_name':tag,'target_commitish':commit,'name':'Screenshot '+(version.rsplit('.',1)[0] if version.endswith('.0') else version)+' 预发布版','body':body,'draft':True,'prerelease':True,'make_latest':'false'})
     def checkpoint(stage):
         (out/'publication-state.json').write_text(json.dumps({'stage':stage,'releaseId':release['id'],'releaseUrl':release['html_url'],'commit':commit,'ciArtifactId':artifact['id'],'published':not release['draft'],'downloadVerified':stage=='verified'},indent=2)+'\n',encoding='utf-8')
     checkpoint('draft_ready')

@@ -154,7 +154,7 @@
 
 本轮按用户要求仅编译、打包并更新固定入口，不运行自动化测试或 CI，也不进行桌面交互验收。
 
-日期：2026-10-22。基于 design/liquid-symbiosis 的 e478516，在 codex/liquid-motion-v2 实现。参考 docs/motion/liquid-symbiosis/v2 的 DESIGN、MOTION-SPEC、tokens 和 demo/engine.js；原型本身保留。
+日期：2026-10-22。基于 design/liquid-symbiosis 的 e478516，在 codex/liquid-motion-v2 实现。参考 docs/archive/design/2026-10-liquid-motion/liquid-symbiosis/v2 的 DESIGN、MOTION-SPEC、tokens 和 demo/engine.js；原型本身保留。
 
 ## 2026-10-22 隐藏后异步更新与连续重定向
 

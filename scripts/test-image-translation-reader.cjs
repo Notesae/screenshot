@@ -1,3 +1,4 @@
+const ui=require('../editor/scripts/test-ui.cjs');
 // 只在独立无头浏览器中生成图片、模拟桥及虚拟指针，不访问桌面、剪贴板或真实服务。
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),http=require('node:http');
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
@@ -9,7 +10,7 @@ const server=http.createServer((req,res)=>{
   fs.readFile(file,(error,data)=>{if(error){res.writeHead(404).end();return;}res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');res.end(data);});
 });
 let browser,origin;
-const click=(p,name)=>p.getByRole('button',{name,exact:true}).click();
+const click=(p,name)=>ui.click(p,name);
 async function ready(p){await p.waitForFunction(()=>!window.screenshotPrepareUpdate?.().error&&window.screenshotPrepareUpdate?.().document?.image&&!document.querySelector('button[aria-label="完成"]').disabled);}
 async function documentOf(p){await ready(p);return p.evaluate(()=>window.screenshotPrepareUpdate().document);}
 async function choose(p,label,name){await p.getByRole('combobox',{name:label,exact:true}).click();await p.getByRole('option',{name,exact:true}).click();}

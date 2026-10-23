@@ -1,3 +1,4 @@
+const ui=require('../editor/scripts/test-ui.cjs');
 // 仅使用无头浏览器、合成 PNG 与内存桥；不访问桌面、原生对话框或系统剪贴板。
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),http=require('node:http');
 const {chromium}=require(process.env.SCREENSHOT_PLAYWRIGHT_MODULE||process.env.PLAYWRIGHT_MODULE||'playwright');
@@ -76,7 +77,7 @@ async function main(){
   activePage=page;
   await page.route('**/*',route=>route.request().url().startsWith('http://127.0.0.1:')||route.request().url().startsWith('data:')?route.continue():route.abort());
   await page.addInitScript(mockHost);await page.goto('http://127.0.0.1:'+server.address().port+'/index.html');
-  const click=label=>page.getByRole('button',{name:label,exact:true}).click();
+  const click=label=>ui.click(page,label);
   await click('打开图片');await page.waitForFunction(()=>!document.querySelector('button[aria-label="完成"]').disabled);
   assert.equal(await page.getByText('完整工作台',{exact:true}).count(),0);
   await page.evaluate(()=>{window.__mock.state.holdReady=true;window.__mock.capture();});await page.waitForSelector('.is-overlay');
@@ -183,7 +184,7 @@ async function main(){
   await page.keyboard.press('Escape');assert.equal(await page.locator('.clay-card').count(),1);assert.equal(await page.evaluate(()=>window.__mock.state.hidden),false);
   await page.keyboard.press('Escape');await page.waitForSelector('.clay-card',{state:'detached'});
   await page.keyboard.press('Escape');await page.waitForFunction(()=>window.__mock.state.hidden);await page.evaluate(()=>window.__mock.resume());
-  if(await page.getByRole('button',{name:'更多操作',exact:true}).getAttribute('aria-expanded')!=='true')await click('更多操作');await click('重置工具位置');
+  if(await ui.button(page,'更多操作').getAttribute('aria-expanded')!=='true')await click('更多操作');await click('重置工具位置');
   for(const width of [768,390]){await page.setViewportSize({width,height:800});await page.waitForTimeout(80);await page.screenshot({path:path.join(out,'responsive-'+width+'.png')});const boxes=await page.locator('.clay-rail,.clay-card').evaluateAll(nodes=>nodes.map(node=>{const r=node.getBoundingClientRect();return {x:r.x,y:r.y,right:r.right,bottom:r.bottom};}));for(const box of boxes){assert.ok(box.x>=0&&box.y>=0&&box.right<=width+1&&box.bottom<=801,JSON.stringify(box));}}
   await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await page.locator('.clay-rail button').first().evaluate(node=>getComputedStyle(node).transitionDuration),'0s');
   // 注入复制/完成回复延迟，再载入新截图；旧回复不得收起或清空新的文档。
@@ -214,7 +215,7 @@ async function main(){
     await dpiPage.getByRole('button',{name:'打开图片',exact:true}).waitFor();await dpiPage.evaluate(()=>window.__mock.capture());
     await dpiPage.waitForFunction(()=>window.__mock.state.requests.includes('presentation.ready')&&!document.querySelector('button[aria-label="完成"]').disabled);
     for(const [surface,label]of [['raw',null],['beauty','美化图片'],['text','提取文字'],['more','更多操作']]){
-      if(label)await dpiPage.getByRole('button',{name:label,exact:true}).click();
+      if(label)await ui.click(dpiPage,label);
       await dpiPage.screenshot({path:path.join(out,'mock-dpr-'+dpr+'-'+surface+'.png')});
     }
     const beforeMove=await dpiPage.locator('.clay-capture-selection').boundingBox();
@@ -234,5 +235,5 @@ async function drawRect(page){
   await page.waitForFunction(()=>document.querySelector('[data-drawing-tool="rect"]'));
   const canvas=page.locator('.upper-canvas');await canvas.click({position:{x:80,y:60},trial:true});const box=await canvas.boundingBox();
   await page.mouse.move(box.x+box.width*.2,box.y+box.height*.2);await page.mouse.down();await page.mouse.move(box.x+box.width*.6,box.y+box.height*.6,{steps:4});await page.mouse.up();
-  await page.waitForFunction(()=>!document.querySelector('[data-drawing-tool]'));
+  await page.waitForFunction(()=>window.screenshotPrepareUpdate().document.editor.annotations.length>0);await page.keyboard.press('Escape');
 }

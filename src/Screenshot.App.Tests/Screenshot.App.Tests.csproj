@@ -28,8 +28,8 @@
     <Compile Include="../Screenshot.App/OverlayScrollbars.cs" Link="OverlayScrollbars.cs"/>
     <Page Include="../Screenshot.App/SoftClayControls.xaml" Link="SoftClayControls.xaml"/>
     <!-- 仅复用 v2 motion 节，生产材质与尺寸保持原 token。 -->
-    <EmbeddedResource Include="../../docs/motion/liquid-symbiosis/v2/tokens.json" LogicalName="Screenshot.LiquidMotionTokens"/>
-    <EmbeddedResource Include="../../docs/motion/liquid-symbiosis/v2/background/tokens.json" LogicalName="Screenshot.BackgroundMotionTokens"/>
+    <EmbeddedResource Include="../../design/motion.tokens.json" LogicalName="Screenshot.LiquidMotionTokens"/>
+    <EmbeddedResource Include="../../design/background-motion.tokens.json" LogicalName="Screenshot.BackgroundMotionTokens"/>
     <EmbeddedResource Include="../../design/soft-clay.tokens.json" LogicalName="Screenshot.SoftClayTokens"/>
   </ItemGroup>
 </Project>
