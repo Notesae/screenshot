@@ -171,7 +171,7 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
     private void UpdateFeedback()
     {
         var displayed=_model.Selection??HoverTarget?.Bounds;var scale=DeviceDpi/96d;
-        _feedback.Update((displayed?.X??0)/scale,(displayed?.Y??0)/scale,displayed is { Width:>0,Height:>0 },!System.Windows.SystemParameters.ClientAreaAnimation,(displayed?.Width??0)/scale,(displayed?.Height??0)/scale);
+        _feedback.Update((displayed?.X??0)/scale,(displayed?.Y??0)/scale,displayed is { Width:>0,Height:>0 },!System.Windows.SystemParameters.ClientAreaAnimation,(displayed?.Width??0)/scale,(displayed?.Height??0)/scale,_model.Dragging);
         if(!_feedback.Moving){_motionTimer.Stop();return;}
         if(_motionTimer.Enabled)return;
         _motionLast=System.Diagnostics.Stopwatch.GetTimestamp();_motionTimer.Start();
@@ -190,7 +190,7 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
         if (!_hintBounds.IsEmpty) { var hint = _hintBounds; hint.Inflate((int)Math.Ceiling(12 * scale), (int)Math.Ceiling(12 * scale)); Invalidate(hint); }
         if ((_model.Selection ?? HoverTarget?.Bounds) is not {} r) return;
         var tokens = SoftClayMotion.SelectionTokens;
-        var margin = (int)Math.Ceiling((tokens.GetProperty("maxLag").GetDouble() + tokens.GetProperty("radius").GetDouble() + tokens.GetProperty("bend").GetDouble() + 8) * scale);
+        var margin = (int)Math.Ceiling((tokens.GetProperty("maxLag").GetDouble() + tokens.GetProperty("radius").GetDouble() + tokens.GetProperty("bend").GetDouble() + tokens.GetProperty("ripple").GetDouble() + tokens.GetProperty("squash").GetDouble() + 8) * scale);
         var box = new Rectangle(r.X - _desktop.X, r.Y - _desktop.Y, r.Width, r.Height);
         box.Inflate(margin, margin);
         var horizontal = Math.Min(box.Height, margin * 2); var vertical = Math.Min(box.Width, margin * 2);
@@ -238,25 +238,27 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
             g.DrawLine(cross,_pointer.X-8,_pointer.Y,_pointer.X+8,_pointer.Y);g.DrawLine(cross,_pointer.X,_pointer.Y-8,_pointer.X,_pointer.Y+8);
         }
     }
-    /// <summary>唯一可见边框、遮罩开口与手柄共用曲线；只对冻结像素设裁切，不缩放原图。</summary>
+    /// <summary>四角独立接力、边面切向波动；镂空与手柄仍取自唯一的边框曲线。</summary>
     private PointF[] DrawSelectionBorder(Graphics graphics, Rectangle box, float scale)
     {
         var shape = _feedback.Border;
         var l = box.Left + (float)shape.Left * scale; var t = box.Top + (float)shape.Top * scale;
         var r = box.Right + (float)shape.Right * scale; var b = box.Bottom + (float)shape.Bottom * scale;
-        var radius = (float)shape.Radius * scale;
+        var nw = (float)shape.Corners[0] * scale; var ne = (float)shape.Corners[1] * scale;
+        var se = (float)shape.Corners[2] * scale; var sw = (float)shape.Corners[3] * scale;
         var bendL = (float)shape.BendLeft * scale; var bendT = (float)shape.BendTop * scale;
         var bendR = (float)shape.BendRight * scale; var bendB = (float)shape.BendBottom * scale;
-        var w = r - l; var h = b - t; var c = radius * .45f;
+        var wx = (float)shape.RippleX * scale; var wy = (float)shape.RippleY * scale;
+        var w = r - l; var h = b - t;
         using var path = new System.Drawing.Drawing2D.GraphicsPath();
-        path.AddBezier(l + radius, t, l + w / 3, t + bendT, l + w * 2 / 3, t + bendT, r - radius, t);
-        path.AddBezier(r - radius, t, r - c, t, r, t + c, r, t + radius);
-        path.AddBezier(r, t + radius, r + bendR, t + h / 3, r + bendR, t + h * 2 / 3, r, b - radius);
-        path.AddBezier(r, b - radius, r, b - c, r - c, b, r - radius, b);
-        path.AddBezier(r - radius, b, l + w * 2 / 3, b + bendB, l + w / 3, b + bendB, l + radius, b);
-        path.AddBezier(l + radius, b, l + c, b, l, b - c, l, b - radius);
-        path.AddBezier(l, b - radius, l + bendL, t + h * 2 / 3, l + bendL, t + h / 3, l, t + radius);
-        path.AddBezier(l, t + radius, l, t + c, l + c, t, l + radius, t);
+        path.AddBezier(l + nw, t, l + w / 3, t + bendT - wx, l + w * 2 / 3, t + bendT + wx, r - ne, t);
+        path.AddBezier(r - ne, t, r - ne * .45f, t, r, t + ne * .45f, r, t + ne);
+        path.AddBezier(r, t + ne, r + bendR - wy, t + h / 3, r + bendR + wy, t + h * 2 / 3, r, b - se);
+        path.AddBezier(r, b - se, r, b - se * .45f, r - se * .45f, b, r - se, b);
+        path.AddBezier(r - se, b, l + w * 2 / 3, b + bendB + wx, l + w / 3, b + bendB - wx, l + sw, b);
+        path.AddBezier(l + sw, b, l + sw * .45f, b, l, b - sw * .45f, l, b - sw);
+        path.AddBezier(l, b - sw, l + bendL + wy, t + h * 2 / 3, l + bendL - wy, t + h / 3, l, t + nw);
+        path.AddBezier(l, t + nw, l, t + nw * .45f, l + nw * .45f, t, l + nw, t);
         path.CloseFigure();
         var state = graphics.Save();
         graphics.SetClip(path, System.Drawing.Drawing2D.CombineMode.Intersect);
@@ -264,10 +266,12 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
         graphics.Restore(state);
         using var edge = new Pen(SoftClayDrawing.Color("accent"), (float)SoftClayTheme.Number("size", "selectionBorder") * scale);
         graphics.DrawPath(edge, path);
-        // 曲线中点与网页一致：角取圆角中点，边取三次曲线中点，控制点不会留在旧矩形上。
-        var k = radius * .125f + c * .375f; var mx = (l + r) / 2; var my = (t + b) / 2;
-        return [new(l + k, t + k), new(mx, t + bendT * .75f), new(r - k, t + k), new(r + bendR * .75f, my),
-            new(r - k, b - k), new(mx, b + bendB * .75f), new(l + k, b - k), new(l + bendL * .75f, my)];
+        // 不等圆角使边的参数中点偏移，八个手柄用与网页相同的真实三次曲线中点。
+        var knw = nw * (.125f + .45f * .375f); var kne = ne * (.125f + .45f * .375f);
+        var kse = se * (.125f + .45f * .375f); var ksw = sw * (.125f + .45f * .375f);
+        var mx = (l + r) / 2; var my = (t + b) / 2;
+        return [new(l + knw, t + knw), new(mx + (nw - ne) / 8, t + bendT * .75f), new(r - kne, t + kne), new(r + bendR * .75f, my + (ne - se) / 8),
+            new(r - kse, b - kse), new(mx + (sw - se) / 8, b + bendB * .75f), new(l + ksw, b - ksw), new(l + bendL * .75f, my + (nw - sw) / 8)];
     }
     // 放大镜只读取本次冻结图，最近邻放大显示真实像素；不访问系统指针或再次捕获。
     private void DrawMagnifier(Graphics g)

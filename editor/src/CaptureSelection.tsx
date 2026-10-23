@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { adjustSelection, type CaptureHandle } from './selectionGeometry';
 import type { OverlayMetadata, PixelRect } from './overlay';
+import { presentationMotion } from './LiquidMotion';
 
 /** 选区内空白直接拖动；标注命中交还画布。裁剪及绘制完成前保留落点，避免旧帧闪回。 */
 export function CaptureSelection({ viewport, metadata, disabled, settled, onAdjust, onPreview, onDragging, hitAnnotation, onBegin, children }: {
@@ -20,6 +21,7 @@ export function CaptureSelection({ viewport, metadata, disabled, settled, onAdju
   },[pending,settled,metadata?.selection,preview]);
   function cancel() {
     const current=drag.current;if(!current)return;
+    presentationMotion(current.element)?.selectionGesture(false, true);
     drag.current=null;reset();onDragging(false);
     if(current.element.hasPointerCapture(current.id))current.element.releasePointerCapture(current.id);
   }
@@ -35,7 +37,7 @@ export function CaptureSelection({ viewport, metadata, disabled, settled, onAdju
     event.preventDefault();event.stopPropagation();onBegin();
     (handleButton??frame.current)?.focus({preventScroll:true});event.currentTarget.setPointerCapture(event.pointerId);
     drag.current={id:event.pointerId,x:event.clientX,y:event.clientY,handle,area:metadata.selection,next:metadata.selection,element:event.currentTarget};
-    onDragging(true);
+    onDragging(true);presentationMotion(event.currentTarget)?.selectionGesture(true);
   }
   function move(event: PointerEvent<HTMLDivElement>) {
     const current=drag.current;if(!current||!metadata||event.pointerId!==current.id)return;
@@ -46,6 +48,8 @@ export function CaptureSelection({ viewport, metadata, disabled, settled, onAdju
   async function end(event: PointerEvent<HTMLDivElement>) {
     const current=drag.current;if(!current||!metadata||event.pointerId!==current.id)return;
     move(event);drag.current=null;onDragging(false);
+    // 原位置点击不重复释放上一段拖动尚未消散的受力。
+    presentationMotion(current.element)?.selectionGesture(false, sameArea(current.next,current.area));
     if(current.element.hasPointerCapture(current.id))current.element.releasePointerCapture(current.id);
     if(sameArea(current.next,metadata.selection)){reset();return;}
     setPending(true);const request=++sequence.current;

@@ -216,6 +216,11 @@ export class LiquidMotion {
   }
   /** 输入为精确选区的 CSS 矩形；不读取变形后的边缘作为新目标。 */
   selectionSkin(box: MotionRect | null) { this.selectionJelly.update(box, this.clock.reduced); this.paintSelection(); this.wake(); }
+  /** 只接收真实选区手势；松手冲量不会阻塞裁剪提交，取消和隐藏不生成释放反馈。 */
+  selectionGesture(held: boolean, cancelled = false) {
+    if (!this.active || document.hidden || this.root.dataset.motionExit || this.clock.reduced) return;
+    this.selectionJelly.gesture(held, cancelled); this.wake();
+  }
   /** 用同一轮廓同步边框、遮罩与手柄；真实矩形只作为截图和手势的坐标模型。 */
   private paintSelection() {
     const shape = this.selectionJelly.frame;
