@@ -38,6 +38,8 @@ export class LiquidMotion {
   // 逻辑取消后继续持有材质来源，直到颜色与按压都收敛再交还普通皮肤。
   private indicatorSource: Surface | null = null;
   private panelRect: MotionRect | null = null;
+  // 布局阶段统一读取真实槽位和来源；浮卡逐帧绘制只消费缓存，避免样式写入后再强制测量。
+  private panelLayout: { actual: MotionRect; anchor: MotionRect | null } | null = null;
   private panelOpacity = 0;
   private panelMaterial = 0;
   private panelTransition: SurfaceTransition | null = null;
@@ -76,7 +78,11 @@ export class LiquidMotion {
     this.resize = new ResizeObserver(entries => {
       // 同一布局帧内补偿材质比例，内容展开时不能先按新尺寸拉伸一帧再追赶。
       if (this.panelElement && !this.panelElement.classList.contains('is-closing') && entries.some(entry => entry.target === this.panelElement)) {
-        void this.panel(this.panelElement, this.panelSource, true, this.panelContent);
+        const target = rect(this.panelElement.getBoundingClientRect()), previous = this.panelLayout?.actual;
+        // 首次观察通常仍是已测量的尺寸；只有几何真的变化才续接，避免重复启动同一入场。
+        if (!previous || target.x !== previous.x || target.y !== previous.y || target.width !== previous.width || target.height !== previous.height) {
+          void this.panel(this.panelElement, this.panelSource, true, this.panelContent);
+        }
       }
       invalidate();
     }); this.resize.observe(rail); this.resize.observe(root);
@@ -141,6 +147,7 @@ export class LiquidMotion {
     const panel = this.root.querySelector<HTMLElement>('.clay-card:not(.is-closing)');
     if (!panel) return;
     this.clock.finish('panel'); this.panelRect = rect(panel.getBoundingClientRect()); this.manualPanel = immediate;
+    if (this.panelLayout) this.panelLayout.actual = this.panelRect;
     this.panelTransition?.snap(this.panelRect, true);
   }
   private wake() { if (!this.destroyed && this.active && !document.hidden) { this.root.dataset.motionState = 'awake'; this.clock.wake(); } }
@@ -153,11 +160,14 @@ export class LiquidMotion {
     this.clock.setSuspended(document.hidden);
     this.measure();
     if (document.hidden) { this.resetField(); return; }
-    this.body.snap(this.clock.reduced ? 1 : .06); this.body.to = 1;
-    const now = performance.now();
-    for (const [index, node] of this.nodes.entries()) {
+    // 底座从接近最终宽度的软体展开；长轨道不会把弹簧进度放大成整排按钮的高速飞行。
+    this.body.snap(this.clock.reduced ? 1 : .88); this.body.to = 1;
+    const now = performance.now(), done = this.nodes.find(node => node.el.dataset.motionAction === 'done');
+    const endpoint = done ? done.rect.x + done.rect.width / 2 : this.rr.width - 32;
+    for (const node of this.nodes) {
       node.birth.snap(this.clock.reduced ? 1 : 0); node.birth.to = 1;
-      node.due = now + (node.el.dataset.motionAction === 'done' ? 0 : (this.nodes.length - index) * T.duration.enterStagger);
+      // 按与来源的距离错峰，整条轨道限制在四个间隔内，按钮增多也不会拖长入场队列。
+      node.due = now + clamp(Math.abs(endpoint - node.rect.x - node.rect.width / 2) / Math.max(1, this.rr.width)) * T.duration.enterStagger * 4;
     }
     this.paint(0, now);
     if (!this.clock.reduced) {
@@ -179,7 +189,7 @@ export class LiquidMotion {
     }
     this.body.snap(1); this.bulge.snap(0); this.bodyLight.snap(this.rr.width / 2);
     const body = this.rail.querySelector<HTMLElement>('.liquid-rail-body');
-    if (body) { body.style.transform = 'none'; body.style.borderRadius = this.railRadius + 'px'; body.style.setProperty('--liquid-body-light', '0'); }
+    if (body) { body.style.transform = 'none'; body.style.opacity = '1'; body.style.borderRadius = this.railRadius + 'px'; body.style.setProperty('--liquid-body-light', '0'); }
     for (const spring of Object.values(this.indicator)) spring.snap(0);
     const indicator = this.rail.querySelector<HTMLElement>('.liquid-active'); if (indicator) indicator.style.opacity = '0';
     this.sizePosition = null; this.sizeX.snap(0); this.sizeY.snap(0); this.selectionJelly.reset();
@@ -205,6 +215,9 @@ export class LiquidMotion {
       node.rect = { x: box.left - this.rr.x, y: box.top - this.rr.y, width: box.width, height: box.height };
       return node;
     });
+    if (this.panelElement?.isConnected) {
+      this.panelLayout = { actual: rect(this.panelElement.getBoundingClientRect()), anchor: this.panelSource?.isConnected ? rect(this.panelSource.getBoundingClientRect()) : null };
+    }
     this.dirty = false;
   }
   selection(box: MotionRect | null) {
@@ -315,15 +328,18 @@ export class LiquidMotion {
       if (reduced) { node.x.snap(0); node.y.snap(0); node.attention.snap(0); node.press.snap(0); node.contact.snap(0); node.birth.snap(1); }
       else {
         node.x.step(dt, preset); node.y.step(dt, preset); node.attention.step(dt, preset); node.press.step(dt, 'press'); node.contact.step(dt, 'press');
-        if (time >= node.due) node.birth.step(dt, 'entry');
+        // 错峰开始落在两帧之间时只积分实际经过的时间，不给首帧额外塞入一整帧位移。
+        if (time >= node.due) node.birth.step(Math.min(dt, (time - node.due) / 1000), 'entry');
       }
       const a = node.attention.x, p = node.press.x, birth = node.birth.x, contact = clamp(node.contact.x);
       const limit = Math.min(1, T.field.maxShift / (Math.hypot(node.x.x, node.y.x) || 1));
       const x = node.faceX = node.x.x * limit, y = node.faceY = node.y.x * limit;
-      const entryX = (endpoint - node.rect.x - node.rect.width / 2) * (1 - birth), entryY = -25 * (1 - birth);
-      node.skin.style.transform = 'translate(' + (x + entryX) + 'px,' + (y + entryY) + 'px) scale(' + (Math.max(.02, birth) * (1 + T.field.stretch * a * .6 + (T.press.x - 1) * p - T.contact.squash * contact)) + ',' + (Math.max(.02, birth) * (1 + T.field.stretch * a * (Math.abs(dy) - .3) + (T.press.y - 1) * p + T.contact.bulge * contact)) + ')';
-      node.glyph.style.transform = 'translate(' + (x * T.field.iconRatio + entryX) + 'px,' + (y * T.field.iconRatio + entryY + p * 1.2) + 'px) rotate(' + ((1 - birth) * -22) + 'deg)';
-      node.skin.style.opacity = node.glyph.style.opacity = String(clamp(birth * 1.7));
+      // 出生位移限制在槽位附近；弹簧只承担局部形变与回弹，图文和材质同步显现。
+      const entryX = clamp(endpoint - node.rect.x - node.rect.width / 2, -18, 18) * (1 - birth), entryY = 6 * (1 - birth);
+      const entryScale = .9 + .1 * birth;
+      node.skin.style.transform = 'translate(' + (x + entryX) + 'px,' + (y + entryY) + 'px) scale(' + (entryScale * (1 + T.field.stretch * a * .6 + (T.press.x - 1) * p - T.contact.squash * contact)) + ',' + (entryScale * (1 + T.field.stretch * a * (Math.abs(dy) - .3) + (T.press.y - 1) * p + T.contact.bulge * contact)) + ')';
+      node.glyph.style.transform = 'translate(' + (x * T.field.iconRatio + entryX) + 'px,' + (y * T.field.iconRatio + entryY + p * 1.2) + 'px) rotate(' + ((1 - birth) * -3) + 'deg)';
+      node.skin.style.opacity = node.glyph.style.opacity = String(clamp(birth));
       // 受压侧略变平、外侧鼓起；图文只跟随平移，始终不参与软体挤压。
       node.skin.style.borderRadius = [node.radius + dx*a*3,node.radius - dx*a*2,node.radius + dx*a*2,node.radius - dx*a*3].map((value, corner) => Math.max(0, value + contact * T.contact.flatten * ((corner === 1 || corner === 2 ? 1 : -1) === node.contactSide ? -1 : .35)) + 'px').join(' ');
       node.skin.style.setProperty('--liquid-light', String(this.economy ? 0 : clamp(a * .95, 0, .8)));
@@ -337,7 +353,10 @@ export class LiquidMotion {
     this.bodyLight.to = sum ? center/sum : this.rr.width/2;
     if (reduced) { this.body.snap(1); this.bulge.snap(0); this.bodyLight.snap(this.rr.width/2); } else { this.body.step(dt, 'entry'); this.bulge.step(dt, 'body'); this.bodyLight.step(dt, 'body'); }
     const body = this.rail.querySelector<HTMLElement>('.liquid-rail-body')!;
-    body.style.transform = 'scale(' + this.body.x + ',' + (.92 + .08 * this.body.x) + ') skewX(' + this.bulge.x * .35 + 'deg)';
+    // 底座与按钮使用同段入场节奏；淡入覆盖首帧，短位移和有限压缩保留软糯回弹。
+    const railReveal = (this.body.x - .88) / .12;
+    body.style.transform = 'translateY(' + 6 * (1 - railReveal) + 'px) scale(' + this.body.x + ',' + (.95 + .05 * railReveal) + ') skewX(' + this.bulge.x * .35 + 'deg)';
+    body.style.opacity = String(clamp(railReveal));
     body.style.borderRadius = [this.railRadius+Math.max(0,-this.bulge.x),this.railRadius+Math.max(0,this.bulge.x),this.railRadius,this.railRadius].map(value => value+'px').join(' ');
     body.style.setProperty('--liquid-body-light-x',this.bodyLight.x+'px');
     body.style.setProperty('--liquid-body-light',String(reduced||this.economy?0:Math.min(1,sum)));
@@ -370,9 +389,9 @@ export class LiquidMotion {
     blob.style.setProperty('--liquid-selection', String(clamp(ind.opacity.x)));
     blob.style.setProperty('--liquid-press', String(reduced ? Number(Boolean(source && this.pressed === source)) : clamp(source?.press.x ?? 0)));
     for (const name of ['--liquid-light', '--liquid-light-x', '--liquid-light-y']) blob.style.setProperty(name, skin?.style.getPropertyValue(name) || '0');
-    const panel=this.root.querySelector<HTMLElement>('.clay-card:not(.is-closing)');
-    if(panel&&!this.clock.has('panel')) {
-      this.panelRect=rect(panel.getBoundingClientRect());
+    const panel = this.panelElement, layout = this.panelLayout;
+    if (panel?.isConnected && layout && !panel.classList.contains('is-closing') && !this.clock.has('panel')) {
+      this.panelRect = layout.actual;
       if(this.panelTransition) {
         this.panelTransition.redirect(this.panelRect);
         if(this.panelTransition.moving)void this.panel(panel,this.panelSource,true,this.panelContent);
@@ -399,15 +418,16 @@ export class LiquidMotion {
     const sourceRect=source?rect(source.getBoundingClientRect()):null;
     const target = rect(element.getBoundingClientRect()), skin = element.querySelector<HTMLElement>('.liquid-panel-skin')!;
     const content = element.querySelector<HTMLElement>('.liquid-panel-content')!;
-    const origin = this.panelRect ?? (source ? rect(source.getBoundingClientRect()) : target);
-    const surface = this.panelTransition ??= new SurfaceTransition(origin, this.panelOpacity, this.panelMaterial, .35);
+    this.panelLayout = { actual: target, anchor: sourceRect };
+    const origin = this.panelRect ?? sourceRect ?? target;
+    // 主浮卡的正文更早融入外壳，材质也逐渐显现，避免先出现实心卡片再分段揭开内容。
+    const surface = this.panelTransition ??= new SurfaceTransition(origin, this.panelOpacity, this.panelMaterial, .08, 1.5);
     if (open) surface.open(target, this.panelContent !== contentKey);
     else if(sourceRect)surface.closeTo(sourceRect);
     else surface.close();
     if (open) this.panelContent = contentKey;
     const advance = (elapsed: number, finish: boolean) => {
-      const actual = rect(element.getBoundingClientRect());
-      const anchor=source?.isConnected?rect(source.getBoundingClientRect()):null;
+      const { actual, anchor } = this.panelLayout ?? { actual: target, anchor: sourceRect };
       if (open) surface.redirect(actual);
       else if(anchor)surface.redirect(anchor);
       if (finish) surface.finish(); else surface.step(elapsed);
@@ -431,7 +451,7 @@ export class LiquidMotion {
       link?.setAttribute('d', '');
       if (completed && !open) {
         this.panelRect = null; this.panelTransition = null; this.panelOpacity = this.panelMaterial = 0;
-        this.resize.unobserve(element); this.panelElement = null;
+        this.resize.unobserve(element); this.panelElement = null; this.panelLayout = null;
       }
     };
     if(this.root.dataset.motionDragging || this.manualPanel){this.manualPanel=false;surface.snap(target,open);advance(0,true);settled(true);return Promise.resolve(true);}

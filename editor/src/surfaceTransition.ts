@@ -17,7 +17,8 @@ export class SurfaceTransition {
   alpha: number;
   material: number;
 
-  constructor(box: MotionRect, alpha = 0, material = 0, private contentDelay = .25) {
+  // 主浮卡可单独收紧正文延迟与材质领先量；其它弹层继续使用原有入场节奏。
+  constructor(box: MotionRect, alpha = 0, material = 0, private contentDelay = .25, private materialLead = 4) {
     this.geometry = { x: new MotionSpring(box.x), y: new MotionSpring(box.y), width: new MotionSpring(box.width), height: new MotionSpring(box.height) };
     this.alpha = alpha; this.material = material;
   }
@@ -61,7 +62,7 @@ export class SurfaceTransition {
       for (const axis of axes) this.geometry[axis].step(elapsed, 'panel');
       this.progress.step(elapsed, 'panel'); const p = clamp(this.progress.x);
       this.alpha = this.fromAlpha + (1 - this.fromAlpha) * clamp((p - this.contentDelay) / (1 - this.contentDelay));
-      this.material = this.fromMaterial + (1 - this.fromMaterial) * clamp(p * 4);
+      this.material = this.fromMaterial + (1 - this.fromMaterial) * clamp(p * this.materialLead);
     } else {
       this.elapsed += clamp(elapsed, 0, 0.05);
       const t = this.duration ? clamp(this.elapsed * 1000 / this.duration) : 1, p = 1 - Math.pow(1 - t, 3);
