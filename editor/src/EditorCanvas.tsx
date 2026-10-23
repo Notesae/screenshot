@@ -1,18 +1,20 @@
 import { ControlButton } from './ControlMotion';
 import { Select } from './Select';
 import { useEffect, useLayoutEffect, useRef, useState, forwardRef, useImperativeHandle, type PointerEvent as ReactPointerEvent } from 'react';
-import { Canvas, StaticCanvas, Ellipse, FabricImage, FabricObject, Path, Point, Textbox } from 'fabric';
+import { Canvas, StaticCanvas, Ellipse, FabricImage, FabricObject, Path, Point, Rect, Textbox } from 'fabric';
 import { Minus, Plus } from 'lucide-react';
 import { renderBase } from './render';
 import { baseRenderKey } from './renderIdentity';
 import { contentGeometry, MAX_BRUSH_POINTS, outputSize, type Annotation, type AnnotationKind, type ProjectDocument } from './document';
 import { annotationFromObject as serialize, annotationToObject as restore, patchAnnotationObject, positionArrow, positionBrush, type AnnotationChange } from './annotations';
 import { renderBeautyContent } from './beautyPreview';
+import { annotationStyle } from './annotationAppearance';
+import { AnnotationMotion } from './AnnotationMotion';
 
 // 属性浮卡只接收可编辑的样式，不复制画笔轨迹或马赛克采样图。
 export type CanvasSelection = Pick<Annotation, 'id' | 'type' | 'color' | 'fontSize' | 'strokeWidth' | 'blockSize'>;
 export type CanvasRenderStatus = 'loading' | 'ready' | 'error';
-export type CanvasHandle = { exportPng: (scale: number) => Promise<string>; add: (type: AnnotationKind) => void; remove: () => void; patchSelection: (change: AnnotationChange) => boolean; interactionState: () => { editing: boolean; selected: boolean }; exitSelection: () => void; hasAnnotationAt: (event:PointerEvent) => boolean; getDisplayScale?: () => number };
+export type CanvasHandle = { exportPng: (scale: number) => Promise<string>; add: (type: AnnotationKind) => void; remove: () => void; patchSelection: (change: AnnotationChange, group?:string) => boolean; toolStyle: (type: AnnotationKind) => CanvasSelection; patchTool: (type: AnnotationKind, change: AnnotationChange) => boolean; interactionState: () => { editing: boolean; selected: boolean }; exitSelection: () => void; hasAnnotationAt: (event:PointerEvent) => boolean; getDisplayScale?: () => number };
 // 设置与历史面板可隐藏视图工具，不卸载画布或影响文档。
 type Props = { compareRaw?:boolean;onCompareError?:(error:unknown)=>void; showViewControls?:boolean; document: ProjectDocument; onAnnotations: (objects: Annotation[], group?: string) => void; onError: (error: unknown) => void; fixedDisplayScale?: { x: number; y: number }; onReady?: () => void; onRenderStatus?: (status: CanvasRenderStatus) => void; onSelection?: (selection:CanvasSelection|null)=>void; onDrawingToolChange?: (tool:AnnotationKind|null)=>void };
 // 每个底图都是renderBase私有canvas；替换/卸载时归零背板，避免等待GC回收大图像素。
@@ -23,6 +25,10 @@ function releaseBackground(canvas:Canvas){
 export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanvas({ document: doc, onAnnotations, onError, fixedDisplayScale, onReady, onRenderStatus, onSelection, onDrawingToolChange, showViewControls=true,compareRaw=false,onCompareError }, ref) {
   const element = useRef<HTMLCanvasElement>(null);
   const wrapper = useRef<HTMLDivElement>(null);
+  const feedbackLayer = useRef<SVGSVGElement>(null), feedback = useRef<AnnotationMotion|null>(null);
+  // 只在当前编辑器记住各工具的样式；预设不写项目，实际落笔后才进入撤销历史。
+  const toolStyles = useRef<Partial<Record<AnnotationKind, AnnotationChange>>>({});
+  const styleFor = (type:AnnotationKind) => ({...annotationStyle(type),...toolStyles.current[type]});
   const fabric = useRef<Canvas | null>(null);
   const updating = useRef(false);
   const loaded = useRef(false);
@@ -50,6 +56,7 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
     const object = fabric.current?.getActiveObject(), annotation = object ? serialize(object) : null;
     const next = annotation ? { id:annotation.id,type:annotation.type,color:annotation.color,fontSize:annotation.fontSize,strokeWidth:annotation.strokeWidth,blockSize:annotation.blockSize } : null;
     if (JSON.stringify(next) === JSON.stringify(selectedStyle.current)) return;
+    if (object && next?.id !== selectedStyle.current?.id) feedback.current?.pulse(object, 'select');
     selectedStyle.current = next; callbacks.current.onSelection?.(next);
   }
   // 稳定ID使样式重绘及撤销保留同一选择；删除或新文档不自动选择别的对象。
@@ -60,6 +67,7 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
   // 取消待命或当前草稿，恢复画布命中和选区拖动，不修改已提交的标注。
   function cancelDrawing(){
     const draft=drawing.current;drawing.current=null;
+    feedback.current?.clear();
     if(draft?.object)fabric.current?.remove(draft.object);
     if(draft?.element.hasPointerCapture(draft.pointer))draft.element.releasePointerCapture(draft.pointer);
     tool.current=null;setActiveTool(null);callbacks.current.onDrawingToolChange?.(null);
@@ -74,11 +82,12 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
     const canvas=fabric.current,type=tool.current;
     if(!canvas||!loaded.current||!type||event.button!==0||!(event.target instanceof HTMLCanvasElement))return;
     event.preventDefault();event.stopPropagation();
-    const start=drawingPoint(event),object=type==='text'?null:restore({id:crypto.randomUUID(),type,left:start.x,top:start.y,width:1,height:1,scaleX:1,scaleY:1,angle:0,text:'',color:type==='cover'?'#30332e':type==='highlight'?'#ffe066':'#b4432c',fontSize:26});
+    const start=drawingPoint(event),object=type==='text'?null:restore({id:crypto.randomUUID(),type,left:start.x,top:start.y,width:1,height:1,scaleX:1,scaleY:1,angle:0,text:'',...styleFor(type)});
+    feedback.current?.contact(start.x,start.y);
     if(object){object.set({selectable:false,evented:false});canvas.add(object);}
     drawing.current={type,start,object,points:[start],pointer:event.pointerId,element:event.currentTarget};event.currentTarget.setPointerCapture(event.pointerId);
   }
-  // 笔迹按真实像素取样并限制点数；圆形按 Shift 约束为正圆，所有草稿仍只在松手时入历史。
+  // 笔迹按真实像素取样并限制点数；Shift 约束正圆或正方形，草稿只在松手时入历史。
   function moveDrawing(event:ReactPointerEvent<HTMLDivElement>){
     const draft=drawing.current;if(!draft||event.pointerId!==draft.pointer||!draft.object)return;
     event.preventDefault();event.stopPropagation();const next=drawingPoint(event);
@@ -93,13 +102,14 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
       }
       positionBrush(draft.object as Path,draft.points);
     }else{
-      if(draft.type==='ellipse'&&event.shiftKey){
+      if((draft.type==='ellipse'||draft.type==='rect')&&event.shiftKey){
         const edge=Math.min(Math.abs(next.x-draft.start.x),Math.abs(next.y-draft.start.y));
         next.setXY(draft.start.x+Math.sign(next.x-draft.start.x)*edge,draft.start.y+Math.sign(next.y-draft.start.y)*edge);
       }
       const width=Math.max(1,Math.abs(next.x-draft.start.x)),height=Math.max(1,Math.abs(next.y-draft.start.y));
       draft.object.set({left:Math.min(draft.start.x,next.x),top:Math.min(draft.start.y,next.y),width,height});
       if(draft.object instanceof Ellipse)draft.object.set({rx:width/2,ry:height/2});
+      else if(draft.object instanceof Rect && (draft.type==='rect'||draft.type==='highlight'))draft.object.set({rx:Math.min(6,width/8,height/8),ry:Math.min(6,width/8,height/8)});
       draft.object.setCoords();
     }
     fabric.current?.requestRenderAll();
@@ -110,10 +120,11 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
     event.preventDefault();event.stopPropagation();moveDrawing(event);const end=drawingPoint(event);
     const valid=draft.type==='text'||(draft.type==='brush'?draft.points.length>=2:draft.type==='arrow'?draft.start.distanceFrom(end)>=2:Math.abs(end.x-draft.start.x)>=2&&Math.abs(end.y-draft.start.y)>=2);
     if(!valid){if(draft.object)canvas.remove(draft.object);drawing.current=null;if(draft.element.hasPointerCapture(draft.pointer))draft.element.releasePointerCapture(draft.pointer);return;}
-    const object=draft.object??restore({id:crypto.randomUUID(),type:'text',left:end.x,top:end.y,width:Math.max(30,Math.min(240,canvas.width-end.x)),height:40,scaleX:1,scaleY:1,angle:0,text:'文字',color:'#b4432c',fontSize:26});
+    const object=draft.object??restore({id:crypto.randomUUID(),type:'text',left:end.x,top:end.y,width:Math.max(30,Math.min(240,canvas.width-end.x)),height:40,scaleX:1,scaleY:1,angle:0,text:'文字',...styleFor('text')});
     if(!draft.object)canvas.add(object);
     drawing.current=null;if(draft.element.hasPointerCapture(draft.pointer))draft.element.releasePointerCapture(draft.pointer);
     cancelDrawing();object.set({selectable:true,evented:true});object.setCoords();canvas.setActiveObject(object);canvas.requestRenderAll();
+    feedback.current?.pulse(object);
     const objects=canvas.getObjects().filter(item=>item.selectable).map(serialize);lastAnnotations.current=objects;callbacks.current.onAnnotations(objects);
     if(object instanceof Textbox){object.enterEditing();object.selectAll();}
   }
@@ -121,18 +132,20 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
   useEffect(() => {
     const canvas = new Canvas(element.current!, { enableRetinaScaling: false, preserveObjectStacking: true, selection: false, selectionKey: undefined });
     fabric.current = canvas;
+    feedback.current = new AnnotationMotion(feedbackLayer.current!, wrapper.current!);
     const changed = (group?: string) => {
       if (fabric.current !== canvas || updating.current || !loaded.current) return;
       const objects = canvas.getObjects().filter(o => o.selectable).map(serialize);
       lastAnnotations.current = objects; callbacks.current.onAnnotations(objects, group);
     };
     canvas.on('selection:created', publishSelection);canvas.on('selection:updated', publishSelection);canvas.on('selection:cleared', publishSelection);
-    canvas.on('object:modified', () => changed()); canvas.on('text:changed', event => {
+    canvas.on('object:modified', event => {changed();if(event.target)feedback.current?.pulse(event.target);}); canvas.on('text:changed', event => {
       if (event.target.text.length > 5000) event.target.set({ text: event.target.text.slice(0, 5000) });
       changed(`annotation-text:${serialize(event.target).id}`);
     });
     return () => {
       fabric.current=null;
+      feedback.current?.dispose();feedback.current=null;
       // 错误可能发生在同步重建中；卸载必须绕过事件抑制，清掉跨文档的旧选择。
       selectedStyle.current=null;callbacks.current.onSelection?.(null);releaseBackground(canvas);
       const lower=canvas.lowerCanvasEl,upper=canvas.upperCanvasEl;
@@ -141,6 +154,7 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
   }, []);
   useEffect(() => {
     let cancelled = false;
+    feedback.current?.clear();
     if(tool.current||drawing.current)cancelDrawing();
     loaded.current = false; callbacks.current.onRenderStatus?.('loading');
     const canvas = fabric.current!;
@@ -166,6 +180,7 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
   useEffect(() => {
     const canvas = fabric.current;
     if (!canvas || !loaded.current || doc.editor.annotations === lastAnnotations.current) return;
+    feedback.current?.clear();
     const selectedId = canvas.getActiveObject() ? serialize(canvas.getActiveObject()!).id : undefined;
     updating.current = true; canvas.discardActiveObject();
     canvas.remove(...canvas.getObjects().filter(object => object.selectable));
@@ -187,6 +202,8 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
     if (loaded.current && rendered.current?.image === current.current.image && rendered.current?.properties === latestProperties.current) onReady?.();
   }, [displayScale.x, displayScale.y, size]);
   useImperativeHandle(ref, () => ({
+    toolStyle: type => ({ id:'tool-'+type,type,...styleFor(type) }),
+    patchTool(type,change) {if(!validStyle(change))return false;toolStyles.current[type]={...styleFor(type),...change};return true;},
     getDisplayScale: () => Math.min(displayScaleRef.current.x, displayScaleRef.current.y),
     // 命中标注时交还 Fabric，空白背景才可拖动截图选区。
     hasAnnotationAt(event) { if(tool.current||drawing.current)return true;const target=fabric.current?.findTarget(event).target;return Boolean(target?.selectable||target?.evented); },
@@ -224,19 +241,18 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
       const canvas = fabric.current;
       if (!canvas) return;
       const removedIds = new Set(canvas.getActiveObjects().map(object => serialize(object).id));
+      const removed = canvas.getActiveObject();if(removed)feedback.current?.pulse(removed,'remove');
       canvas.remove(...canvas.getActiveObjects()); canvas.discardActiveObject(); canvas.requestRenderAll();
       const objects = loaded.current ? canvas.getObjects().filter(o => o.selectable).map(serialize) : current.current.editor.annotations.filter(annotation => !removedIds.has(annotation.id));
       lastAnnotations.current = objects; callbacks.current.onAnnotations(objects);
     },
-    patchSelection(change) {
+    patchSelection(change, group) {
       const canvas = fabric.current, object = canvas?.getActiveObject();
-      if (!canvas || !loaded.current || !object || !/^#[0-9a-f]{6}$/i.test(change.color) || !Number.isFinite(change.fontSize) || change.fontSize < 8 || change.fontSize > 240) return false;
-      // 同时约束浮卡传入的线宽和块大小，项目读取与交互编辑使用一致范围。
-      if (change.strokeWidth !== undefined && (!Number.isFinite(change.strokeWidth) || change.strokeWidth < 1 || change.strokeWidth > 48)) return false;
-      if (change.blockSize !== undefined && (!Number.isFinite(change.blockSize) || change.blockSize < 6 || change.blockSize > 64)) return false;
+      if (!canvas || !loaded.current || !object || !validStyle(change)) return false;
       patchAnnotationObject(object, change); canvas.requestRenderAll();
+      toolStyles.current[serialize(object).type]={...styleFor(serialize(object).type),...change};
       const objects = canvas.getObjects().filter(o => o.selectable).map(serialize);
-      lastAnnotations.current = objects; callbacks.current.onAnnotations(objects);publishSelection(); return true;
+      lastAnnotations.current = objects; callbacks.current.onAnnotations(objects,group);publishSelection();feedback.current?.pulse(object); return true;
     },
     interactionState() {
       const object = fabric.current?.getActiveObject();
@@ -258,13 +274,20 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
     changeZoom(candidates.find(value => direction > 0 ? value > actualZoom + .001 : value < actualZoom - .001) ?? actualZoom);
   }
   // 对比占用同一个内容锚点，真正 Fabric 文档和 exportPng 始终保留美化后的配置。
-  const sheet = <div className="canvas-sheet" inert={compareRaw} style={{ width:size.width * displayScale.x, height:size.height * displayScale.y }}><canvas ref={element}/>{compareRaw&&<BeautyComparison document={doc} scale={displayScale} onError={onCompareError??onError}/>}</div>;
+  const sheet = <div className="canvas-sheet" inert={compareRaw} style={{ width:size.width * displayScale.x, height:size.height * displayScale.y }}><canvas ref={element}/><svg ref={feedbackLayer} className="annotation-feedback" viewBox={`0 0 ${size.width} ${size.height}`} preserveAspectRatio="none" aria-hidden="true"/>{compareRaw&&<BeautyComparison document={doc} scale={displayScale} onError={onCompareError??onError}/>}</div>;
   // Fabric 会包装原始 canvas；呈现切换必须保留祖先结构，避免 React 移除已被包装的节点。
   return <div className="canvas-workspace" ref={wrapper} data-drawing-tool={activeTool??undefined} onPointerDownCapture={beginDrawing} onPointerMoveCapture={moveDrawing} onPointerUpCapture={endDrawing} onPointerCancel={()=>cancelDrawing()} onLostPointerCapture={()=>{if(drawing.current)cancelDrawing();}}>
     <div className="canvas-viewport" ref={viewport} tabIndex={fixedDisplayScale?-1:0} aria-label={fixedDisplayScale?'选区画布':'可滚动画布'} style={fixedDisplayScale?{position:'relative',inset:'auto',overflow:'visible'}:undefined}><div className="canvas-surface" style={fixedDisplayScale?{width:size.width*displayScale.x,height:size.height*displayScale.y,padding:0,minWidth:0,minHeight:0,alignItems:'flex-start',justifyContent:'flex-start'}:{width:size.width * displayScale.x + 64,height:size.height * displayScale.y + 64}}>{sheet}</div></div>
     <div className="canvas-zoom" hidden={!showViewControls||Boolean(fixedDisplayScale)} style={!showViewControls||fixedDisplayScale?{display:'none'}:undefined} role="group" aria-label="画布缩放"><ControlButton aria-label="缩小画布" disabled={actualZoom <= .1} onClick={() => stepZoom(-1)}><Minus size={14}/></ControlButton><Select aria-label="画布缩放比例" value={manualZoom ?? 'fit'} onChange={value=> changeZoom(value === 'fit' ? null : Number(value))}><option value="fit">适应窗口 · {Math.round(zoom * 100)}%</option>{steps.map(value => <option key={value} value={value}>{Math.round(value * 100)}%</option>)}</Select><ControlButton aria-label="放大画布" disabled={actualZoom >= 2} onClick={() => stepZoom(1)}><Plus size={14}/></ControlButton><span className="zoom-label">{size.width} × {size.height} px</span></div>
   </div>;
 });
+
+/** 草稿与已有标注接受相同范围；非法输入不写模型，也不改变下次落笔样式。 */
+function validStyle(change:AnnotationChange) {
+  return /^#[0-9a-f]{6}$/i.test(change.color) && Number.isFinite(change.fontSize) && change.fontSize>=8 && change.fontSize<=240
+    && (change.strokeWidth===undefined || Number.isFinite(change.strokeWidth)&&change.strokeWidth>=1&&change.strokeWidth<=48)
+    && (change.blockSize===undefined || Number.isFinite(change.blockSize)&&change.blockSize>=6&&change.blockSize<=64);
+}
 
 /** 完整原样内容准备好后原子换入；旧结果、关闭或卸载释放背板，不改变主画布状态。 */
 function BeautyComparison({document:doc,scale,onError}:{document:ProjectDocument;scale:{x:number;y:number};onError:(error:unknown)=>void}) {

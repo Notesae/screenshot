@@ -1,37 +1,13 @@
 import { ControlButton } from './ControlMotion';
 import { MotionButton } from './LiquidMotion';
-import { useEffect, useState, type RefObject } from 'react';
-import { ColorField } from './ColorField';
-import { ArrowUpRight, Highlighter, Redo2, Square, Undo2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Redo2, Undo2 } from 'lucide-react';
 import { contentGeometry, type ContentResize, type ProjectDocument, type SourceCrop } from './document';
-import type { CanvasHandle, CanvasSelection } from './EditorCanvas';
 
 export function HistoryButtons({ canUndo, canRedo, undo, redo }: { canUndo: boolean; canRedo: boolean; undo: () => void; redo: () => void }) {
   return <><MotionButton group="history" data-tooltip="撤销 Ctrl+Z" aria-label="撤销" disabled={!canUndo} onClick={undo}><Undo2/></MotionButton><MotionButton group="history" data-tooltip="重做 Ctrl+Y" aria-label="重做" disabled={!canRedo} onClick={redo}><Redo2/></MotionButton></>;
 }
-/** 属性只针对当前标注，修改即时应用且沿用画布撤销；不重复堆放绘制工具。 */
-export function AnnotationPalette({ canvasRef, onError, selection, disabled=false }: { canvasRef: RefObject<CanvasHandle | null>; onError: (error: unknown) => void; selection:CanvasSelection|null; disabled?:boolean }) {
-  const [color,setColor]=useState('#30332e'),[fontSize,setFontSize]=useState(26);
-  // 画笔与马赛克共用一个像素输入草稿，切换选择或撤销后从模型恢复数值。
-  const [detail,setDetail]=useState(3);
-  useEffect(()=>{if(selection){setColor(selection.color);setFontSize(selection.fontSize);setDetail(selection.type==='mosaic'?(selection.blockSize??12):(selection.strokeWidth??3));}},[selection?.id,selection?.color,selection?.fontSize,selection?.strokeWidth,selection?.blockSize]);
-  if(!selection)return <p className="selection-summary">选择一个标注以调整属性。</p>;
-  const invalidFont=!Number.isFinite(fontSize)||fontSize<8||fontSize>240;
-  const mosaic=selection.type==='mosaic',hasDetail=mosaic||selection.type==='brush';
-  const detailMin=mosaic?6:1,detailMax=mosaic?64:48,invalidDetail=!Number.isFinite(detail)||detail<detailMin||detail>detailMax;
-  return <div className="annotation-palette">
-    <p className="selection-summary">{({text:'文字',rect:'矩形',ellipse:'圆形',arrow:'箭头',brush:'画笔',highlight:'高亮',mosaic:'马赛克',cover:'实色遮盖'})[selection.type]}</p>
-    <div className="annotation-properties">
-      {!mosaic&&<label>颜色<ColorField label="标注颜色" disabled={disabled} value={color} onChange={next=>{setColor(next);if(!canvasRef.current?.patchSelection({color:next,fontSize:selection.fontSize}))onError(new Error('当前标注暂时无法修改，请稍后重试。'));}}/></label>}
-      {selection.type==='text'&&<label>字号<div className="clay-unit-field"><input aria-label="标注字号" aria-invalid={invalidFont||undefined} disabled={disabled} type="number" min={8} max={240} value={Number.isNaN(fontSize)?'':fontSize} onChange={event=>{const next=event.target.valueAsNumber;setFontSize(next);if(next>=8&&next<=240&&!canvasRef.current?.patchSelection({color,fontSize:next}))onError(new Error('当前标注暂时无法修改，请稍后重试。'));}} onBlur={()=>{if(invalidFont)setFontSize(selection.fontSize);}}/><span>px</span></div></label>}
-      {hasDetail&&<label>{mosaic?'像素块大小':'画笔粗细'}<div className="clay-unit-field"><input aria-label={mosaic?'马赛克像素块大小':'画笔粗细'} aria-invalid={invalidDetail||undefined} disabled={disabled} type="number" min={detailMin} max={detailMax} value={Number.isNaN(detail)?'':detail} onChange={event=>{const next=event.target.valueAsNumber;setDetail(next);if(next>=detailMin&&next<=detailMax&&!canvasRef.current?.patchSelection({color:selection.color,fontSize:selection.fontSize,...(mosaic?{blockSize:next}:{strokeWidth:next})}))onError(new Error('当前标注暂时无法修改，请稍后重试。'));}} onBlur={()=>{if(invalidDetail)setDetail(mosaic?(selection.blockSize??12):(selection.strokeWidth??3));}}/><span>px</span></div></label>}
-    </div>
-    {selection.type==='text'&&invalidFont&&<p className="field-error">字号范围为 8–240 px。</p>}
-    {hasDetail&&invalidDetail&&<p className="field-error">范围为 {detailMin}–{detailMax} px。</p>}
-    {selection.type==='ellipse'&&<p className="compact-privacy">拖动绘制椭圆，按住 Shift 绘制正圆。</p>}
-    {(mosaic||selection.type==='cover')&&<p className="compact-privacy">{mosaic?'马赛克':'遮盖'}应用于导出的图片，项目文件仍保留原图。</p>}
-  </div>;
-}
+export { AnnotationPalette } from './AnnotationPalette';
 
 /** 数值裁剪与等比缩放是一次显式事务，未应用的输入草稿不会改变文档。 */
 export function TransformPanel({ document: doc, onTransform }: { document: ProjectDocument; onTransform: (crop: SourceCrop | null, resize: ContentResize | null) => void }) {

@@ -4,6 +4,8 @@ import { useSurfaceMotion } from './SurfaceMotion';
 import { useBackdropMotion } from './BackdropMotion';
 import { MotionButton, presentationMotion, useLiquidMotion } from './LiquidMotion';
 import { TranslationTools } from './TranslationTools';
+import { ToolGlyph } from './ToolGlyph';
+import { annotationNames } from './annotationAppearance';
 import { RailBody } from './RailBody';
 import { Select } from './Select';
 import { TooltipLayer } from './TooltipLayer';
@@ -11,7 +13,7 @@ import { OverlayScrollbars } from './OverlayScrollbars';
 import { flushSync } from 'react-dom';
 import { matchesPresentationViewport, readPresentationViewport } from './presentationViewport';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type PointerEvent, type KeyboardEvent } from 'react';
-import { ArrowUpRight, Brush, Check, Circle, Copy, FolderOpen, Frame, GripVertical, Grid2X2, Highlighter, ImagePlus, MoreHorizontal, Pin, RotateCcw, ScanText, Settings2, Sparkles, Square, Trash2, Type, X } from 'lucide-react';
+import { Check, Copy, FolderOpen, Frame, GripVertical, ImagePlus, MoreHorizontal, Pin, RotateCcw, ScanText, Settings2, Sparkles, X } from 'lucide-react';
 import { StyleTools } from './StyleTools';
 import { TextTools, type TextToolsProps } from './TextTools';
 import { CaptureControls } from './CaptureControls';
@@ -103,6 +105,12 @@ export function CompactOverlay(props:Props) {
   const [chromeVisible,setChromeVisible]=useState(!metadata||props.skipReady);
   useEffect(()=>{if(!metadata||props.skipReady)setChromeVisible(true);},[Boolean(metadata),props.skipReady]);
   const [preparing,setPreparing]=useState(false),[drawingTool,setDrawingTool]=useState<AnnotationKind|null>(null);
+  // 取消待命或删除后保留最后一张属性卡直到退场结束，期间立即禁止编辑。
+  const retainedProperty=useRef<{selection:CanvasSelection|null;tool:AnnotationKind|null}>({selection:null,tool:null});
+  if(props.selection||drawingTool)retainedProperty.current={selection:props.selection,tool:drawingTool};
+  const propertySelection=props.selection??(!drawingTool?retainedProperty.current.selection:null);
+  const propertyTool=drawingTool??(!props.selection?retainedProperty.current.tool:null);
+  useLayoutEffect(()=>{if(panel==='properties'&&!props.selection&&!drawingTool)setPanel(null);},[panel,props.selection,drawingTool]);
   const [paintedImage,setPaintedImage]=useState<ProjectDocument["image"]>(null);
   const [viewport,setViewport]=useState(readPresentationViewport);
   const renderedViewport=useRef(viewport);renderedViewport.current=viewport;
@@ -122,8 +130,8 @@ export function CompactOverlay(props:Props) {
   const adjusting=busy==='调整截图选区',canvasSettled=props.renderStatus==='ready'&&paintedImage===doc.image;
   const mapped=metadata?overlayLayout(selectionPreview?{...metadata,selection:selectionPreview}:metadata,viewport,previewOutput,editor.mode==='beauty'?editor.padding:0,{...railSize,statusHeight:0},selectionPreview||editor.mode==='reflow'?undefined:editor.crop||(editor.resize?{x:0,y:0}:undefined)):null;
   const screen=mapped?.screen??{x:0,y:0,...viewport};
-  const panelWidth=visiblePanel==='text'?420:360;
-  const panelHeight=usePanelHeight(cardContent,visiblePanel,panelWidth,visiblePanel==='properties'?400:620);
+  const panelWidth=visiblePanel==='text'?420:visiblePanel==='properties'?340:380;
+  const panelHeight=usePanelHeight(cardContent,visiblePanel,panelWidth,620);
   const railBounds=railRef.current?.getBoundingClientRect();
   const sourceBounds=trigger.current&&railRef.current?.contains(trigger.current)?trigger.current.getBoundingClientRect():null;
   const sourceOffset=sourceBounds&&railBounds?{x:sourceBounds.x+sourceBounds.width/2-railBounds.x,y:sourceBounds.y+sourceBounds.height/2-railBounds.y}:undefined;
@@ -256,7 +264,9 @@ export function CompactOverlay(props:Props) {
     const delta=event.shiftKey?24:8,directions:Record<string,Point>={ArrowLeft:{x:-delta,y:0},ArrowRight:{x:delta,y:0},ArrowUp:{x:0,y:-delta},ArrowDown:{x:0,y:delta}};
     const direction=directions[event.key];if(!direction)return;event.preventDefault();presentationMotion()?.placePanel(kind==='card');const current=tools[kind];setPositions(value=>({...value,rail:value.rail??{x:tools.rail.x,y:tools.rail.y},card:value.card??(visiblePanel?{x:tools.card.x,y:tools.card.y}:undefined),[kind]:{x:current.x+direction.x,y:current.y+direction.y}}));
   }
-  const title=visiblePanel==='beauty'?'美化截图':visiblePanel==='text'?'识别与校对':visiblePanel==='properties'?'标注属性':visiblePanel==='recovery'?'历史记录':'更多操作';
+  const propertyKind=propertySelection?.type??propertyTool;
+  const title=visiblePanel==='beauty'?'美化截图':visiblePanel==='text'?'识别与校对':visiblePanel==='properties'?(propertyKind?annotationNames[propertyKind]:'标注工具'):visiblePanel==='recovery'?'历史记录':'更多操作';
+  const panelCaption=visiblePanel==='properties'?(propertySelection?'调整选中的标注':'设置好样式，在画面上绘制'):visiblePanel==='beauty'?'留白、圆角与背景':visiblePanel==='text'?'提取文字，继续校对':visiblePanel==='recovery'?'查看与管理本机记录':'截图、文件与输出';
   return <div ref={rootRef} data-editor-root className={'clay-editor '+(metadata?'is-overlay':'is-neutral')+(chromeVisible?' is-presented':' is-awaiting')+(preparing?' is-preparing':'')+(props.suspended?' is-suspended':'')+(fullReading?' is-reading':'')} inert={props.locked} onKeyDownCapture={event=>{const target=event.target;if(event.key==='Escape'&&!event.nativeEvent.isComposing&&!composing.current&&target instanceof HTMLElement&&target.matches('input,textarea,select')&&!target.closest('.clay-color-popover')){event.preventDefault();event.stopPropagation();target.blur();}}} onDragOver={event=>{if(Array.from(event.dataTransfer.types).includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();void props.onFiles(event.dataTransfer.files);}}>
     <CaptureSelection viewport={viewport} metadata={metadata} disabled={!!busy||!!aiBusy||props.locked||comparing||!canvasSettled} settled={canvasSettled&&!busy} onAdjust={props.onAdjustCapture} onPreview={previewSelection} onDragging={active=>{selectionDragging.current=active;if(active)beginSelectionFollow();}} hitAnnotation={event=>canvasRef.current?.hasAnnotationAt(event)??false} onBegin={()=>canvasRef.current?.exitSelection()}>
     <div className={metadata?'clay-canvas-fixed':'clay-canvas-stage'} inert={!!busy} style={mapped?{visibility:selectionPreview?'hidden':undefined,left:mapped.frame.x,top:mapped.frame.y,width:mapped.frame.width,height:mapped.frame.height}:undefined}>
@@ -278,18 +288,18 @@ export function CompactOverlay(props:Props) {
             onRead={()=>{setPanel(null);canvasRef.current?.exitSelection();setReading(value=>!value);}}/>
         </div>
         <HistoryButtons canUndo={props.canUndo} canRedo={props.canRedo} undo={props.undo} redo={props.redo}/>
-        {([{kind:'text',label:'文字标注',icon:Type},{kind:'rect',label:'矩形标注',icon:Square},{kind:'ellipse',label:'圆形标注',icon:Circle},{kind:'arrow',label:'箭头标注',icon:ArrowUpRight},{kind:'brush',label:'画笔',icon:Brush},{kind:'highlight',label:'高亮标注',icon:Highlighter},{kind:'mosaic',label:'马赛克',icon:Grid2X2}] as const).map(item=><MotionButton group="draw" key={item.kind} data-annotation-kind={item.kind} data-tooltip={item.label} aria-label={item.label} aria-pressed={drawingTool===item.kind} disabled={!hasContent||props.renderStatus!=='ready'} onClick={event=>{panelOrigin(event.currentTarget);setPanel(null);canvasRef.current?.add(item.kind);}}><item.icon aria-hidden="true"/></MotionButton>)}
+        {(['text','rect','ellipse','arrow','brush','highlight','mosaic'] as const).map(kind=><MotionButton group="draw" key={kind} data-annotation-kind={kind} data-tooltip={annotationNames[kind]} aria-label={annotationNames[kind]+'标注'} aria-pressed={drawingTool===kind||props.selection?.type===kind} disabled={!hasContent||props.renderStatus!=='ready'} onClick={event=>{panelOrigin(event.currentTarget);setPanel(drawingTool===kind?null:'properties');canvasRef.current?.add(kind);}}><ToolGlyph kind={kind} animated/></MotionButton>)}
         <MotionButton data-motion-action="done" className="clay-primary" aria-label="完成" data-tooltip="完成并复制到剪贴板" disabled={!hasContent||props.renderStatus!=='ready'} onClick={complete}><Check aria-hidden="true"/>完成</MotionButton>
         <MotionButton aria-label="钉到桌面" data-tooltip="钉到桌面，可拖动、缩放和切换置顶" disabled={!hasContent||props.renderStatus!=='ready'||!!aiBusy} onClick={()=>{setComparison(null);props.onPin();}}><Pin aria-hidden="true"/></MotionButton>
         <MotionButton data-panel-trigger="more" aria-label="更多操作" aria-expanded={panel==='more'} onClick={event=>openPanel('more',event.currentTarget)}><MoreHorizontal aria-hidden="true"/></MotionButton><MotionButton aria-label="收起编辑，保留文档" data-tooltip="收起编辑" onClick={()=>props.onPresentation('hidden')}><X aria-hidden="true"/></MotionButton>
       </div>
-      {visiblePanel&&<section id="clay-active-panel" aria-hidden={!panel} inert={!panel} className={'clay-card liquid-panel '+(visiblePanel==='more'?'clay-drawer ':'')+(!panel?'is-closing':'')} role="region" aria-label={title} style={{left:tools.card.x,top:tools.card.y,width:tools.card.width,maxHeight:tools.card.height}}>
+      {visiblePanel&&<section id="clay-active-panel" data-panel={visiblePanel} aria-hidden={!panel} inert={!panel} className={'clay-card liquid-panel '+(visiblePanel==='more'?'clay-drawer ':'')+(!panel?'is-closing':'')} role="region" aria-label={title} style={{left:tools.card.x,top:tools.card.y,width:tools.card.width,maxHeight:tools.card.height}}>
         <span className="liquid-panel-skin" aria-hidden="true"/><div className="liquid-panel-content">
-        <header className="clay-card-heading" tabIndex={0} aria-label={'移动'+title+'，方向键微调'} onPointerDown={event=>beginDrag('card',event)} onPointerMove={moveDrag} onPointerUp={endDrag} onLostPointerCapture={endDrag} onKeyDown={event=>{if(event.target===event.currentTarget)moveByKey('card',event);}}><h2>{title}</h2><ControlButton aria-label="关闭浮卡" onClick={closePanel}><X aria-hidden="true"/></ControlButton></header>
+        <header className="clay-card-heading" tabIndex={0} aria-label={'移动'+title+'，方向键微调'} onPointerDown={event=>beginDrag('card',event)} onPointerMove={moveDrag} onPointerUp={endDrag} onLostPointerCapture={endDrag} onKeyDown={event=>{if(event.target===event.currentTarget)moveByKey('card',event);}}><span className="clay-panel-mark" aria-hidden="true">{visiblePanel==='properties'&&propertyKind?<ToolGlyph kind={propertyKind}/>:visiblePanel==='beauty'?<Sparkles/>:visiblePanel==='text'?<ScanText/>:visiblePanel==='recovery'?<RotateCcw/>:<MoreHorizontal/>}</span><div className="clay-panel-heading-copy"><h2>{title}</h2><p>{panelCaption}</p></div><ControlButton aria-label="关闭浮卡" onClick={closePanel}><X aria-hidden="true"/></ControlButton></header>
         <div className="clay-card-content" ref={cardContent}>
           {visiblePanel==='beauty'&&doc.image&&editor.mode!=='reflow'&&<StyleTools document={doc} update={update} comparing={comparing} onCompare={()=>{canvasRef.current?.exitSelection();setComparison(comparing?null:doc);}} onGesture={beautyGesture} onError={props.onError}/>}
           {visiblePanel==='text'&&<TextTools {...props.textTools} compact/>}
-          {visiblePanel==='properties'&&<><AnnotationPalette selection={props.selection} disabled={props.renderStatus!=='ready'} canvasRef={canvasRef} onError={props.onError}/><ControlButton className="clay-danger" disabled={!props.selection} onClick={()=>canvasRef.current?.remove()}><Trash2 aria-hidden="true"/>删除选中标注</ControlButton></>}
+          {visiblePanel==='properties'&&<AnnotationPalette selection={propertySelection} tool={propertyTool} disabled={props.renderStatus!=='ready'||!props.selection&&!drawingTool} canvasRef={canvasRef} onError={props.onError}/>}
           {visiblePanel==='recovery'&&props.recoveryPanel}
           {visiblePanel==='more'&&<>
             <section className="clay-section"><h3>截图与文件</h3><div className="clay-action-grid"><ControlButton onClick={()=>props.onCapture('capture.region')}>重新框选</ControlButton><ControlButton onClick={props.onOpenImage}><ImagePlus aria-hidden="true"/>打开图片</ControlButton><ControlButton onClick={props.onOpenProject}><FolderOpen aria-hidden="true"/>打开项目</ControlButton><ControlButton onClick={props.onPaste}>粘贴图片</ControlButton></div></section>

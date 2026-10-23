@@ -75,7 +75,7 @@ export function parseDocument(value: unknown): ProjectDocument {
         return [number(point[0], 0, 16000), number(point[1], 0, 16000)];
       });
     }
-    return { id, type: a.type, left: number(a.left, -32000, 32000), top: number(a.top, -32000, 32000), width: number(a.width, 1, 16000), height: number(a.height, 1, 16000), scaleX: number(a.scaleX, .01, 100), scaleY: number(a.scaleY, .01, 100), angle: number(a.angle, -360, 360), text: string(a.text, 5000), color: color(a.color), fontSize: number(a.fontSize, 8, 240), ...(a.type === 'text' && a.backgroundColor !== undefined ? { backgroundColor: color(a.backgroundColor) } : {}), ...(points ? { points, strokeWidth: number(a.strokeWidth ?? 3, 1, 48) } : {}), ...(a.type === 'mosaic' ? { blockSize: number(a.blockSize ?? 12, 6, 64) } : {}) } as Annotation;
+    return { id, type: a.type, left: number(a.left, -32000, 32000), top: number(a.top, -32000, 32000), width: number(a.width, 1, 16000), height: number(a.height, 1, 16000), scaleX: number(a.scaleX, .01, 100), scaleY: number(a.scaleY, .01, 100), angle: number(a.angle, -360, 360), text: string(a.text, 5000), color: color(a.color), fontSize: number(a.fontSize, 8, 240), ...(a.type === 'text' && a.backgroundColor !== undefined ? { backgroundColor: color(a.backgroundColor) } : {}), ...(points ? { points } : {}), ...(['rect','ellipse','arrow','brush'].includes(String(a.type)) ? { strokeWidth: number(a.strokeWidth ?? 3, 1, 48) } : {}), ...(a.type === 'mosaic' ? { blockSize: number(a.blockSize ?? 12, 6, 64) } : {}) } as Annotation;
   });
   const image = doc.image === null ? null : parseImage(doc.image);
   if (new Set(annotations.map(annotation => annotation.id)).size !== annotations.length) throw new Error('项目中存在重复标注标识。');

@@ -4,6 +4,7 @@ import './styles.css';
 import './controls.css';
 import './soft-clay.css';
 import './liquid-motion.css';
+import './annotation-tools.css';
 import { applySoftClayTokens } from './softClayTokens';
 applySoftClayTokens();
 createRoot(document.getElementById('root')!).render(<App/>);
