@@ -3,7 +3,7 @@ import { MotionDetails } from './MotionDetails';
 import { useSurfaceMotion } from './SurfaceMotion';
 import { useBackdropMotion } from './BackdropMotion';
 import { MotionButton, presentationMotion, useLiquidMotion } from './LiquidMotion';
-import { TranslationCancel } from './TranslationCancel';
+import { TranslationTools } from './TranslationTools';
 import { RailBody } from './RailBody';
 import { Select } from './Select';
 import { TooltipLayer } from './TooltipLayer';
@@ -11,7 +11,7 @@ import { OverlayScrollbars } from './OverlayScrollbars';
 import { flushSync } from 'react-dom';
 import { matchesPresentationViewport, readPresentationViewport } from './presentationViewport';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type PointerEvent, type KeyboardEvent } from 'react';
-import { ArrowUpRight, BookOpen, Brush, Check, Circle, Copy, FolderOpen, Frame, GripVertical, Grid2X2, Highlighter, ImagePlus, Languages, MoreHorizontal, Pin, RotateCcw, ScanText, Settings2, Sparkles, Square, Trash2, Type, X } from 'lucide-react';
+import { ArrowUpRight, Brush, Check, Circle, Copy, FolderOpen, Frame, GripVertical, Grid2X2, Highlighter, ImagePlus, MoreHorizontal, Pin, RotateCcw, ScanText, Settings2, Sparkles, Square, Trash2, Type, X } from 'lucide-react';
 import { StyleTools } from './StyleTools';
 import { TextTools, type TextToolsProps } from './TextTools';
 import { CaptureControls } from './CaptureControls';
@@ -272,10 +272,11 @@ export function CompactOverlay(props:Props) {
         <div className="clay-image-tools" role="group" aria-label="图片工具">
           <MotionButton group="image" data-tooltip="美化图片" aria-label="美化图片" aria-expanded={panel==='beauty'} aria-controls={panel==='beauty'?'clay-active-panel':undefined} disabled={!doc.image||editor.mode==='reflow'} onClick={event=>openPanel('beauty',event.currentTarget)}><ImageAppearanceIcon/></MotionButton>
           <MotionButton group="image" data-tooltip="提取文字（OCR）" aria-label="提取文字" aria-expanded={panel==='text'} aria-controls={panel==='text'?'clay-active-panel':undefined} disabled={!hasContent} onClick={event=>openPanel('text',event.currentTarget)}><ScanText aria-hidden="true"/></MotionButton>
-          <span className="clay-translation-tools"><MotionButton group="image" data-tooltip="翻译图片：将选区外语替换为中文" aria-label="翻译图片为中文" aria-busy={aiBusy==='翻译图片'} disabled={!doc.image||editor.mode==='reflow'||!!aiBusy||props.renderStatus!=='ready'} onClick={()=>{setPanel(null);canvasRef.current?.exitSelection();props.onTranslateImage();}}><Languages aria-hidden="true"/></MotionButton>
-          <TranslationCancel open={aiBusy==='翻译图片'} onCancel={props.onCancelAi}/></span>
+          <TranslationTools translating={aiBusy==='翻译图片'} translateDisabled={!doc.image||editor.mode==='reflow'||!!aiBusy||props.renderStatus!=='ready'}
+            canRead={Boolean(editor.imageTranslation?.blocks.length)&&editor.mode!=='reflow'} readDisabled={!!aiBusy||props.renderStatus!=='ready'} reading={reading} readerTrigger={readerTrigger}
+            onTranslate={()=>{setPanel(null);canvasRef.current?.exitSelection();props.onTranslateImage();}} onCancel={props.onCancelAi}
+            onRead={()=>{setPanel(null);canvasRef.current?.exitSelection();setReading(value=>!value);}}/>
         </div>
-        {editor.imageTranslation?.blocks.length&&editor.mode!=='reflow'?<MotionButton ref={readerTrigger} data-tooltip="放大阅读完整译文，不改变截图排版" aria-label="阅读完整译文" aria-expanded={reading} disabled={!!aiBusy||props.renderStatus!=='ready'} onClick={()=>{setPanel(null);canvasRef.current?.exitSelection();setReading(value=>!value);}}><BookOpen aria-hidden="true"/>阅读译文</MotionButton>:null}
         <HistoryButtons canUndo={props.canUndo} canRedo={props.canRedo} undo={props.undo} redo={props.redo}/>
         {([{kind:'text',label:'文字标注',icon:Type},{kind:'rect',label:'矩形标注',icon:Square},{kind:'ellipse',label:'圆形标注',icon:Circle},{kind:'arrow',label:'箭头标注',icon:ArrowUpRight},{kind:'brush',label:'画笔',icon:Brush},{kind:'highlight',label:'高亮标注',icon:Highlighter},{kind:'mosaic',label:'马赛克',icon:Grid2X2}] as const).map(item=><MotionButton group="draw" key={item.kind} data-annotation-kind={item.kind} data-tooltip={item.label} aria-label={item.label} aria-pressed={drawingTool===item.kind} disabled={!hasContent||props.renderStatus!=='ready'} onClick={event=>{panelOrigin(event.currentTarget);setPanel(null);canvasRef.current?.add(item.kind);}}><item.icon aria-hidden="true"/></MotionButton>)}
         <MotionButton data-motion-action="done" className="clay-primary" aria-label="完成" data-tooltip="完成并复制到剪贴板" disabled={!hasContent||props.renderStatus!=='ready'} onClick={complete}><Check aria-hidden="true"/>完成</MotionButton>

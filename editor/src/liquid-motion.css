@@ -18,12 +18,17 @@
 .liquid-glyph { position: relative; z-index: 2; display: inline-flex; align-items: center; justify-content: center; gap: 8px; pointer-events: none; }
 .clay-editor .liquid-glyph > svg { width: var(--clay-size-icon); height: var(--clay-size-icon); }
 .clay-editor .clay-image-tools .liquid-glyph > svg { width: 21px; height: 21px; }
-/* 分裂只平移取消按钮，图标保持原尺寸；槽位展开使后续工具连续让位。 */
-.clay-translation-tools { display: inline-flex; align-items: center; flex: none; isolation: isolate; }
+/* 两个按钮共享一张软体外壳完成拉扯、断开与余振，结束后交回原控件皮肤。 */
+.clay-translation-tools { position: relative; display: inline-flex; align-items: center; flex: none; isolation: isolate; --split-source-shift: 0px; --split-alpha: 1; --split-offset: 0px; }
 .clay-editor .liquid-rail .clay-translation-tools > button[data-motion-button] { z-index: 2; }
-.clay-translation-cancel { position: relative; display: inline-block; flex: none; width: 0; height: 36px; --split-alpha: 0; --split-neck: 0; --split-offset: -44px; }
-.clay-translation-cancel-face { position: absolute; left: 6px; top: 0; transform: translateX(var(--split-offset)); opacity: var(--split-alpha); }
-.clay-editor svg.clay-translation-neck { position: absolute; left: -12px; top: 8px; width: 28px; height: 20px; fill: var(--clay-raisedMid); opacity: var(--split-neck); pointer-events: none; }
+.clay-translation-split-slot { position: relative; display: inline-block; flex: none; width: 44px; height: 36px; }
+.clay-translation-split-face { position: absolute; left: 6px; top: 0; transform: translateX(var(--split-offset)); }
+.clay-translation-split-slot .liquid-glyph > svg { opacity: var(--split-alpha); }
+.clay-translation-source-glyph { display: inline-flex; transform: translateX(var(--split-source-shift)); }
+.clay-editor .clay-translation-source-glyph > svg { width: 21px; height: 21px; }
+.clay-editor svg.clay-translation-material { position: absolute; left: -14px; top: -10px; width: 124px; height: 56px; overflow: visible; opacity: 0; pointer-events: none; filter: drop-shadow(0 5px 5px #0005); }
+.clay-translation-tools[data-split-active=true] .clay-translation-material { opacity: 1; }
+.clay-translation-tools[data-split-active=true] .liquid-skin { visibility: hidden; }
 [data-motion-action=done] > .liquid-skin { background: var(--clay-primary); box-shadow: var(--clay-primary-shadow); }
 /* 材质交接由连续状态控制；逻辑取消选中不能提前恢复一张独立灰皮肤。 */
 [data-motion-button][data-motion-material=true] > .liquid-skin { visibility: hidden; }
