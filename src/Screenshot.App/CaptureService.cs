@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using System.Windows.Media.Imaging;
@@ -126,13 +127,17 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
         System.Windows.SystemParameters.StaticPropertyChanged+=MotionPreferenceChanged;
     }
     protected override void OnShown(EventArgs e) { base.OnShown(e);Bounds=_desktop;Activate();_trace?.Mark("selection_visible");_trace?.Flush(); }
+    // 按下空白从锚点起形，已有选区沿用精确的移动和缩放命中。
     protected override void OnMouseDown(MouseEventArgs e)
     {
         base.OnMouseDown(e);
         if(e.Button==MouseButtons.Right){CancelSelection();return;}
         if(e.Button!=MouseButtons.Left||_handingOff)return;
         _down=e.Location;_startedEmpty=_model.HitTest(e.X+_desktop.X,e.Y+_desktop.Y)==SelectionHandle.Create;
-        _model.Begin(e.X+_desktop.X,e.Y+_desktop.Y);_pointer=e.Location;Capture=true;UpdateFeedback();Invalidate();
+        _model.Begin(e.X+_desktop.X,e.Y+_desktop.Y);_pointer=e.Location;
+        // 按下空白立即显现软团；首次拉框独立保留原始锚点，选区模型仍即时更新。
+        if(_startedEmpty){var scale=DeviceDpi/96d;_feedback.BeginFormation((e.X+_desktop.X)/scale,(e.Y+_desktop.Y)/scale,!System.Windows.SystemParameters.ClientAreaAnimation);}
+        Capture=true;UpdateFeedback();Invalidate();
     }
     protected override void OnMouseMove(MouseEventArgs e)
     {
@@ -150,8 +155,8 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
     protected override void OnMouseUp(MouseEventArgs e)
     {
         base.OnMouseUp(e);if(e.Button!=MouseButtons.Left||!_model.Dragging)return;
-        _model.Update(e.X+_desktop.X,e.Y+_desktop.Y);_model.End();
-        if(_startedEmpty&&Math.Abs(e.X-_down.X)<=3&&Math.Abs(e.Y-_down.Y)<=3&&_snapEnabled){var target=CaptureTargets.AtPoint(_snapTargets,e.X+_desktop.X,e.Y+_desktop.Y,_allowed,_snapClient);if(target is not null){_model.Set(target.Bounds);}}
+        _pointer=e.Location;_model.Update(e.X+_desktop.X,e.Y+_desktop.Y);_model.End();
+        if(_startedEmpty&&Math.Abs(e.X-_down.X)<=3&&Math.Abs(e.Y-_down.Y)<=3&&_snapEnabled){var target=CaptureTargets.AtPoint(_snapTargets,e.X+_desktop.X,e.Y+_desktop.Y,_allowed,_snapClient);if(target is not null){_feedback.Snap();_model.Set(target.Bounds);}}
         Capture=false;if(_model.HasArea)FinishSelection();else {UpdateFeedback();Invalidate();}
     }
     protected override void OnKeyDown(KeyEventArgs e)
@@ -171,7 +176,7 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
     private void UpdateFeedback()
     {
         var displayed=_model.Selection??HoverTarget?.Bounds;var scale=DeviceDpi/96d;
-        _feedback.Update((displayed?.X??0)/scale,(displayed?.Y??0)/scale,displayed is { Width:>0,Height:>0 },!System.Windows.SystemParameters.ClientAreaAnimation,(displayed?.Width??0)/scale,(displayed?.Height??0)/scale,_model.Dragging);
+        _feedback.Update((displayed?.X??0)/scale,(displayed?.Y??0)/scale,displayed is { Width:>0,Height:>0 },!System.Windows.SystemParameters.ClientAreaAnimation,(displayed?.Width??0)/scale,(displayed?.Height??0)/scale,_model.Dragging,(_pointer.X+_desktop.X)/scale,(_pointer.Y+_desktop.Y)/scale);
         if(!_feedback.Moving){_motionTimer.Stop();return;}
         if(_motionTimer.Enabled)return;
         _motionLast=System.Diagnostics.Stopwatch.GetTimestamp();_motionTimer.Start();
@@ -183,14 +188,20 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
         var moving=_feedback.Step((now-_motionLast)/(double)System.Diagnostics.Stopwatch.Frequency);_motionLast=now;
         InvalidateFeedback();if(!moving)_motionTimer.Stop();
     }
-    // 计时器只重绘胶囊和有限宽度的选区周边带，选区内部不为回弹重复重绘。
+    // 起点软团与选区周边使用局部重绘，既有计时器不为成形刷新整个冻结桌面。
     private void InvalidateFeedback()
     {
         var scale = DeviceDpi / 96f;
         if (!_hintBounds.IsEmpty) { var hint = _hintBounds; hint.Inflate((int)Math.Ceiling(12 * scale), (int)Math.Ceiling(12 * scale)); Invalidate(hint); }
+        var creation = SoftClayMotion.SelectionTokens.GetProperty("creation");
+        if (_feedback.SeedSize > 0)
+        {
+            var radius = (int)Math.Ceiling((creation.GetProperty("seed").GetDouble() + 4) * scale);
+            Invalidate(new Rectangle(_down.X - radius, _down.Y - radius, radius * 2, radius * 2));
+        }
         if ((_model.Selection ?? HoverTarget?.Bounds) is not {} r) return;
         var tokens = SoftClayMotion.SelectionTokens;
-        var margin = (int)Math.Ceiling((tokens.GetProperty("maxLag").GetDouble() + tokens.GetProperty("radius").GetDouble() + tokens.GetProperty("bend").GetDouble() + tokens.GetProperty("ripple").GetDouble() + tokens.GetProperty("squash").GetDouble() + 8) * scale);
+        var margin = (int)Math.Ceiling((Math.Max(tokens.GetProperty("maxLag").GetDouble(), creation.GetProperty("lag").GetDouble()) + tokens.GetProperty("radius").GetDouble() + tokens.GetProperty("bend").GetDouble() + tokens.GetProperty("ripple").GetDouble() + tokens.GetProperty("squash").GetDouble() + 8) * scale);
         var box = new Rectangle(r.X - _desktop.X, r.Y - _desktop.Y, r.Width, r.Height);
         box.Inflate(margin, margin);
         var horizontal = Math.Min(box.Height, margin * 2); var vertical = Math.Min(box.Width, margin * 2);
@@ -220,9 +231,10 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
             var scale=DeviceDpi/96f;
             var handles=DrawSelectionBorder(g,box,scale);
             using var pen=new Pen(SoftClayDrawing.Color("accent"),(float)SoftClayTheme.Number("size","selectionBorder")*scale);
-            foreach(var point in handles)
+            for(var index=0;index<handles.Length;index++)
             {
-                var diameter=(float)(SoftClayTheme.Number("size","handle")*_feedback.HandleScale)*scale;
+                var reveal=_feedback.HandleReveal(index);if(reveal<=.01)continue;
+                var point=handles[index];var diameter=(float)(SoftClayTheme.Number("size","handle")*reveal)*scale;
                 var handle=new RectangleF(point.X-diameter/2,point.Y-diameter/2,diameter,diameter);
                 using var fill=new System.Drawing.Drawing2D.LinearGradientBrush(handle,Color.White,Color.FromArgb(215,222,233),90);
                 g.FillEllipse(fill,handle);g.DrawEllipse(pen,handle);
@@ -230,7 +242,16 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
             // 松手前后尺寸胶囊保持相同内容，避免交接时突然缩短。
             _hintBounds=DrawHint(g,$"{r.Width} × {r.Height} px",box.X,box.Y-38,true);
         }
-        else _hintBounds=DrawHint(g,"拖动框选 · M 放大镜 · Esc / 右键取消",Math.Max(12,-_desktop.X+24),Math.Max(12,-_desktop.Y+24));
+        else
+        {
+            var size=(float)_feedback.SeedSize*DeviceDpi/96;
+            if(size>0)
+            {
+                g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                DrawSelectionBorder(g,new RectangleF(_down.X-size/2,_down.Y-size/2,size,size),DeviceDpi/96f);
+            }
+            _hintBounds=DrawHint(g,"拖动框选 · M 放大镜 · Esc / 右键取消",Math.Max(12,-_desktop.X+24),Math.Max(12,-_desktop.Y+24));
+        }
         if(_magnifier)DrawMagnifier(g);
         if(!_handingOff)
         {
@@ -238,40 +259,57 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
             g.DrawLine(cross,_pointer.X-8,_pointer.Y,_pointer.X+8,_pointer.Y);g.DrawLine(cross,_pointer.X,_pointer.Y-8,_pointer.X,_pointer.Y+8);
         }
     }
-    /// <summary>四角独立接力、边面切向波动；镂空与手柄仍取自唯一的边框曲线。</summary>
-    private PointF[] DrawSelectionBorder(Graphics graphics, Rectangle box, float scale)
+    /// <summary>把四个受力顶点连成同一条软边，镂空和控制点都由本帧的三次曲线取样。</summary>
+    private PointF[] DrawSelectionBorder(Graphics graphics, RectangleF box, float scale)
     {
         var shape = _feedback.Border;
         var l = box.Left + (float)shape.Left * scale; var t = box.Top + (float)shape.Top * scale;
         var r = box.Right + (float)shape.Right * scale; var b = box.Bottom + (float)shape.Bottom * scale;
-        var nw = (float)shape.Corners[0] * scale; var ne = (float)shape.Corners[1] * scale;
-        var se = (float)shape.Corners[2] * scale; var sw = (float)shape.Corners[3] * scale;
-        var bendL = (float)shape.BendLeft * scale; var bendT = (float)shape.BendTop * scale;
-        var bendR = (float)shape.BendRight * scale; var bendB = (float)shape.BendBottom * scale;
-        var wx = (float)shape.RippleX * scale; var wy = (float)shape.RippleY * scale;
-        var w = r - l; var h = b - t;
+        Vector2[] vertices = [new(l, t), new(r, t), new(r, b), new(l, b)];
+        var directions = new Vector2[4]; var lengths = new float[4];
+        for (var index = 0; index < 4; index++)
+            vertices[index] += new Vector2((float)shape.OffsetX[index] * scale, (float)shape.OffsetY[index] * scale);
+        for (var index = 0; index < 4; index++)
+        {
+            var edge = vertices[(index + 1) % 4] - vertices[index];
+            lengths[index] = edge.Length(); directions[index] = lengths[index] > 0 ? edge / lengths[index] : Vector2.Zero;
+        }
+        // 圆角最多占相邻边的一半，小框和按下软团都不会产生相互穿过的圆角。
+        var incoming = new Vector2[4]; var outgoing = new Vector2[4];
+        for (var index = 0; index < 4; index++)
+        {
+            var radius = Math.Min((float)shape.Corners[index] * scale, Math.Min(lengths[(index + 3) % 4], lengths[index]) / 2);
+            incoming[index] = vertices[index] - directions[(index + 3) % 4] * radius;
+            outgoing[index] = vertices[index] + directions[index] * radius;
+        }
+        float[] bends = [(float)shape.BendTop * scale, (float)shape.BendRight * scale, (float)shape.BendBottom * scale, (float)shape.BendLeft * scale];
+        float[] waves = [(float)shape.RippleX * scale, (float)shape.RippleY * scale, -(float)shape.RippleX * scale, -(float)shape.RippleY * scale];
+        var handles = new PointF[8];
         using var path = new System.Drawing.Drawing2D.GraphicsPath();
-        path.AddBezier(l + nw, t, l + w / 3, t + bendT - wx, l + w * 2 / 3, t + bendT + wx, r - ne, t);
-        path.AddBezier(r - ne, t, r - ne * .45f, t, r, t + ne * .45f, r, t + ne);
-        path.AddBezier(r, t + ne, r + bendR - wy, t + h / 3, r + bendR + wy, t + h * 2 / 3, r, b - se);
-        path.AddBezier(r, b - se, r, b - se * .45f, r - se * .45f, b, r - se, b);
-        path.AddBezier(r - se, b, l + w * 2 / 3, b + bendB + wx, l + w / 3, b + bendB - wx, l + sw, b);
-        path.AddBezier(l + sw, b, l + sw * .45f, b, l, b - sw * .45f, l, b - sw);
-        path.AddBezier(l, b - sw, l + bendL + wy, t + h * 2 / 3, l + bendL - wy, t + h / 3, l, t + nw);
-        path.AddBezier(l, t + nw, l, t + nw * .45f, l + nw * .45f, t, l + nw, t);
+        for (var index = 0; index < 4; index++)
+        {
+            var next = (index + 1) % 4; var start = outgoing[index]; var end = incoming[next];
+            var normal = index % 2 == 0 ? new Vector2(0, 1) : new Vector2(1, 0);
+            var c1 = Vector2.Lerp(start, end, 1f / 3) + normal * (bends[index] - waves[index]);
+            var c2 = Vector2.Lerp(start, end, 2f / 3) + normal * (bends[index] + waves[index]);
+            path.AddBezier(start.X, start.Y, c1.X, c1.Y, c2.X, c2.Y, end.X, end.Y);
+            var midpoint = (start + end) * .125f + (c1 + c2) * .375f;
+            handles[index * 2 + 1] = new(midpoint.X, midpoint.Y);
+            // 相邻角的切线随顶点方向旋转，牵开时也保持软角连续。
+            c1 = Vector2.Lerp(vertices[next], end, .45f); c2 = Vector2.Lerp(vertices[next], outgoing[next], .45f);
+            start = end; end = outgoing[next];
+            path.AddBezier(start.X, start.Y, c1.X, c1.Y, c2.X, c2.Y, end.X, end.Y);
+            midpoint = (start + end) * .125f + (c1 + c2) * .375f;
+            handles[next * 2] = new(midpoint.X, midpoint.Y);
+        }
         path.CloseFigure();
         var state = graphics.Save();
         graphics.SetClip(path, System.Drawing.Drawing2D.CombineMode.Intersect);
         graphics.DrawImageUnscaled(_frozen, 0, 0);
         graphics.Restore(state);
-        using var edge = new Pen(SoftClayDrawing.Color("accent"), (float)SoftClayTheme.Number("size", "selectionBorder") * scale);
-        graphics.DrawPath(edge, path);
-        // 不等圆角使边的参数中点偏移，八个手柄用与网页相同的真实三次曲线中点。
-        var knw = nw * (.125f + .45f * .375f); var kne = ne * (.125f + .45f * .375f);
-        var kse = se * (.125f + .45f * .375f); var ksw = sw * (.125f + .45f * .375f);
-        var mx = (l + r) / 2; var my = (t + b) / 2;
-        return [new(l + knw, t + knw), new(mx + (nw - ne) / 8, t + bendT * .75f), new(r - kne, t + kne), new(r + bendR * .75f, my + (ne - se) / 8),
-            new(r - kse, b - kse), new(mx + (sw - se) / 8, b + bendB * .75f), new(l + ksw, b - ksw), new(l + bendL * .75f, my + (nw - sw) / 8)];
+        using var edgePen = new Pen(SoftClayDrawing.Color("accent"), (float)SoftClayTheme.Number("size", "selectionBorder") * scale);
+        graphics.DrawPath(edgePen, path);
+        return handles;
     }
     // 放大镜只读取本次冻结图，最近邻放大显示真实像素；不访问系统指针或再次捕获。
     private void DrawMagnifier(Graphics g)
