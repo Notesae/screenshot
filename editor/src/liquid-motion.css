@@ -2,7 +2,7 @@
 .clay-editor .liquid-rail { isolation: isolate; background: transparent; box-shadow: none; animation: none !important; }
 .liquid-rail-body { position: absolute; inset: 0; z-index: 0; border-radius: inherit; background: var(--clay-face); box-shadow: var(--clay-elevation); transform-origin: 96% 50%; pointer-events: none; }
 /* 分组与语义按钮不隔离材质；灰皮肤、共享选中面、图文按 0/1/2 层排列。 */
-.liquid-rail > :not(.liquid-rail-body,.liquid-sweep,.liquid-active,.liquid-bridge) { position: relative; z-index: auto; }
+.liquid-rail > :not(.liquid-rail-body,.liquid-sweep,.liquid-active) { position: relative; z-index: auto; }
 .liquid-rail > .clay-grip { z-index: 2; }
 .clay-editor .liquid-rail button[data-motion-button] { position: relative; z-index: auto; isolation: auto; background: transparent !important; box-shadow: none !important; filter: none !important; transform: none !important; transition: none !important; }
 .liquid-skin { position: absolute; inset: 0; z-index: 0; border-radius: inherit; pointer-events: none; background: var(--clay-raised); box-shadow: var(--clay-button); }
@@ -26,7 +26,6 @@
 .liquid-active-depth { box-shadow: var(--clay-press); opacity: var(--liquid-press,0); }
 /* 焦点保留在语义按钮，蓝色材质同步承接原皮肤的键盘焦点亮度。 */
 .clay-editor .liquid-rail:has([data-motion-button][data-motion-material=true]:focus-visible) > .liquid-active { filter: brightness(1.2); }
-.clay-editor .liquid-rail > svg.liquid-bridge { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; fill: var(--clay-raisedMid); overflow: hidden; pointer-events: none; }
 .liquid-sweep { position: absolute; inset: 0; z-index: 3; pointer-events: none; border-radius: inherit; opacity: 0; background: linear-gradient(115deg,transparent 38%,#ffffff40 50%,transparent 62%); }
 .clay-editor .liquid-panel { background: transparent; box-shadow: none; overflow: visible; animation: none !important; }
 .liquid-panel-skin { position: absolute; inset: 0; z-index: 0; border-radius: inherit; background: var(--clay-card-face); box-shadow: var(--clay-elevation); transform-origin: top left; pointer-events: none; }
@@ -55,9 +54,9 @@
 .clay-notice > .liquid-surface-content { display:flex; align-items:center; gap:12px; padding:12px 16px; }
 .clay-notice button { pointer-events:auto; }
 .clay-editor[data-motion-reduced=true] *, .clay-editor[data-motion-reduced=true] *::before, .clay-editor[data-motion-reduced=true] *::after { animation: none !important; transition: none !important; }
-.clay-editor[data-motion-economy=true] .liquid-sweep, .clay-editor[data-motion-reduced=true] :where(.liquid-bridge,.liquid-sweep), .clay-editor[data-motion-reduced=true] :is(.liquid-skin,.liquid-active)::after { display: none; }
+.clay-editor[data-motion-economy=true] .liquid-sweep, .clay-editor[data-motion-reduced=true] .liquid-sweep, .clay-editor[data-motion-reduced=true] :is(.liquid-skin,.liquid-active)::after { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  .liquid-bridge, .liquid-sweep, .liquid-skin::after, .liquid-active::after { display: none !important; }
+  .liquid-sweep, .liquid-skin::after, .liquid-active::after { display: none !important; }
 }
 
 /* 折叠只改变容器高度；字段正文保持静止，取消粒屑不进入画布。 */

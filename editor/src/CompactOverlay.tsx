@@ -9,7 +9,7 @@ import { TooltipLayer } from './TooltipLayer';
 import { OverlayScrollbars } from './OverlayScrollbars';
 import { flushSync } from 'react-dom';
 import { matchesPresentationViewport, readPresentationViewport } from './presentationViewport';
-import { useId, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type PointerEvent, type KeyboardEvent, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type PointerEvent, type KeyboardEvent, type CSSProperties } from 'react';
 import { ArrowUpRight, BookOpen, Check, Copy, FolderOpen, Frame, GripVertical, Highlighter, ImagePlus, Languages, MoreHorizontal, RotateCcw, ScanText, Settings2, Shield, Sparkles, Trash2, Type, X } from 'lucide-react';
 import { StyleTools } from './StyleTools';
 import { TextTools, type TextToolsProps } from './TextTools';
@@ -71,7 +71,6 @@ type Props = {
 /** 冻结选区与无冻结文件共用外壳；路径、工具位置和浮卡始终不写入项目模型。 */
 export function CompactOverlay(props:Props) {
   const {document:doc,metadata,canvasRef,update,busy,aiBusy}=props,editor=doc.editor;
-  const bridgeId=useId(); // 多个编辑外壳也不会引用到其它实例的桥材质。
   const [panel,setPanel]=useState<Panel|null>(null),[positions,setPositions]=useState<ToolPositions>({});
   const [reading,setReading]=useState(false),readerTrigger=useRef<HTMLButtonElement|null>(null);
   const [readerBounds,setReaderBounds]=useState<PixelRect|null>(null);
@@ -249,7 +248,7 @@ export function CompactOverlay(props:Props) {
     <svg className="liquid-panel-bridge" aria-hidden="true"><path/></svg>
     <fieldset className="clay-chrome" disabled={!!busy&&!adjusting} inert={fullReading||adjusting||Boolean(selectionPreview&&!selectionDragging.current)}>
       <div className="clay-rail liquid-rail" ref={railRef} role="toolbar" aria-label="截图编辑工具" style={{left:tools.rail.x,top:tools.rail.y,maxWidth:tools.area.width,maxHeight:tools.area.height}}>
-        <span className="liquid-rail-body" aria-hidden="true"/><span className="liquid-sweep" aria-hidden="true"/><span className="liquid-active" aria-hidden="true"><span className="liquid-active-color"/><span className="liquid-active-depth"/></span><svg className="liquid-bridge" aria-hidden="true"><defs><linearGradient id={bridgeId} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="var(--clay-raisedTop)"/><stop offset=".5" stopColor="var(--clay-raisedMid)"/><stop offset="1" stopColor="var(--clay-raisedBottom)"/></linearGradient></defs><path fill={"url(#"+bridgeId+")"}/></svg>
+        <span className="liquid-rail-body" aria-hidden="true"/><span className="liquid-sweep" aria-hidden="true"/><span className="liquid-active" aria-hidden="true"><span className="liquid-active-color"/><span className="liquid-active-depth"/></span>
         <span className="clay-grip" role="button" tabIndex={0} aria-label="移动动作轨，方向键微调" onPointerDown={event=>beginDrag('rail',event)} onPointerMove={moveDrag} onPointerUp={endDrag} onLostPointerCapture={endDrag} onKeyDown={event=>moveByKey('rail',event)}><GripVertical aria-hidden="true"/></span>
         {/* 美化、提取文字只打开面板；图片翻译是明确的网络动作，直接替换选区外语。 */}
         <div className="clay-image-tools" role="group" aria-label="图片工具">
