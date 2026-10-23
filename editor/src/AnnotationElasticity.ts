@@ -2,6 +2,7 @@ import { Ellipse, FabricObject, Path, Point, Rect, util, type TSimplePathData } 
 import { presentationMotion } from './LiquidMotion';
 import { clamp, MotionClock, MotionSpring } from './motion';
 import { motionSuspended, observeMotionScope } from './motionScope';
+import { paintSolidStroke } from './InkPath';
 
 type Material = {
   x: MotionSpring; y: MotionSpring; gripX: MotionSpring; gripY: MotionSpring; moving: MotionSpring;
@@ -33,24 +34,38 @@ function renderElastic(object: FabricObject, ctx: CanvasRenderingContext2D, comm
     const stretch = arrow ? clamp(pullX * grip.x / w * 2.2, -.28, .38) * belly * (1 - grip.moving) : 0;
     return [px - pullX * weight * (arrow ? .55 : 1), py * (1 - stretch) - pullY * weight];
   };
-  ctx.beginPath();
-  for (const command of commands) {
+  const warped:TSimplePathData=commands.map(command=>{
     switch (command[0]) {
-      case 'M': ctx.moveTo(...warp(command[1], command[2])); break;
-      case 'L': ctx.lineTo(...warp(command[1], command[2])); break;
-      case 'Q': ctx.quadraticCurveTo(...warp(command[1], command[2]), ...warp(command[3], command[4])); break;
-      case 'C': ctx.bezierCurveTo(...warp(command[1], command[2]), ...warp(command[3], command[4]), ...warp(command[5], command[6])); break;
-      case 'Z': ctx.closePath(); break;
+      case 'M': case 'L': return [command[0],...warp(command[1],command[2])];
+      case 'Q': return ['Q',...warp(command[1],command[2]),...warp(command[3],command[4])];
+      case 'C': return ['C',...warp(command[1],command[2]),...warp(command[3],command[4]),...warp(command[5],command[6])];
+      case 'Z': return ['Z'];
+    }
+  });
+  paintOutline(object,ctx,warped);
+  return true;
+}
+
+/** 精确轮廓与临时形变走同一绘制入口，避免松手恢复缓存时又切回产生空洞的描边。 */
+function paintOutline(object:FabricObject,ctx:CanvasRenderingContext2D,path:TSimplePathData) {
+  ctx.beginPath();
+  for(const c of path){
+    switch(c[0]){
+      case 'M':ctx.moveTo(c[1],c[2]);break;
+      case 'L':ctx.lineTo(c[1],c[2]);break;
+      case 'Q':ctx.quadraticCurveTo(c[1],c[2],c[3],c[4]);break;
+      case 'C':ctx.bezierCurveTo(c[1],c[2],c[3],c[4],c[5],c[6]);break;
+      case 'Z':ctx.closePath();break;
     }
   }
-  object._renderPaintInOrder(ctx);
-  return true;
+  if(object instanceof ElasticRect||object instanceof ElasticEllipse){
+    object._renderFill(ctx);paintSolidStroke(object,ctx,path);
+  }else object._renderPaintInOrder(ctx);
 }
 
 /** 直边也分配贝塞尔控制点，拉扯时弯在边中部，不只变成斜四边形。 */
 export class ElasticRect extends Rect {
   override _render(ctx: CanvasRenderingContext2D) {
-    if (!materials.has(this)) { super._render(ctx); return; }
     const x = -this.width / 2, y = -this.height / 2, r = Math.min(this.rx, this.width / 2, this.height / 2);
     const right = -x, bottom = -y, dx = (this.width - r * 2) / 3, dy = (this.height - r * 2) / 3;
     const path: TSimplePathData = [
@@ -59,19 +74,21 @@ export class ElasticRect extends Rect {
       ['C', right - r - dx, bottom, x + r + dx, bottom, x + r, bottom], ['Q', x, bottom, x, bottom - r],
       ['C', x, bottom - r - dy, x, y + r + dy, x, y + r], ['Q', x, y, x + r, y], ['Z'],
     ];
-    if (!renderElastic(this, ctx, path)) super._render(ctx);
+    if (!renderElastic(this, ctx, path)) paintOutline(this,ctx,path);
   }
 }
 
 export class ElasticEllipse extends Ellipse {
   override _render(ctx: CanvasRenderingContext2D) {
-    if (!materials.has(this)) { super._render(ctx); return; }
-    const x = this.rx, y = this.ry, k = .5522847498;
-    const path: TSimplePathData = [
-      ['M', x, 0], ['C', x, y * k, x * k, y, 0, y], ['C', -x * k, y, -x, y * k, -x, 0],
-      ['C', -x, -y * k, -x * k, -y, 0, -y], ['C', x * k, -y, x, -y * k, x, 0], ['Z'],
-    ];
-    if (!renderElastic(this, ctx, path)) super._render(ctx);
+    // 八段圆弧降低大尺寸椭圆的曲线近似误差，也为软体边缘提供均匀控制点。
+    const x=this.rx,y=this.ry,step=Math.PI/4,k=4/3*Math.tan(step/4);
+    const path:TSimplePathData=[['M',x,0]];
+    for(let i=0;i<8;i++){
+      const a=i*step,b=(i+1)*step;
+      path.push(['C',x*(Math.cos(a)-k*Math.sin(a)),y*(Math.sin(a)+k*Math.cos(a)),x*(Math.cos(b)+k*Math.sin(b)),y*(Math.sin(b)-k*Math.cos(b)),x*Math.cos(b),y*Math.sin(b)]);
+    }
+    path.push(['Z']);
+    if (!renderElastic(this, ctx, path)) paintOutline(this,ctx,path);
   }
 }
 

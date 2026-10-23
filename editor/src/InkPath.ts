@@ -1,25 +1,31 @@
-import { Path, type TSimplePathData } from 'fabric';
+import { FabricObject, Path, type TSimplePathData } from 'fabric';
 
 type XY = [number,number];
 const middle=(a:XY,b:XY):XY=>[(a[0]+b[0])/2,(a[1]+b[1])/2];
+type Ink = {source:TSimplePathData;width:number;sx:number;sy:number;ox:number;oy:number;path:Path2D};
+const outlines=new WeakMap<FabricObject,Ink>();
 
 /** 画笔使用同向实心片段的并集，回折和自交不会让粗描边相互抵消；编辑与导出共用。 */
 export class InkPath extends Path {
-  private ink?:{source:TSimplePathData;width:number;sx:number;sy:number;ox:number;oy:number;path:Path2D};
   override _render(ctx:CanvasRenderingContext2D) {
-    if(!this.stroke||this.strokeWidth<=0)return;
-    const scale=this.strokeUniform?this.getObjectScaling():{x:1,y:1};
-    const sx=Math.max(.0001,scale.x),sy=Math.max(.0001,scale.y),ox=this.pathOffset.x,oy=this.pathOffset.y;
-    let ink=this.ink;
-    if(!ink||ink.source!==this.path||ink.width!==this.strokeWidth||ink.sx!==sx||ink.sy!==sy||ink.ox!==ox||ink.oy!==oy){
-      ink={source:this.path,width:this.strokeWidth,sx,sy,ox,oy,path:inkOutline(this.path,this.strokeWidth,sx,sy,ox,oy)};
-      this.ink=ink;
-    }
-    ctx.save();
-    // 与 Fabric 的 strokeUniform 使用同一缩放，粗细不因调整对象大小而漂移。
-    ctx.scale(1/sx,1/sy);this._setStrokeStyles(ctx,this);ctx.fillStyle=ctx.strokeStyle;
-    ctx.fill(ink.path,'nonzero');ctx.restore();
+    paintSolidStroke(this,ctx,this.path,this.pathOffset.x,this.pathOffset.y);
   }
+}
+
+/** 封闭框线也使用笔触并集：尺寸小于线宽时内孔自然填满，不生成反向的内轮廓。 */
+export function paintSolidStroke(object:FabricObject,ctx:CanvasRenderingContext2D,commands:TSimplePathData,ox=0,oy=0) {
+  if(!object.stroke||object.strokeWidth<=0)return;
+  const scale=object.strokeUniform?object.getObjectScaling():{x:1,y:1};
+  const sx=Math.max(.0001,scale.x),sy=Math.max(.0001,scale.y);
+  let ink=outlines.get(object);
+  if(!ink||ink.source!==commands||ink.width!==object.strokeWidth||ink.sx!==sx||ink.sy!==sy||ink.ox!==ox||ink.oy!==oy){
+    ink={source:commands,width:object.strokeWidth,sx,sy,ox,oy,path:inkOutline(commands,object.strokeWidth,sx,sy,ox,oy)};
+    outlines.set(object,ink);
+  }
+  ctx.save();
+  // 与 Fabric 的 strokeUniform 使用同一缩放，粗细不因调整对象大小而漂移。
+  ctx.scale(1/sx,1/sy);object._setStrokeStyles(ctx,object);ctx.fillStyle=ctx.strokeStyle;
+  ctx.fill(ink.path,'nonzero');ctx.restore();
 }
 
 /** 中点曲线按误差细分；每个矩形及圆都保持相同绕向，交叉区域是并集而不是挖孔。 */
