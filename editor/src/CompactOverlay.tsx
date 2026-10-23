@@ -3,6 +3,7 @@ import { MotionDetails } from './MotionDetails';
 import { useSurfaceMotion } from './SurfaceMotion';
 import { useBackdropMotion } from './BackdropMotion';
 import { MotionButton, presentationMotion, useLiquidMotion } from './LiquidMotion';
+import { RailBody } from './RailBody';
 import { Select } from './Select';
 import { ColorField } from './ColorField';
 import { TooltipLayer } from './TooltipLayer';
@@ -251,7 +252,7 @@ export function CompactOverlay(props:Props) {
     <svg className="liquid-panel-bridge" aria-hidden="true"><path/></svg>
     <fieldset className="clay-chrome" disabled={!!busy&&!adjusting} inert={fullReading||adjusting||Boolean(selectionPreview&&!selectionDragging.current)}>
       <div className="clay-rail liquid-rail" ref={railRef} role="toolbar" aria-label="截图编辑工具" style={{left:tools.rail.x,top:tools.rail.y,maxWidth:tools.area.width,maxHeight:tools.area.height}}>
-        <span className="liquid-rail-body" aria-hidden="true"/><span className="liquid-sweep" aria-hidden="true"/><span className="liquid-active" aria-hidden="true"><span className="liquid-active-color"/><span className="liquid-active-depth"/></span>
+        <RailBody/><span className="liquid-sweep" aria-hidden="true"/><span className="liquid-active" aria-hidden="true"><span className="liquid-active-color"/><span className="liquid-active-depth"/></span>
         <span className="clay-grip" role="button" tabIndex={0} aria-label="移动动作轨，方向键微调" onPointerDown={event=>beginDrag('rail',event)} onPointerMove={moveDrag} onPointerUp={endDrag} onLostPointerCapture={endDrag} onKeyDown={event=>moveByKey('rail',event)}><GripVertical aria-hidden="true"/></span>
         {/* 美化、提取文字只打开面板；图片翻译是明确的网络动作，直接替换选区外语。 */}
         <div className="clay-image-tools" role="group" aria-label="图片工具">

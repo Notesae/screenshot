@@ -1,6 +1,9 @@
 /* v2 只接管表现层；所有布局、颜色、圆角和物理截图映射仍由生产 token 决定。 */
 .clay-editor .liquid-rail { isolation: isolate; background: transparent; box-shadow: none; animation: none !important; }
-.liquid-rail-body { position: absolute; inset: 0; z-index: 0; border-radius: inherit; background: var(--clay-face); box-shadow: var(--clay-elevation); transform-origin: 96% 50%; pointer-events: none; }
+/* 底座轮廓、材质和投影由同一 SVG 路径提供，长边可以弯曲，外壳仍保留固定布局。 */
+.liquid-rail-body { position: absolute; inset: 0; z-index: 0; border-radius: inherit; transform-origin: center; pointer-events: none; }
+.clay-editor svg.liquid-rail-contour { display: block; width: 100%; height: 100%; overflow: visible; }
+.clay-editor[data-motion-economy=true] .liquid-rail-face { filter: none; }
 /* 分组与语义按钮不隔离材质；灰皮肤、共享选中面、图文按 0/1/2 层排列。 */
 .liquid-rail > :not(.liquid-rail-body,.liquid-sweep,.liquid-active) { position: relative; z-index: auto; }
 .liquid-rail > .clay-grip { z-index: 2; }
@@ -59,9 +62,8 @@
   .liquid-sweep, .liquid-skin::after, .liquid-active::after { display: none !important; }
 }
 
-/* 折叠只改变容器高度；字段正文保持静止，取消粒屑不进入画布。 */
+/* 折叠只改变容器高度，字段正文保持静止。 */
 .liquid-details-content { display:grid; gap:12px; }
-.liquid-crumb { position:fixed; z-index:7; width:5px; height:5px; border-radius:50%; background:var(--clay-raisedMid); pointer-events:none; }
 
 .clay-editor > svg.liquid-panel-bridge { position:absolute; inset:0; width:100%; height:100%; z-index:4; overflow:hidden; fill:var(--clay-surfaceMid); pointer-events:none; }
 .clay-editor[data-motion-reduced=true] > .liquid-panel-bridge, .clay-editor.is-reading > .liquid-panel-bridge { display:none; }

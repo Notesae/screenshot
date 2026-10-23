@@ -4,7 +4,7 @@ import { ControlFeedback } from './ControlMotion';
 import { SurfaceTransition } from './surfaceTransition';
 import { paintSurface } from './surfacePaint';
 import { SelectionJelly, type SelectionGrip } from './SelectionJelly';
-import { RailToss } from './RailToss';
+import { RailToss, railOutline, railWarp } from './RailToss';
 
 /** 固定语义槽位承接输入，材质与图文各自变形，避免按钮追着光标改变命中区。 */
 export function MotionButton({ children, group = 'end', ...props }: ComponentPropsWithRef<'button'> & { group?: string }) {
@@ -38,6 +38,9 @@ export class LiquidMotion {
   // 底座沿注意力中心接收光与曲率，基础圆角仍由生产主题测量。
   private bodyLight = new MotionSpring();
   private railRadius = 0;
+  // 轮廓引用只在布局阶段刷新；一帧只写一条共享路径，停止后不重复提交相同几何。
+  private outline: SVGPathElement | null = null;
+  private outlinePath = '';
   private indicator = { x: new MotionSpring(), y: new MotionSpring(), width: new MotionSpring(), opacity: new MotionSpring() };
   // 逻辑取消后继续持有材质来源，直到颜色与按压都收敛再交还普通皮肤。
   private indicatorSource: Surface | null = null;
@@ -59,7 +62,6 @@ export class LiquidMotion {
   private selectionJelly = new SelectionJelly();
   private sizeX = new MotionSpring();
   private sizeY = new MotionSpring();
-  private animations = new Set<Animation>();
   private clone: HTMLCanvasElement | null = null;
   private exitSequence = 0;
   private rr: MotionRect = { x: 0, y: 0, width: 1, height: 1 };
@@ -143,7 +145,7 @@ export class LiquidMotion {
     }) as EventListener, true);
     const updateReduced = () => {
       root.dataset.motionReduced = String(this.reduced.matches);
-      if (this.reduced.matches) { this.controls.reset(); for (const animation of this.animations) animation.finish(); this.contact = null; }
+      if (this.reduced.matches) { this.controls.reset(); this.contact = null; }
       this.clock.setReduced(this.reduced.matches); this.wake();
     };
     this.reduced.addEventListener('change', updateReduced);
@@ -191,13 +193,14 @@ export class LiquidMotion {
     if (this.grip) { this.grip.icon.style.transform = 'none'; this.grip.icon.style.opacity = '1'; }
     this.bulge.snap(0); this.bodyLight.snap(this.rr.width / 2);
     const body = this.rail.querySelector<HTMLElement>('.liquid-rail-body');
+    this.outlinePath = railOutline(this.rr.width, this.rr.height, Array(4).fill(this.railRadius), this.entrance.frame);
+    this.outline?.setAttribute('d', this.outlinePath);
     if (body) { body.style.transform = 'none'; body.style.opacity = '1'; body.style.borderRadius = this.railRadius + 'px'; body.style.setProperty('--liquid-body-light', '0'); }
     for (const spring of Object.values(this.indicator)) spring.snap(0);
     const indicator = this.rail.querySelector<HTMLElement>('.liquid-active'); if (indicator) indicator.style.opacity = '0';
     this.sizePosition = null; this.sizeX.snap(0); this.sizeY.snap(0); this.selectionJelly.reset();
     this.paintSelection();
     const size = this.root.querySelector<HTMLElement>('.clay-selection-size'); if (size) size.style.transform = 'none';
-    this.animations.forEach(animation => animation.cancel()); this.animations.clear();
   }
   /** 缓存固定槽位，滚动和布局变化才重新测量；绝不测量变形后的材质作新目标。 */
   private measure() {
@@ -211,6 +214,12 @@ export class LiquidMotion {
       this.grip = { icon, rect: { x: box.x - this.rr.x, y: box.y - this.rr.y, width: box.width, height: box.height } };
     } else this.grip = null;
     this.railRadius = parseFloat(getComputedStyle(this.rail).borderTopLeftRadius) || 0;
+    const outline = this.rail.querySelector<SVGPathElement>('.liquid-rail-outline');
+    if (outline !== this.outline) { this.outline = outline; this.outlinePath = ''; }
+    this.rail.querySelector('.liquid-rail-contour')?.setAttribute('viewBox', '0 0 ' + this.rr.width + ' ' + this.rr.height);
+    // 投影边界随真实尺寸缓存，覆盖弯曲和原有阴影，不随逐帧形变触发布局测量。
+    const shadow = this.rail.querySelector('.liquid-rail-shadow');
+    if (shadow) for (const [key, value] of Object.entries({ x: -80, y: -96, width: this.rr.width + 160, height: this.rr.height + 216 })) shadow.setAttribute(key, String(value));
     const existing = new Map(this.nodes.map(node => [node.el, node]));
     this.nodes = [...this.rail.querySelectorAll<HTMLButtonElement>('[data-motion-button]')].map(el => {
       const box = el.getBoundingClientRect();
@@ -342,8 +351,9 @@ export class LiquidMotion {
       const x = node.faceX = node.x.x * limit, y = node.faceY = node.y.x * limit;
       // 所有按钮按同一个软体坐标映射移动；材质参与拉伸，图文只平移，避免各自飞行和字号变化。
       const localX = node.rect.x + node.rect.width / 2 - this.rr.width / 2, localY = node.rect.y + node.rect.height / 2 - this.rr.height / 2;
-      const entryX = toss.x + localX * (toss.scaleX - 1) + shear * localY * toss.scaleY, entryY = toss.y + localY * (toss.scaleY - 1);
-      node.skin.style.transform = 'translate(' + (x + entryX) + 'px,' + (y + entryY) + 'px) skewX(' + toss.shear + 'deg) scale(' + (toss.scaleX * (1 + T.field.stretch * a * .6 + (T.press.x - 1) * p - T.contact.squash * contact)) + ',' + (toss.scaleY * (1 + T.field.stretch * a * (Math.abs(dy) - .3) + (T.press.y - 1) * p + T.contact.bulge * contact)) + ')';
+      const warp = railWarp(localX + this.rr.width / 2, localY + this.rr.height / 2, this.rr.width, this.rr.height, toss), warpedY = warp.y - this.rr.height / 2;
+      const entryX = toss.x + localX * (toss.scaleX - 1) + shear * warpedY * toss.scaleY, entryY = toss.y + warpedY * toss.scaleY - localY;
+      node.skin.style.transform = 'translate(' + (x + entryX) + 'px,' + (y + entryY) + 'px) skewX(' + toss.shear + 'deg) scale(' + toss.scaleX + ',' + toss.scaleY + ') skewY(' + Math.atan(warp.slope) * 180 / Math.PI + 'deg) scale(' + (1 + T.field.stretch * a * .6 + (T.press.x - 1) * p - T.contact.squash * contact) + ',' + (warp.stretch * (1 + T.field.stretch * a * (Math.abs(dy) - .3) + (T.press.y - 1) * p + T.contact.bulge * contact)) + ')';
       node.glyph.style.transform = 'translate(' + (x * T.field.iconRatio + entryX) + 'px,' + (y * T.field.iconRatio + entryY + p * 1.2) + 'px)';
       node.skin.style.opacity = String(toss.skin); node.glyph.style.opacity = String(toss.content);
       // 受压侧略变平、外侧鼓起；图文只跟随平移，始终不参与软体挤压。
@@ -364,9 +374,12 @@ export class LiquidMotion {
     // 圆角抵消整体缩放，小团才是圆润软泥；前后端的曲率随错开的受力回摆。
     const radii = [this.railRadius+Math.max(0,-this.bulge.x),this.railRadius+Math.max(0,this.bulge.x),this.railRadius,this.railRadius].map((value, corner) => Math.max(4, value + (1 - toss.unfold) * 18 + (((corner === 0 || corner === 3 ? -1 : 1) === toss.direction) ? toss.lead : toss.tail) * 9));
     body.style.borderRadius = radii.map(value => value / toss.scaleX + 'px').join(' ') + ' / ' + radii.map(value => value / toss.scaleY + 'px').join(' ');
+    const outline = railOutline(this.rr.width, this.rr.height, radii, toss);
+    if (outline !== this.outlinePath) { this.outline?.setAttribute('d', outline); this.outlinePath = outline; }
     if (this.grip) {
       const localX = this.grip.rect.x + this.grip.rect.width / 2 - this.rr.width / 2, localY = this.grip.rect.y + this.grip.rect.height / 2 - this.rr.height / 2;
-      this.grip.icon.style.transform = 'translate(' + (toss.x + localX * (toss.scaleX - 1) + shear * localY * toss.scaleY) + 'px,' + (toss.y + localY * (toss.scaleY - 1)) + 'px)';
+      const warpedY = railWarp(localX + this.rr.width / 2, localY + this.rr.height / 2, this.rr.width, this.rr.height, toss).y - this.rr.height / 2;
+      this.grip.icon.style.transform = 'translate(' + (toss.x + localX * (toss.scaleX - 1) + shear * warpedY * toss.scaleY) + 'px,' + (toss.y + warpedY * toss.scaleY - localY) + 'px)';
       this.grip.icon.style.opacity = String(toss.content);
     }
     body.style.setProperty('--liquid-body-light-x',this.bodyLight.x+'px');
@@ -497,15 +510,6 @@ export class LiquidMotion {
     const selection = this.root.querySelector<HTMLElement>('.clay-capture-selection');
     const mask = this.root.querySelector<SVGElement>('.clay-selection-mask');
     const panels = [...this.root.querySelectorAll<HTMLElement>('.clay-card,.clay-reader')];
-    if(kind==='dismiss'&&selection&&!this.clock.reduced&&!this.economy){
-      const box=selection.getBoundingClientRect();
-      for(let index=0;index<6;index++){
-        const crumb=document.createElement('i');crumb.className='liquid-crumb';
-        Object.assign(crumb.style,{left:box.left+box.width*index/5+'px',top:box.bottom+'px'});this.root.append(crumb);
-        const animation=crumb.animate([{opacity:.55,transform:'translateY(0) scale(1)'},{opacity:0,transform:'translateY(36px) scale(.4)'}],{duration:240,easing:'ease-in'});
-        this.animations.add(animation);void animation.finished.catch(()=>{}).finally(()=>{crumb.remove();this.animations.delete(animation);});
-      }
-    }
     const completed = await this.clock.tween('exit', kind === 'complete' ? T.duration.confirmExit : 270, p => {
       const reduced = this.clock.reduced;
       if (this.clone && frame) {
@@ -525,7 +529,6 @@ export class LiquidMotion {
   /** 失败、取消或旧文档失效时恢复可编辑现场；不会恢复已卸载的新会话。 */
   restore() {
     this.exitSequence++; this.clock.cancel('exit'); this.clone?.remove(); this.clone = null;
-    this.root.querySelectorAll('.liquid-crumb').forEach(el=>el.remove());
     delete this.root.dataset.motionExit;
     this.root.querySelector<SVGPathElement>('.liquid-panel-bridge path')?.setAttribute('d','');
     this.rail.style.removeProperty('opacity'); this.rail.style.removeProperty('transform');
@@ -534,7 +537,7 @@ export class LiquidMotion {
   }
   destroy() {
     this.restore(); this.destroyed = true; this.controls.destroy(); this.clock.dispose(); this.resize.disconnect(); this.mutation.disconnect();
-    this.cleanup.forEach(clean => clean()); this.animations.forEach(animation => animation.cancel());
+    this.cleanup.forEach(clean => clean());
   }
 }
 
