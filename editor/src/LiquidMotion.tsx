@@ -4,6 +4,7 @@ import { ControlFeedback } from './ControlMotion';
 import { SurfaceTransition } from './surfaceTransition';
 import { paintSurface } from './surfacePaint';
 import { SelectionJelly, type SelectionGrip } from './SelectionJelly';
+import { RailToss } from './RailToss';
 
 /** 固定语义槽位承接输入，材质与图文各自变形，避免按钮追着光标改变命中区。 */
 export function MotionButton({ children, group = 'end', ...props }: ComponentPropsWithRef<'button'> & { group?: string }) {
@@ -11,7 +12,7 @@ export function MotionButton({ children, group = 'end', ...props }: ComponentPro
 }
 
 /** 固定槽位保存运动状态；contact 为接触压缩，contactSide 为受压侧，contactShift 为本帧牵引目标。 */
-type Surface = { el: HTMLButtonElement; skin: HTMLElement; glyph: HTMLElement; group: string; rect: MotionRect; x: MotionSpring; y: MotionSpring; attention: MotionSpring; press: MotionSpring; birth: MotionSpring; contact: MotionSpring; contactSide: number; contactShift: number; due: number; faceX: number; faceY: number; radius: number };
+type Surface = { el: HTMLButtonElement; skin: HTMLElement; glyph: HTMLElement; group: string; rect: MotionRect; x: MotionSpring; y: MotionSpring; attention: MotionSpring; press: MotionSpring; contact: MotionSpring; contactSide: number; contactShift: number; faceX: number; faceY: number; radius: number };
 /** 仅指向当前挂载的编辑外壳；卸载会使旧完成链取消，不接触文档或系统能力。 */
 let currentMotion: LiquidMotion | null = null;
 export function presentationMotion(node?: Node | null) { return currentMotion && (!node || currentMotion.owns(node)) ? currentMotion : null; }
@@ -29,7 +30,10 @@ export class LiquidMotion {
   private nearest: Surface | null = null;
   // 同时只保留一对牵引表面；一次接触只传递一次冲量，压缩由各自弹簧续接。
   private contact: { a: Surface; b: Surface; start: number; struck: boolean } | null = null;
-  private body = new MotionSpring(1);
+  // 整条轨道只保留一份抛出/回摆姿态，底座和全部控件共同跟随。
+  private entrance = new RailToss();
+  // 拖动柄只移动内部图标，语义命中槽位保持固定。
+  private grip: { icon: SVGElement; rect: MotionRect } | null = null;
   private bulge = new MotionSpring();
   // 底座沿注意力中心接收光与曲率，基础圆角仍由生产主题测量。
   private bodyLight = new MotionSpring();
@@ -110,6 +114,12 @@ export class LiquidMotion {
       }
       this.wake();
     };
+    // 按下、键盘或滚轮输入立即接管落位，用户操作不必等待抛出动画结束。
+    const settleEntrance = () => {
+      if (!this.active || !this.entrance.moving) return;
+      this.entrance.finish(); this.paint(0, performance.now()); this.wake();
+    };
+    listen(rail, 'pointerdown', settleEntrance, true); listen(rail, 'keydown', settleEntrance, true); listen(rail, 'wheel', settleEntrance, true);
     listen(rail, 'pointerdown', ((event: PointerEvent) => { if (event.button === 0) press((event.target as Element).closest('[data-motion-button]')); }) as EventListener);
     listen(rail, 'keydown', ((event: KeyboardEvent) => { if (!event.repeat && (event.key === ' ' || event.key === 'Enter')) press((event.target as Element).closest('[data-motion-button]')); }) as EventListener);
     listen(rail, 'click', event => {
@@ -160,19 +170,9 @@ export class LiquidMotion {
     this.clock.setSuspended(document.hidden);
     this.measure();
     if (document.hidden) { this.resetField(); return; }
-    // 底座从接近最终宽度的软体展开；长轨道不会把弹簧进度放大成整排按钮的高速飞行。
-    this.body.snap(this.clock.reduced ? 1 : .88); this.body.to = 1;
-    const now = performance.now(), done = this.nodes.find(node => node.el.dataset.motionAction === 'done');
-    const endpoint = done ? done.rect.x + done.rect.width / 2 : this.rr.width - 32;
-    for (const node of this.nodes) {
-      node.birth.snap(this.clock.reduced ? 1 : 0); node.birth.to = 1;
-      // 按与来源的距离错峰，整条轨道限制在四个间隔内，按钮增多也不会拖长入场队列。
-      node.due = now + clamp(Math.abs(endpoint - node.rect.x - node.rect.width / 2) / Math.max(1, this.rr.width)) * T.duration.enterStagger * 4;
-    }
-    this.paint(0, now);
-    if (!this.clock.reduced) {
-      this.decorate(this.rail.querySelector<HTMLElement>('.liquid-sweep'), [{ opacity: 0, transform: 'translateX(-110%)' }, { opacity: .22, offset: .3 }, { opacity: 0, transform: 'translateX(110%)' }], T.duration.sweep);
-    }
+    const done = this.nodes.find(node => node.el.dataset.motionAction === 'done');
+    this.entrance.begin(this.rr, done?.rect, this.clock.reduced);
+    this.paint(0, performance.now());
     this.wake();
   }
   /** 旧会话的迎向、按压、接触压力和尺寸惯性不能带到下一次揭示。 */
@@ -181,13 +181,15 @@ export class LiquidMotion {
     this.indicatorSource = null;
     for (const node of this.nodes) {
       for (const spring of [node.x, node.y, node.attention, node.press, node.contact]) spring.snap(0);
-      node.birth.snap(1); node.faceX = node.faceY = node.contactShift = node.contactSide = 0;
+      node.faceX = node.faceY = node.contactShift = node.contactSide = 0;
       delete node.el.dataset.motionMaterial;
       node.skin.style.transform = node.glyph.style.transform = 'none';
       node.skin.style.opacity = node.glyph.style.opacity = '1';
       node.skin.style.borderRadius = node.radius + 'px'; node.skin.style.setProperty('--liquid-light', '0');
     }
-    this.body.snap(1); this.bulge.snap(0); this.bodyLight.snap(this.rr.width / 2);
+    this.entrance.finish(); this.rail.style.removeProperty('overflow');
+    if (this.grip) { this.grip.icon.style.transform = 'none'; this.grip.icon.style.opacity = '1'; }
+    this.bulge.snap(0); this.bodyLight.snap(this.rr.width / 2);
     const body = this.rail.querySelector<HTMLElement>('.liquid-rail-body');
     if (body) { body.style.transform = 'none'; body.style.opacity = '1'; body.style.borderRadius = this.railRadius + 'px'; body.style.setProperty('--liquid-body-light', '0'); }
     for (const spring of Object.values(this.indicator)) spring.snap(0);
@@ -197,20 +199,22 @@ export class LiquidMotion {
     const size = this.root.querySelector<HTMLElement>('.clay-selection-size'); if (size) size.style.transform = 'none';
     this.animations.forEach(animation => animation.cancel()); this.animations.clear();
   }
-  private decorate(element: HTMLElement | null, keyframes: Keyframe[], duration: number) {
-    if (!element || this.economy || this.clock.reduced) return;
-    const animation = element.animate(keyframes, { duration, easing: 'ease-out' });
-    this.animations.add(animation);
-    void animation.finished.catch(() => {}).finally(() => this.animations.delete(animation));
-  }
   /** 缓存固定槽位，滚动和布局变化才重新测量；绝不测量变形后的材质作新目标。 */
   private measure() {
+    const previous = this.rr;
     this.rr = rect(this.rail.getBoundingClientRect());
+    // 重排或手动移动交还精确槽位，旧抛出轨迹不能继续追逐新的布局。
+    if (previous.x !== this.rr.x || previous.y !== this.rr.y || previous.width !== this.rr.width || previous.height !== this.rr.height) this.entrance.finish();
+    const grip = this.rail.querySelector<HTMLElement>('.clay-grip'), icon = grip?.querySelector<SVGElement>('svg');
+    if (grip && icon) {
+      const box = grip.getBoundingClientRect();
+      this.grip = { icon, rect: { x: box.x - this.rr.x, y: box.y - this.rr.y, width: box.width, height: box.height } };
+    } else this.grip = null;
     this.railRadius = parseFloat(getComputedStyle(this.rail).borderTopLeftRadius) || 0;
     const existing = new Map(this.nodes.map(node => [node.el, node]));
     this.nodes = [...this.rail.querySelectorAll<HTMLButtonElement>('[data-motion-button]')].map(el => {
       const box = el.getBoundingClientRect();
-      const node = existing.get(el) ?? { el, skin: el.querySelector<HTMLElement>('.liquid-skin')!, glyph: el.querySelector<HTMLElement>('.liquid-glyph')!, group: el.dataset.motionGroup || 'end', x: new MotionSpring(), y: new MotionSpring(), attention: new MotionSpring(), press: new MotionSpring(), birth: new MotionSpring(1), contact: new MotionSpring(), contactSide: 0, contactShift: 0, due: 0, faceX: 0, faceY: 0, radius: 0, rect: rect(box) };
+      const node = existing.get(el) ?? { el, skin: el.querySelector<HTMLElement>('.liquid-skin')!, glyph: el.querySelector<HTMLElement>('.liquid-glyph')!, group: el.dataset.motionGroup || 'end', x: new MotionSpring(), y: new MotionSpring(), attention: new MotionSpring(), press: new MotionSpring(), contact: new MotionSpring(), contactSide: 0, contactShift: 0, faceX: 0, faceY: 0, radius: 0, rect: rect(box) };
       node.radius = parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0;
       node.rect = { x: box.left - this.rr.x, y: box.top - this.rr.y, width: box.width, height: box.height };
       return node;
@@ -293,13 +297,19 @@ export class LiquidMotion {
     if (this.pressed && !this.usable(this.pressed)) { this.pressed.press.snap(0); this.pressed = null; }
     this.root.dataset.motionFrames = String(this.clock.frames); this.root.dataset.motionState = 'awake';
     const reduced = this.clock.reduced, pointer = this.pointer;
-    const reacting = !reduced && pointer.inside && !this.pressed && this.fine.matches && !this.root.inert && !this.root.dataset.motionDragging;
+    if (this.root.dataset.motionDragging) this.entrance.finish();
+    this.entrance.step(dt, reduced);
+    const toss = this.entrance.frame, shear = Math.tan(toss.shear * Math.PI / 180);
+    // 抛出时允许软体越过最终槽位；结束后恢复原有横向裁切与纵向滚动策略。
+    const overflow = this.entrance.moving ? 'visible' : '';
+    if (this.rail.style.overflow !== overflow) this.rail.style.overflow = overflow;
+    const reacting = !this.entrance.moving && !reduced && pointer.inside && !this.pressed && this.fine.matches && !this.root.inert && !this.root.dataset.motionDragging;
     const radius = T.field.radius;
     const distance = (node: Surface) => Math.hypot(pointer.x - this.rr.x - node.rect.x - node.rect.width / 2, pointer.y - this.rr.y - node.rect.y - node.rect.height / 2);
     const near = reacting ? this.nodes.filter(node => this.usable(node) && distance(node) < radius).sort((a, b) => distance(a) - distance(b))[0] : undefined;
     if (near && near !== this.nearest) {
       const previous = this.nearest;
-      if (previous && this.usable(previous) && previous.group === near.group && near.group !== 'end' && Math.abs(this.nodes.indexOf(previous) - this.nodes.indexOf(near)) === 1 && previous.birth.x >= .95 && near.birth.x >= .95 && !this.economy) {
+      if (previous && this.usable(previous) && previous.group === near.group && near.group !== 'end' && Math.abs(this.nodes.indexOf(previous) - this.nodes.indexOf(near)) === 1 && !this.economy) {
         const gap = Math.abs(near.rect.x + near.rect.width / 2 - previous.rect.x - previous.rect.width / 2) - (near.rect.width + previous.rect.width) / 2;
         const aligned = Math.abs(near.rect.y + near.rect.height / 2 - previous.rect.y - previous.rect.height / 2) <= Math.min(near.rect.height, previous.rect.height) / 4;
         if (aligned && gap >= 0 && gap <= T.contact.maxGap) {
@@ -311,9 +321,7 @@ export class LiquidMotion {
     this.nearest = near ?? null;
     this.followContact(time, near);
     // 牵引目标仍随时间变化，整段接触结束前不能因某一帧恰好静止而提前休眠。
-    let moving = Boolean(this.contact), sum = 0, center = 0;
-    const done = this.nodes.find(node => node.el.dataset.motionAction === 'done');
-    const endpoint = done ? done.rect.x + done.rect.width / 2 : this.rr.width - 32;
+    let moving = this.entrance.moving || Boolean(this.contact), sum = 0, center = 0;
     for (const [index, node] of this.nodes.entries()) {
       let attention = 0, dx = 0, dy = 0;
       if (near && this.usable(node)) {
@@ -325,42 +333,45 @@ export class LiquidMotion {
       }
       if (this.pressed !== node) { node.attention.to = attention; node.x.to = clamp(dx * attention * T.field.shiftX + node.contactShift, -T.field.maxShift, T.field.maxShift); node.y.to = dy * attention * T.field.shiftY; }
       const preset = near === node ? 'attention' : 'neighbor';
-      if (reduced) { node.x.snap(0); node.y.snap(0); node.attention.snap(0); node.press.snap(0); node.contact.snap(0); node.birth.snap(1); }
+      if (reduced) { node.x.snap(0); node.y.snap(0); node.attention.snap(0); node.press.snap(0); node.contact.snap(0); }
       else {
         node.x.step(dt, preset); node.y.step(dt, preset); node.attention.step(dt, preset); node.press.step(dt, 'press'); node.contact.step(dt, 'press');
-        // 错峰开始落在两帧之间时只积分实际经过的时间，不给首帧额外塞入一整帧位移。
-        if (time >= node.due) node.birth.step(Math.min(dt, (time - node.due) / 1000), 'entry');
       }
-      const a = node.attention.x, p = node.press.x, birth = node.birth.x, contact = clamp(node.contact.x);
+      const a = node.attention.x, p = node.press.x, contact = clamp(node.contact.x);
       const limit = Math.min(1, T.field.maxShift / (Math.hypot(node.x.x, node.y.x) || 1));
       const x = node.faceX = node.x.x * limit, y = node.faceY = node.y.x * limit;
-      // 出生位移限制在槽位附近；弹簧只承担局部形变与回弹，图文和材质同步显现。
-      const entryX = clamp(endpoint - node.rect.x - node.rect.width / 2, -18, 18) * (1 - birth), entryY = 6 * (1 - birth);
-      const entryScale = .9 + .1 * birth;
-      node.skin.style.transform = 'translate(' + (x + entryX) + 'px,' + (y + entryY) + 'px) scale(' + (entryScale * (1 + T.field.stretch * a * .6 + (T.press.x - 1) * p - T.contact.squash * contact)) + ',' + (entryScale * (1 + T.field.stretch * a * (Math.abs(dy) - .3) + (T.press.y - 1) * p + T.contact.bulge * contact)) + ')';
-      node.glyph.style.transform = 'translate(' + (x * T.field.iconRatio + entryX) + 'px,' + (y * T.field.iconRatio + entryY + p * 1.2) + 'px) rotate(' + ((1 - birth) * -3) + 'deg)';
-      node.skin.style.opacity = node.glyph.style.opacity = String(clamp(birth));
+      // 所有按钮按同一个软体坐标映射移动；材质参与拉伸，图文只平移，避免各自飞行和字号变化。
+      const localX = node.rect.x + node.rect.width / 2 - this.rr.width / 2, localY = node.rect.y + node.rect.height / 2 - this.rr.height / 2;
+      const entryX = toss.x + localX * (toss.scaleX - 1) + shear * localY * toss.scaleY, entryY = toss.y + localY * (toss.scaleY - 1);
+      node.skin.style.transform = 'translate(' + (x + entryX) + 'px,' + (y + entryY) + 'px) skewX(' + toss.shear + 'deg) scale(' + (toss.scaleX * (1 + T.field.stretch * a * .6 + (T.press.x - 1) * p - T.contact.squash * contact)) + ',' + (toss.scaleY * (1 + T.field.stretch * a * (Math.abs(dy) - .3) + (T.press.y - 1) * p + T.contact.bulge * contact)) + ')';
+      node.glyph.style.transform = 'translate(' + (x * T.field.iconRatio + entryX) + 'px,' + (y * T.field.iconRatio + entryY + p * 1.2) + 'px)';
+      node.skin.style.opacity = String(toss.skin); node.glyph.style.opacity = String(toss.content);
       // 受压侧略变平、外侧鼓起；图文只跟随平移，始终不参与软体挤压。
       node.skin.style.borderRadius = [node.radius + dx*a*3,node.radius - dx*a*2,node.radius + dx*a*2,node.radius - dx*a*3].map((value, corner) => Math.max(0, value + contact * T.contact.flatten * ((corner === 1 || corner === 2 ? 1 : -1) === node.contactSide ? -1 : .35)) + 'px').join(' ');
       node.skin.style.setProperty('--liquid-light', String(this.economy ? 0 : clamp(a * .95, 0, .8)));
       node.skin.style.setProperty('--liquid-light-y', clamp((pointer.y - this.rr.y - node.rect.y) / node.rect.height * 100, 0, 100) + '%');
       node.skin.style.setProperty('--liquid-light-x', clamp((pointer.x - this.rr.x - node.rect.x) / node.rect.width * 100, 0, 100) + '%');
-      node.el.dataset.motionReady = String(birth >= .85);
-      for (const spring of [node.x, node.y, node.attention, node.press, node.birth, node.contact]) moving = spring.moving || moving;
+      node.el.dataset.motionReady = String(toss.content >= .95);
+      for (const spring of [node.x, node.y, node.attention, node.press, node.contact]) moving = spring.moving || moving;
       sum += a; center += (node.rect.x + node.rect.width/2)*a;
     }
     this.bulge.to = near ? clamp((pointer.y - this.rr.y - this.rr.height / 2) / this.rr.height, -1, 1) * T.field.bodyBulge * Math.min(sum, 1.2) : 0;
     this.bodyLight.to = sum ? center/sum : this.rr.width/2;
-    if (reduced) { this.body.snap(1); this.bulge.snap(0); this.bodyLight.snap(this.rr.width/2); } else { this.body.step(dt, 'entry'); this.bulge.step(dt, 'body'); this.bodyLight.step(dt, 'body'); }
+    if (reduced) { this.bulge.snap(0); this.bodyLight.snap(this.rr.width/2); } else { this.bulge.step(dt, 'body'); this.bodyLight.step(dt, 'body'); }
     const body = this.rail.querySelector<HTMLElement>('.liquid-rail-body')!;
-    // 底座与按钮使用同段入场节奏；淡入覆盖首帧，短位移和有限压缩保留软糯回弹。
-    const railReveal = (this.body.x - .88) / .12;
-    body.style.transform = 'translateY(' + 6 * (1 - railReveal) + 'px) scale(' + this.body.x + ',' + (.95 + .05 * railReveal) + ') skewX(' + this.bulge.x * .35 + 'deg)';
-    body.style.opacity = String(clamp(railReveal));
-    body.style.borderRadius = [this.railRadius+Math.max(0,-this.bulge.x),this.railRadius+Math.max(0,this.bulge.x),this.railRadius,this.railRadius].map(value => value+'px').join(' ');
+    body.style.transformOrigin = 'center'; body.style.opacity = '1';
+    body.style.transform = 'translate(' + toss.x + 'px,' + toss.y + 'px) skewX(' + (toss.shear + this.bulge.x * .35) + 'deg) scale(' + toss.scaleX + ',' + toss.scaleY + ')';
+    // 圆角抵消整体缩放，小团才是圆润软泥；前后端的曲率随错开的受力回摆。
+    const radii = [this.railRadius+Math.max(0,-this.bulge.x),this.railRadius+Math.max(0,this.bulge.x),this.railRadius,this.railRadius].map((value, corner) => Math.max(4, value + (1 - toss.unfold) * 18 + (((corner === 0 || corner === 3 ? -1 : 1) === toss.direction) ? toss.lead : toss.tail) * 9));
+    body.style.borderRadius = radii.map(value => value / toss.scaleX + 'px').join(' ') + ' / ' + radii.map(value => value / toss.scaleY + 'px').join(' ');
+    if (this.grip) {
+      const localX = this.grip.rect.x + this.grip.rect.width / 2 - this.rr.width / 2, localY = this.grip.rect.y + this.grip.rect.height / 2 - this.rr.height / 2;
+      this.grip.icon.style.transform = 'translate(' + (toss.x + localX * (toss.scaleX - 1) + shear * localY * toss.scaleY) + 'px,' + (toss.y + localY * (toss.scaleY - 1)) + 'px)';
+      this.grip.icon.style.opacity = String(toss.content);
+    }
     body.style.setProperty('--liquid-body-light-x',this.bodyLight.x+'px');
     body.style.setProperty('--liquid-body-light',String(reduced||this.economy?0:Math.min(1,sum)));
-    moving = this.body.moving || this.bulge.moving || this.bodyLight.moving || moving;
+    moving = this.bulge.moving || this.bodyLight.moving || moving;
     const selected = this.nodes.find(node => node.el.getAttribute('aria-pressed') === 'true' && this.usable(node));
     const ind = this.indicator;
     ind.opacity.to = selected ? 1 : 0;
@@ -463,6 +474,8 @@ export class LiquidMotion {
   async exit(kind: 'complete' | 'dismiss') {
     // 迟到的复制确认不能在不可见/尚未揭示时借“立即归位”提交成功隐藏。
     if (this.destroyed || !this.active || document.hidden) return false;
+    // 快捷键提前完成时从准确轨道收束，不能把抛出途中姿态叠到退出变换上。
+    if (this.entrance.moving) { this.entrance.finish(); this.paint(0, performance.now()); }
     this.restore();
     const sequence = ++this.exitSequence;
     this.root.dataset.motionExit = kind;
