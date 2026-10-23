@@ -18,6 +18,12 @@ export class SlimeSplit {
   private phase: Phase = 'closed';
   private elapsed = 0;
   get moving() { return this.phase !== 'closed' && this.phase !== 'open'; }
+  /** 停稳前短暂交还原皮肤，避免渐变、内高光和悬停材质突然切换。 */
+  get material() {
+    if (this.phase === 'recoil') return 1 - smooth((this.elapsed - .8) / .1);
+    if (this.phase === 'settle') return 1 - smooth((this.elapsed - .28) / .08);
+    return this.moving ? 1 : 0;
+  }
   aim(open: boolean) {
     const closing = this.phase === 'return' || this.phase === 'absorb' || this.phase === 'settle';
     if ((open && !closing && this.phase !== 'closed') || (!open && (closing || this.phase === 'closed'))) return;
@@ -67,19 +73,42 @@ export class SlimeSplit {
   }
 }
 
-/** 一侧受牵引的圆角软团；中段贝塞尔鼓包让断开的细颈缩回本体。 */
+type Shoulder = { x: number; y: number; slope: number };
+/** 牵引分散到整个圆角侧面，避免把数像素位移挤进短侧边而形成尖刺。 */
 function lobe(cx: number, cy: number, rx: number, ry: number, radius: number, leftPull: number, rightPull: number) {
   const r = Math.min(radius, rx, ry * .9), k = .55228475, left = cx - rx, right = cx + rx, top = cy - ry, bottom = cy + ry;
-  const side = ry - r;
-  return `M${left + r} ${top}H${right - r}`
-    + `C${right - r + r * k} ${top} ${right} ${top + r - r * k} ${right} ${top + r}`
-    + `C${right} ${cy - side * .3} ${right + rightPull} ${cy - side * .3} ${right + rightPull} ${cy}`
-    + `C${right + rightPull} ${cy + side * .3} ${right} ${cy + side * .3} ${right} ${bottom - r}`
-    + `C${right} ${bottom - r + r * k} ${right - r + r * k} ${bottom} ${right - r} ${bottom}H${left + r}`
-    + `C${left + r - r * k} ${bottom} ${left} ${bottom - r + r * k} ${left} ${bottom - r}`
-    + `C${left} ${cy + side * .3} ${left - leftPull} ${cy + side * .3} ${left - leftPull} ${cy}`
-    + `C${left - leftPull} ${cy - side * .3} ${left} ${cy - side * .3} ${left} ${top + r}`
-    + `C${left} ${top + r - r * k} ${left + r - r * k} ${top} ${left + r} ${top}Z`;
+  const leftWidth = Math.max(.01, r + leftPull), rightWidth = Math.max(.01, r + rightPull);
+  const xLeft = left + r - leftWidth, xRight = right - r + rightWidth;
+  const path = `M${left + r} ${top}H${right - r}`
+    + `C${right - r + rightWidth * k} ${top} ${xRight} ${top + r - r * k} ${xRight} ${top + r}`
+    + `V${bottom - r}C${xRight} ${bottom - r + r * k} ${right - r + rightWidth * k} ${bottom} ${right - r} ${bottom}H${left + r}`
+    + `C${left + r - leftWidth * k} ${bottom} ${xLeft} ${bottom - r + r * k} ${xLeft} ${bottom - r}`
+    + `V${top + r}C${xLeft} ${top + r - r * k} ${left + r - leftWidth * k} ${top} ${left + r} ${top}Z`;
+  // 从实际三次贝塞尔取接点和导数，细颈与外壳精确共切线，消除拼接肩部的折痕。
+  const t = .58, u = 1 - t;
+  const x = 3 * u * u * t * k + 3 * u * t * t + t * t * t;
+  const y = 3 * u * t * t * (1 - k) + t * t * t;
+  const dx = 3 * u * u * k + 6 * u * t * (1 - k);
+  const dy = 6 * u * t * (1 - k) + 3 * t * t * k;
+  return {
+    path,
+    left: { x: left + r - leftWidth * x, y: top + r * y, slope: -r * dy / (leftWidth * dx) },
+    right: { x: right - r + rightWidth * x, y: top + r * y, slope: r * dy / (rightWidth * dx) }
+  };
+}
+
+/** 上下对称的细颈沿真实肩部切线接入；约束控制臂，避免腰部曲线越界或反折。 */
+function neckPath(a: Shoulder, b: Shoulder, halfHeight: number) {
+  const span = b.x - a.x;
+  if (span <= .01) return '';
+  const middle = (a.x + b.x) / 2, neck = Math.min(halfHeight, (18 - a.y) * .98, (18 - b.y) * .98);
+  const top = 18 - Math.max(0, neck), bottom = 36 - top;
+  const leftArm = Math.min(span * .23, (top - a.y) * .65 / a.slope);
+  const rightArm = Math.min(span * .23, (top - b.y) * .65 / -b.slope), waistArm = span * .14;
+  return `M${a.x} ${a.y}C${a.x + leftArm} ${a.y + leftArm * a.slope} ${middle - waistArm} ${top} ${middle} ${top}`
+    + `C${middle + waistArm} ${top} ${b.x - rightArm} ${b.y - rightArm * b.slope} ${b.x} ${b.y}V${36 - b.y}`
+    + `C${b.x - rightArm} ${36 - b.y + rightArm * b.slope} ${middle + waistArm} ${bottom} ${middle} ${bottom}`
+    + `C${middle - waistArm} ${bottom} ${a.x + leftArm} ${36 - a.y - leftArm * a.slope} ${a.x} ${36 - a.y}Z`;
 }
 
 /** 两个软团和细颈用同一条非零填充路径绘制，重叠处不叠阴影、不出现接缝。 */
@@ -87,16 +116,10 @@ export function splitOutline(pose: Pose, radius: number) {
   const { strain: s, childStrain: c, size, mass } = pose, ax = 19 + 3.4 * s, bx = 19 + pose.distance;
   const aw = 19 * (1 + .18 * s) * (1 + mass), ah = 18 * (1 + mass) / (1 + .2 * s);
   const bw = 19 * size * (1 + .22 * c), bh = 18 * size / (1 + .28 * c);
-  let path = lobe(ax, 18, aw, ah, radius + Math.max(0, s) * 3, 0, 7 * s);
-  if (size > .001) path += lobe(bx, 18, bw, bh, (radius + Math.max(0, c) * 3) * size, 6 * c * size, 0);
-  // 接点埋入两侧外壳，中央收成细丝；断开后仅保留两侧带惯性的牵引尖端。
-  const x1 = ax + aw - 7, x2 = bx - bw + 7, middle = (x1 + x2) / 2;
-  if (pose.joined && x2 > x1 && pose.distance > 12) {
-    const shoulder = Math.min(11, bh * .7), neck = Math.min(shoulder, pose.neck), arm = (x2 - x1) * .32;
-    path += `M${x1} ${18 - shoulder}C${x1 + arm} ${18 - shoulder} ${middle - arm * .45} ${18 - neck} ${middle} ${18 - neck}`
-      + `C${middle + arm * .45} ${18 - neck} ${x2 - arm} ${18 - shoulder} ${x2} ${18 - shoulder}V${18 + shoulder}`
-      + `C${x2 - arm} ${18 + shoulder} ${middle + arm * .45} ${18 + neck} ${middle} ${18 + neck}`
-      + `C${middle - arm * .45} ${18 + neck} ${x1 + arm} ${18 + shoulder} ${x1} ${18 + shoulder}Z`;
-  }
+  const a = lobe(ax, 18, aw, ah, radius + Math.max(0, s) * 3, 0, 7 * s);
+  if (size <= .001) return a.path;
+  const b = lobe(bx, 18, bw, bh, (radius + Math.max(0, c) * 3) * size, 6 * c * size, 0);
+  let path = a.path + b.path;
+  if (pose.joined && pose.distance > 12) path += neckPath(a.right, b.left, pose.neck);
   return path;
 }

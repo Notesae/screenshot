@@ -30,10 +30,15 @@ export function TranslationTools(props: Props) {
       const state = motion.current, pose = state.pose;
       path.setAttribute('d', splitOutline(pose, radius));
       node.dataset.splitActive = String(state.moving);
+      node.style.setProperty('--split-material', String(state.material));
       node.style.setProperty('--split-source-shift', `${3.4 * pose.strain}px`);
       node.style.setProperty('--split-offset', `${pose.distance - splitGeometry.distance}px`);
       node.style.setProperty('--split-alpha', String(pose.glyph));
-      if (slot.current) slot.current.style.width = `${pose.layout}px`;
+      if (slot.current) {
+        slot.current.style.width = `${pose.layout}px`;
+        // 吸收后仍保留槽位到母体停稳，隐藏子控件，防止材质交还时再次露出底色。
+        slot.current.style.visibility = pose.size > .001 ? 'visible' : 'hidden';
+      }
     };
     const advance = (elapsed: number, finish: boolean) => {
       if (finish) motion.current.finish(open); else motion.current.step(elapsed);
@@ -52,7 +57,21 @@ export function TranslationTools(props: Props) {
     <svg className="clay-translation-material" viewBox="-14 -12 140 60" aria-hidden="true">
       <defs><linearGradient id={id} x1="0" y1="0" x2="0" y2="36" gradientUnits="userSpaceOnUse">
         <stop stopColor="var(--clay-raisedTop)"/><stop offset=".5" stopColor="var(--clay-raisedMid)"/><stop offset="1" stopColor="var(--clay-raisedBottom)"/>
-      </linearGradient></defs><path ref={outline} fill={`url(#${id})`}/>
+      </linearGradient>
+        {/* 对整片轮廓统一加内高光和底部暗部，连接处不叠加两套阴影。 */}
+        <filter id={id + '-clay'} x="-14" y="-12" width="140" height="60" filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
+          <feGaussianBlur in="SourceAlpha" stdDeviation="1.1" result="softEdge"/>
+          <feOffset in="softEdge" dy="1.2" result="lowerEdge"/>
+          <feComposite in="SourceAlpha" in2="lowerEdge" operator="out" result="topRim"/>
+          <feFlood floodColor="var(--clay-raisedHighlight)" result="light"/>
+          <feComposite in="light" in2="topRim" operator="in" result="highlight"/>
+          <feOffset in="softEdge" dy="-1.8" result="upperEdge"/>
+          <feComposite in="SourceAlpha" in2="upperEdge" operator="out" result="bottomRim"/>
+          <feFlood floodColor="var(--clay-raisedShade)" result="shade"/>
+          <feComposite in="shade" in2="bottomRim" operator="in" result="shadow"/>
+          <feMerge><feMergeNode in="SourceGraphic"/><feMergeNode in="shadow"/><feMergeNode in="highlight"/></feMerge>
+        </filter>
+      </defs><path ref={outline} fill={`url(#${id})`} filter={`url(#${id}-clay)`}/>
     </svg>
     <MotionButton group="image" data-tooltip="翻译图片：将选区外语替换为中文" aria-label="翻译图片为中文" aria-busy={props.translating} disabled={props.translateDisabled} onClick={props.onTranslate}>
       <span className="clay-translation-source-glyph"><Languages aria-hidden="true"/></span>

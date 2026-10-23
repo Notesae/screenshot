@@ -26,9 +26,9 @@
 .clay-translation-split-slot .liquid-glyph > svg { opacity: var(--split-alpha); }
 .clay-translation-source-glyph { display: inline-flex; transform: translateX(var(--split-source-shift)); }
 .clay-editor .clay-translation-source-glyph > svg { width: 21px; height: 21px; }
-.clay-editor svg.clay-translation-material { position: absolute; left: -14px; top: -12px; width: 140px; height: 60px; overflow: visible; opacity: 0; pointer-events: none; filter: drop-shadow(0 5px 5px #0005); }
-.clay-translation-tools[data-split-active=true] .clay-translation-material { opacity: 1; }
-.clay-translation-tools[data-split-active=true] .liquid-skin { visibility: hidden; }
+.clay-editor svg.clay-translation-material { position: absolute; left: -14px; top: -12px; width: 140px; height: 60px; overflow: visible; opacity: var(--split-material,0); pointer-events: none; filter: drop-shadow(0 5px 5px #0005); }
+.clay-translation-tools[data-split-active=true] .liquid-skin { opacity: calc(1 - var(--split-material,1)) !important; }
+.clay-editor[data-motion-economy=true] .clay-translation-material > path { filter: none; }
 [data-motion-action=done] > .liquid-skin { background: var(--clay-primary); box-shadow: var(--clay-primary-shadow); }
 /* 材质交接由连续状态控制；逻辑取消选中不能提前恢复一张独立灰皮肤。 */
 [data-motion-button][data-motion-material=true] > .liquid-skin { visibility: hidden; }
