@@ -6,7 +6,7 @@ import { Select } from './Select';
 import { ColorField } from './ColorField';
 import { contentGeometry, outputSize, type EditorState, type ProjectDocument } from './document';
 import { BEAUTY_KEYS, BUILTIN_STYLES, beautyStyle, fittedBeautyPresets, parsePresets, type StylePreset } from './stylePresets';
-import { renderBeautyContent, undecoratedDocument } from './beautyPreview';
+import { BeautyStylePreview } from './BeautyStylePreview';
 import { presentationMotion } from './LiquidMotion';
 import { motionTokens } from './motion';
 import { motionSuspended, observeMotionScope } from './motionScope';
@@ -14,8 +14,6 @@ import './beauty-tools.css';
 
 // 沿用本机存储键，保留历史文字样式，但不在美化入口展示或应用。
 const KEY='screenshot.style-presets.v1';
-// 缩略图只随真实内容变化重建，拖动留白或改背景不重复合成源图。
-type Thumbnail = {image:ProjectDocument['image'];key:string;url:string};
 type Props={document:ProjectDocument;update:(change:Partial<EditorState>,group?:string)=>void;comparing:boolean;onCompare:()=>void;onGesture:(active:boolean)=>void;onError:(error:unknown)=>void};
 
 /** 样式、常用参数与管理共用当前文档；所有动作沿用 v2 控件和折叠动效。 */
@@ -29,7 +27,6 @@ export function StyleTools({document:doc,update,comparing,onCompare,onGesture,on
   const [message,setMessage]=useState(loaded.error),[storageBlocked]=useState(Boolean(loaded.error));
   // 删除可在本面板内撤销；只保留一条样式数据，不保存截图内容。
   const [deleted,setDeleted]=useState<{preset:StylePreset;index:number}|null>(null);
-  const [thumbnail,setThumbnail]=useState<Thumbnail|null>(null),[thumbnailFailed,setThumbnailFailed]=useState(false);
   // 切换列表使用外壳共用时钟；只平移内容，快速切换沿用当前透明度与位移。
   const list=useRef<HTMLDivElement>(null),listMotion=useRef({alpha:1,y:0}),listKey='beauty-list:'+useId();
   useLayoutEffect(()=>{
@@ -48,18 +45,6 @@ export function StyleTools({document:doc,update,comparing,onCompare,onGesture,on
   const choices=[...builtins,...custom,...legacy],active=editor.mode==='beauty'?choices.find(p=>BEAUTY_KEYS.every(key=>p.style[key]===editor[key])):undefined;
   const source=choices.find(p=>p.id===selected),current=editor.mode!=='beauty'?'原样':active?.name??(source?source.name+' · 已调整':'自定义');
   const managedPreset=custom.find(p=>p.id===managed),visible=showSaved?custom:builtins;
-  const raw=undecoratedDocument(doc),previewKey=JSON.stringify([raw.editor.crop,raw.editor.resize,raw.editor.annotations,raw.editor.imageTranslation]);
-  const previewDoc=useRef(doc);previewDoc.current=doc;
-  useEffect(()=>{
-    let cancelled=false;setThumbnailFailed(false);
-    const snapshot=previewDoc.current;
-    void renderBeautyContent(snapshot,360).then(canvas=>{
-      try{if(!cancelled)setThumbnail({image:snapshot.image,key:previewKey,url:canvas.toDataURL('image/png')});}
-      finally{canvas.width=canvas.height=0;}
-    }).catch(()=>{if(!cancelled){setThumbnail(null);setThumbnailFailed(true);}});
-    return()=>{cancelled=true;};
-  },[doc.image,previewKey]);
-  const thumbnailUrl=thumbnail?.image===doc.image&&thumbnail.key===previewKey?thumbnail.url:null;
   // 撤销到已知样式时更新来源，修改参数时继续保留「已调整」名称。
   useEffect(()=>{if(active)setSelected(active.id);},[active?.id]);
 
@@ -88,15 +73,14 @@ export function StyleTools({document:doc,update,comparing,onCompare,onGesture,on
   }
   return <section className="clay-style-tools" aria-label="截图美化样式">
     <div className="beauty-heading"><span className="beauty-current">当前：{current}</span><ControlButton className="beauty-quiet" aria-pressed={comparing} disabled={editor.mode!=='beauty'} onClick={onCompare}><Eye aria-hidden="true"/>{comparing?'返回效果':'对比原样'}</ControlButton></div>
+    <BeautyStylePreview document={doc} comparing={comparing}/>
     <div className="beauty-tabs" role="group" aria-label="样式来源"><ControlButton aria-pressed={!showSaved} onClick={()=>setShowSaved(false)}>内置样式</ControlButton><ControlButton aria-pressed={showSaved} onClick={()=>setShowSaved(true)}>我的样式</ControlButton></div>
-    <div className="beauty-presets" ref={list}>{visible.map(p=>{
-      // 同一内容缩略图展示不同装饰，长图按原比例完整放入，不拉伸文字。
-      const fit=Math.min(136/(content.width+2*p.style.padding),68/(content.height+2*p.style.padding));
-      return <ControlButton key={p.id} className="beauty-preset" aria-label={'应用'+p.name+'样式'} aria-pressed={editor.mode==='beauty'&&(active?.id??selected)===p.id} onClick={()=>apply(p)}>
-        <span className="beauty-thumbnail" aria-hidden="true"><span className="beauty-mini-frame" style={{background:p.style.background,padding:p.style.padding*fit}}>{thumbnailUrl?<img src={thumbnailUrl} alt="" draggable={false} style={{width:content.width*fit,height:content.height*fit,borderRadius:Math.min(p.style.radius,Math.min(content.width,content.height)/2)*fit,boxShadow:p.style.shadow?`0 ${Math.min(p.style.padding*.2,12)*fit}px ${Math.min(p.style.padding*.5,32)*fit}px #30271c55`:undefined,outline:p.style.borderWidth?`${p.style.borderWidth*fit}px solid ${p.style.borderColor}`:undefined,outlineOffset:-p.style.borderWidth*fit}}/>:<span className="beauty-thumbnail-placeholder">{thumbnailFailed?'预览暂不可用':'准备预览'}</span>}</span></span>
+    <div className="beauty-presets" ref={list}>{visible.map(p=>
+      <ControlButton key={p.id} className="beauty-preset" aria-label={'应用'+p.name+'样式'} aria-pressed={editor.mode==='beauty'&&active?.id===p.id} onClick={()=>apply(p)}>
+        <span className="beauty-preset-swatch" aria-hidden="true" style={{background:p.style.background}}/>
         <span className="beauty-preset-name">{p.name}<Check aria-hidden="true"/></span>
-      </ControlButton>;
-    })}</div>
+      </ControlButton>
+    )}</div>
     {showSaved&&!custom.length&&<p className="clay-hint">{loaded.error||'还没有图片样式。调好外观后，在下方保存。'}</p>}
     <label>背景颜色<ColorField label="背景颜色" value={editor.background} onChange={background=>change({background})}/></label>
     <BeautyRange label="留白" value={editor.padding} max={200} onChange={(padding,group)=>change({padding},group)} onGesture={onGesture}/>
