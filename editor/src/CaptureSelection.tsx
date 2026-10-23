@@ -37,7 +37,7 @@ export function CaptureSelection({ viewport, metadata, disabled, settled, onAdju
     event.preventDefault();event.stopPropagation();onBegin();
     (handleButton??frame.current)?.focus({preventScroll:true});event.currentTarget.setPointerCapture(event.pointerId);
     drag.current={id:event.pointerId,x:event.clientX,y:event.clientY,handle,area:metadata.selection,next:metadata.selection,element:event.currentTarget};
-    onDragging(true);presentationMotion(event.currentTarget)?.selectionGesture(true);
+    onDragging(true);presentationMotion(event.currentTarget)?.selectionGesture(true, false, {handle,point:{x:event.clientX,y:event.clientY}});
   }
   function move(event: PointerEvent<HTMLDivElement>) {
     const current=drag.current;if(!current||!metadata||event.pointerId!==current.id)return;
@@ -62,9 +62,13 @@ export function CaptureSelection({ viewport, metadata, disabled, settled, onAdju
     if(!metadata||!active||disabled||pending||drag.current||event.altKey||event.metaKey||event.nativeEvent.isComposing||target!==frame.current&&!handle)return;
     const step=event.ctrlKey?10:1,delta:Record<string,[number,number]>={ArrowLeft:[-step,0],ArrowRight:[step,0],ArrowUp:[0,-step],ArrowDown:[0,step]};
     if(!delta[event.key])return;event.preventDefault();event.stopPropagation();
-    const [dx,dy]=delta[event.key],next=adjustSelection(metadata.selection,event.shiftKey?'se':handle??'move',dx,dy,metadata.desktopBounds);
+    const [dx,dy]=delta[event.key],operation=event.shiftKey?'se':handle??'move';
+    const next=adjustSelection(metadata.selection,operation,dx,dy,metadata.desktopBounds);
     if(sameArea(next,metadata.selection))return;
+    // 方向键复用同一逻辑抓点和轻按释放表现，像素增量与提交时序保持准确。
+    const motion=presentationMotion(frame.current);motion?.selectionGesture(true, false, {handle:operation});
     setPreview(next);onPreview(next);setPending(true);const request=++sequence.current;
+    motion?.selectionGesture(false);
     void onAdjust(next).then(ok=>{if(!ok&&request===sequence.current)reset();}).catch(()=>{if(request===sequence.current)reset();});
   }
   const area=preview??metadata?.selection,desktop=metadata?.desktopBounds;

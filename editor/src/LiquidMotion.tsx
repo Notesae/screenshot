@@ -3,7 +3,7 @@ import { clamp, panelBridge, motionTokens as T, MotionClock, MotionSpring, type 
 import { ControlFeedback } from './ControlMotion';
 import { SurfaceTransition } from './surfaceTransition';
 import { paintSurface } from './surfacePaint';
-import { SelectionJelly } from './SelectionJelly';
+import { SelectionJelly, type SelectionGrip } from './SelectionJelly';
 
 /** 固定语义槽位承接输入，材质与图文各自变形，避免按钮追着光标改变命中区。 */
 export function MotionButton({ children, group = 'end', ...props }: ComponentPropsWithRef<'button'> & { group?: string }) {
@@ -216,10 +216,10 @@ export class LiquidMotion {
   }
   /** 输入为精确选区的 CSS 矩形；不读取变形后的边缘作为新目标。 */
   selectionSkin(box: MotionRect | null) { this.selectionJelly.update(box, this.clock.reduced); this.paintSelection(); this.wake(); }
-  /** 只接收真实选区手势；松手冲量不会阻塞裁剪提交，取消和隐藏不生成释放反馈。 */
-  selectionGesture(held: boolean, cancelled = false) {
+  /** 抓点只驱动统一软体轮廓；松手不阻塞裁剪提交，取消和隐藏不生成释放冲量。 */
+  selectionGesture(held: boolean, cancelled = false, grip?: SelectionGrip) {
     if (!this.active || document.hidden || this.root.dataset.motionExit || this.clock.reduced) return;
-    this.selectionJelly.gesture(held, cancelled); this.wake();
+    this.selectionJelly.gesture(held, cancelled, grip); this.paintSelection(); this.wake();
   }
   /** 用同一轮廓同步边框、遮罩与手柄；真实矩形只作为截图和手势的坐标模型。 */
   private paintSelection() {
@@ -234,6 +234,7 @@ export class LiquidMotion {
         const offset = visible ? shape.offsets[index] : undefined;
         button.style.setProperty('--selection-offset-x', (offset?.[0] ?? 0) + 'px');
         button.style.setProperty('--selection-offset-y', (offset?.[1] ?? 0) + 'px');
+        button.style.setProperty('--selection-reveal', String(visible ? shape.reveals[index] ?? 1 : 1));
       });
     }
     const mask = this.root.querySelector<SVGPathElement>('.clay-selection-mask path'), viewport = mask?.ownerSVGElement;
