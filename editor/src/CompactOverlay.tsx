@@ -119,7 +119,10 @@ export function CompactOverlay(props:Props) {
   const sourceOffset=sourceBounds&&railBounds?{x:sourceBounds.x+sourceBounds.width/2-railBounds.x,y:sourceBounds.y+sourceBounds.height/2-railBounds.y}:undefined;
   const following=selectionPreview?followSelection(selectionPreview):null;
   const tools=placeTools(screen,mapped?.frame??null,railSize,{width:panelWidth,height:panelHeight},following??positions,sourceOffset);
-  useLiquidMotion(rootRef,railRef,chromeVisible&&!props.suspended,panel,visiblePanel,trigger,tools.card,tools.rail,mapped?.frame??null,()=>setVisiblePanel(null));
+  // 胶边使用真实物理选区换算后的矩形，独立于美化留白和画布显示尺寸。
+  const captureArea=selectionPreview??metadata?.selection;
+  const captureRim=metadata&&captureArea&&!metadata.contentScale?{x:(captureArea.x-metadata.desktopBounds.x)*viewport.width/metadata.desktopBounds.width,y:(captureArea.y-metadata.desktopBounds.y)*viewport.height/metadata.desktopBounds.height,width:captureArea.width*viewport.width/metadata.desktopBounds.width,height:captureArea.height*viewport.height/metadata.desktopBounds.height}:null;
+  useLiquidMotion(rootRef,railRef,chromeVisible&&!props.suspended,panel,visiblePanel,trigger,tools.card,tools.rail,mapped?.frame??null,captureRim,()=>setVisiblePanel(null));
   const automaticReader=editor.imageTranslation&&editor.mode!=='reflow'?translationReaderPlacement(screen,mapped?.frame??null,tools.rail):null;
   // 手动移动/缩放后固定窗口矩形；允许用户移到截图旁边，不因工具避让或重开而跳回。
   const reader=automaticReader?{box:readerBounds??automaticReader.box,full:automaticReader.full&&!readerBounds}:null;

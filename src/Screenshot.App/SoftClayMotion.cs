@@ -19,6 +19,8 @@ internal static class SoftClayMotion
     private static readonly JsonDocument Tokens = JsonDocument.Parse(typeof(SoftClayMotion).Assembly.GetManifestResourceStream("Screenshot.LiquidMotionTokens")
         ?? throw new InvalidOperationException("缺少共享动效参数。"));
     private static JsonElement Motion => Tokens.RootElement.GetProperty("motion");
+    // 首次框选与网页移动框选共用软边幅度和显现参数。
+    internal static JsonElement SelectionTokens => Motion.GetProperty("selection");
     // 弱表保留重定向状态；只有尚未停稳的控件进入活动帧列表。
     private static readonly ConditionalWeakTable<ButtonBase, SurfaceState> Buttons = new();
     private static readonly ConditionalWeakTable<FrameworkElement, FloatingSurface> Surfaces = new();

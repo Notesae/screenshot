@@ -160,39 +160,44 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
         if(e.KeyCode==Keys.Escape){CancelSelection();return;}
         if(e.KeyCode==Keys.M&&!_handingOff){_magnifier=!_magnifier;Invalidate();e.Handled=true;return;}
     }
-    // 在交付精确选区前结束装饰；冻结帧与网页验帧仍沿用原来的交接顺序。
+    // 精确选区立即交付；软边只在原遮挡窗口存活期间回弹，不增加交接等待。
     private void FinishSelection()
     {
         if(!_model.HasArea||_model.Selection is not {} r)return;
-        _trace?.Mark("selection_released");_handingOff=true;_magnifier=false;
-        _motionTimer.Stop();_feedback.Snap();Cursor=Cursors.Default;_selected.TrySetResult(r);Invalidate();
+        _trace?.Mark("selection_released");UpdateFeedback();_handingOff=true;_magnifier=false;
+        Cursor=Cursors.Default;_selected.TrySetResult(r);Invalidate();
     }
-    /// <summary>事件坐标先转 DIP，仅驱动胶囊和控制点；选区模型保持物理像素。</summary>
+    /// <summary>事件坐标先转 DIP，驱动软边、胶囊和控制点；选区模型保持物理像素。</summary>
     private void UpdateFeedback()
     {
         var displayed=_model.Selection??HoverTarget?.Bounds;var scale=DeviceDpi/96d;
-        _feedback.Update((displayed?.X??0)/scale,(displayed?.Y??0)/scale,displayed is { Width:>0,Height:>0 },!System.Windows.SystemParameters.ClientAreaAnimation);
-        if(!_feedback.Moving||_handingOff){_motionTimer.Stop();return;}
+        _feedback.Update((displayed?.X??0)/scale,(displayed?.Y??0)/scale,displayed is { Width:>0,Height:>0 },!System.Windows.SystemParameters.ClientAreaAnimation,(displayed?.Width??0)/scale,(displayed?.Height??0)/scale);
+        if(!_feedback.Moving){_motionTimer.Stop();return;}
         if(_motionTimer.Enabled)return;
         _motionLast=System.Diagnostics.Stopwatch.GetTimestamp();_motionTimer.Start();
     }
-    // 只重绘胶囊和八个控制点的脏区，不因装饰计时器反复重绘整幅冻结图。
+    // 沿用原计时器推进软边与控制点；落定或窗口关闭后停止，不延迟精确选区交付。
     private void AnimateFeedback(object? sender,EventArgs args)
     {
         var now=System.Diagnostics.Stopwatch.GetTimestamp();
         var moving=_feedback.Step((now-_motionLast)/(double)System.Diagnostics.Stopwatch.Frequency);_motionLast=now;
-        InvalidateFeedback();if(!moving||_handingOff)_motionTimer.Stop();
+        InvalidateFeedback();if(!moving)_motionTimer.Stop();
     }
-    // 以未变形的选区中心计算脏区，覆盖旧胶囊偏移和控制点的有限膨胀。
+    // 计时器只重绘胶囊和有限宽度的选区周边带，选区内部不为回弹重复重绘。
     private void InvalidateFeedback()
     {
-        var scale=DeviceDpi/96f;var margin=(int)Math.Ceiling(12*scale);
-        if(!_hintBounds.IsEmpty){var hint=_hintBounds;hint.Inflate(margin,margin);Invalidate(hint);}
-        if((_model.Selection??HoverTarget?.Bounds) is not {} r)return;
-        var box=new Rectangle(r.X-_desktop.X,r.Y-_desktop.Y,r.Width,r.Height);
-        var radius=(int)Math.Ceiling((SoftClayTheme.Number("size","handle")+4)*scale);
-        foreach(var x in new[]{box.Left,box.Left+box.Width/2,box.Right})foreach(var y in new[]{box.Top,box.Top+box.Height/2,box.Bottom})
-            if(x!=box.Left+box.Width/2||y!=box.Top+box.Height/2)Invalidate(new Rectangle(x-radius,y-radius,radius*2,radius*2));
+        var scale = DeviceDpi / 96f;
+        if (!_hintBounds.IsEmpty) { var hint = _hintBounds; hint.Inflate((int)Math.Ceiling(12 * scale), (int)Math.Ceiling(12 * scale)); Invalidate(hint); }
+        if ((_model.Selection ?? HoverTarget?.Bounds) is not {} r) return;
+        var tokens = SoftClayMotion.SelectionTokens;
+        var margin = (int)Math.Ceiling((tokens.GetProperty("maxLag").GetDouble() + tokens.GetProperty("radius").GetDouble() + tokens.GetProperty("bend").GetDouble() + 8) * scale);
+        var box = new Rectangle(r.X - _desktop.X, r.Y - _desktop.Y, r.Width, r.Height);
+        box.Inflate(margin, margin);
+        var horizontal = Math.Min(box.Height, margin * 2); var vertical = Math.Min(box.Width, margin * 2);
+        Invalidate(new Rectangle(box.Left, box.Top, box.Width, horizontal));
+        Invalidate(new Rectangle(box.Left, box.Bottom - horizontal, box.Width, horizontal));
+        Invalidate(new Rectangle(box.Left, box.Top, vertical, box.Height));
+        Invalidate(new Rectangle(box.Right - vertical, box.Top, vertical, box.Height));
     }
     // 系统偏好即刻优先，进行中的局部反馈归到无偏移的终态。
     private void MotionPreferenceChanged(object? sender,System.ComponentModel.PropertyChangedEventArgs args)
@@ -202,6 +207,7 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
         _motionTimer.Stop();_feedback.Snap();InvalidateFeedback();
     }
     private void CancelSelection() { IsCancelled=true;_selected.TrySetResult(null);Close(); }
+    // 真实镂空、原图和控制点始终按精确矩形画，软边单独形成向外延展的装饰。
     protected override void OnPaint(PaintEventArgs e)
     {
         var g=e.Graphics;g.DrawImageUnscaled(_frozen,0,0);
@@ -212,6 +218,7 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
             var box=new Rectangle(r.X-_desktop.X,r.Y-_desktop.Y,r.Width,r.Height);g.DrawImage(_frozen,box,box,GraphicsUnit.Pixel);
             g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             var scale=DeviceDpi/96f;
+            DrawSelectionRim(g,box,scale);
             using var glow=new Pen(Color.FromArgb(48,SoftClayDrawing.Color("accent")),6*scale);g.DrawRectangle(glow,box);
             using var pen=new Pen(SoftClayDrawing.Color("accent"),(float)SoftClayTheme.Number("size","selectionBorder")*scale);g.DrawRectangle(pen,box);
             foreach(var x in new[]{box.Left,box.Left+box.Width/2,box.Right})foreach(var y in new[]{box.Top,box.Top+box.Height/2,box.Bottom})
@@ -229,6 +236,33 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
             using var cross=new Pen(SoftClayDrawing.Color("focus"),1);
             g.DrawLine(cross,_pointer.X-8,_pointer.Y,_pointer.X+8,_pointer.Y);g.DrawLine(cross,_pointer.X,_pointer.Y-8,_pointer.X,_pointer.Y+8);
         }
+    }
+    /// <summary>只在精确矩形外画胶质软边，冻结像素、遮罩镂空与控制点仍按原矩形绘制。</summary>
+    private void DrawSelectionRim(Graphics graphics, Rectangle box, float scale)
+    {
+        var rim = _feedback.Rim;
+        if (rim.Energy <= .0001) return;
+        var l = box.Left - (float)rim.Left * scale; var t = box.Top - (float)rim.Top * scale;
+        var r = box.Right + (float)rim.Right * scale; var b = box.Bottom + (float)rim.Bottom * scale;
+        var radius = (float)rim.Radius * scale; var bend = (float)rim.Bend * scale;
+        var w = r - l; var h = b - t; var c = radius * .45f;
+        using var path = new System.Drawing.Drawing2D.GraphicsPath();
+        path.AddBezier(l + radius, t, l + w / 3, t - bend, l + w * 2 / 3, t - bend, r - radius, t);
+        path.AddBezier(r - radius, t, r - c, t, r, t + c, r, t + radius);
+        path.AddBezier(r, t + radius, r + bend, t + h / 3, r + bend, t + h * 2 / 3, r, b - radius);
+        path.AddBezier(r, b - radius, r, b - c, r - c, b, r - radius, b);
+        path.AddBezier(r - radius, b, l + w * 2 / 3, b + bend, l + w / 3, b + bend, l + radius, b);
+        path.AddBezier(l + radius, b, l + c, b, l, b - c, l, b - radius);
+        path.AddBezier(l, b - radius, l - bend, t + h * 2 / 3, l - bend, t + h / 3, l, t + radius);
+        path.AddBezier(l, t + radius, l, t + c, l + c, t, l + radius, t);
+        path.CloseFigure();
+        using var material = (System.Drawing.Drawing2D.GraphicsPath)path.Clone();
+        material.AddRectangle(box);
+        var accent = SoftClayDrawing.Color("accent");
+        using var fill = new SolidBrush(Color.FromArgb((int)(24 * rim.Energy), accent));
+        using var glow = new Pen(Color.FromArgb((int)(36 * rim.Energy), accent), 5 * scale);
+        using var edge = new Pen(Color.FromArgb((int)(144 * rim.Energy), accent), 1.2f * scale);
+        graphics.FillPath(fill, material); graphics.DrawPath(glow, path); graphics.DrawPath(edge, path);
     }
     // 放大镜只读取本次冻结图，最近邻放大显示真实像素；不访问系统指针或再次捕获。
     private void DrawMagnifier(Graphics g)

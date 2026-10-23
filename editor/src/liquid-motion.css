@@ -94,3 +94,14 @@
 .clay-editor input[type=checkbox] { position:relative; isolation:isolate; background:transparent; box-shadow:none; }
 .clay-editor input[type=checkbox]::before { content:''; position:absolute; inset:0; z-index:-1; border-radius:inherit; background:var(--clay-well); box-shadow:var(--clay-inset); pointer-events:none; transform:scale(var(--check-scale-x,1),var(--check-scale-y,1)); }
 .clay-editor input[type=checkbox]:is(:checked,:indeterminate)::before { background:var(--clay-accentBottom); }
+
+/* 精确遮罩和命中框不变；软边只在矩形外形成有界胶质轮廓，停稳即隐去。 */
+.clay-editor svg.clay-selection-jelly { position:absolute; inset:0; width:100%; height:100%; z-index:3; overflow:hidden; pointer-events:none; opacity:0; }
+.selection-jelly-material { fill:var(--clay-accent); opacity:.095; }
+.selection-jelly-outline { fill:none; stroke:var(--clay-accent); pointer-events:none; }
+.selection-jelly-outline.is-glow { stroke-width:5px; stroke-opacity:.14; }
+.selection-jelly-outline.is-edge { stroke-width:1.2px; stroke-opacity:.56; }
+/* 原生交接、隐藏和业务退场期间不保留旧会话的软边。 */
+.clay-editor:is(.is-awaiting,.is-suspended,[data-motion-exit]) .clay-selection-jelly { visibility:hidden; }
+.clay-editor[data-motion-reduced=true] .clay-selection-jelly { display:none; }
+@media (prefers-reduced-motion:reduce) { .clay-selection-jelly { display:none !important; } }

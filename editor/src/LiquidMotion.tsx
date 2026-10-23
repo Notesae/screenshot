@@ -3,6 +3,7 @@ import { clamp, panelBridge, motionTokens as T, MotionClock, MotionSpring, type 
 import { ControlFeedback } from './ControlMotion';
 import { SurfaceTransition } from './surfaceTransition';
 import { paintSurface } from './surfacePaint';
+import { SelectionJelly } from './SelectionJelly';
 
 /** 固定语义槽位承接输入，材质与图文各自变形，避免按钮追着光标改变命中区。 */
 export function MotionButton({ children, group = 'end', ...props }: ComponentPropsWithRef<'button'> & { group?: string }) {
@@ -48,6 +49,8 @@ export class LiquidMotion {
   private controls: ControlFeedback;
   // 尺寸读数即时变化，只有胶囊外壳保留 5/4px 以内的短惯性。
   private sizePosition: MotionRect | null = null;
+  // 选区软边只消费真实显示矩形，与尺寸胶囊共用主时钟。
+  private selectionJelly = new SelectionJelly();
   private sizeX = new MotionSpring();
   private sizeY = new MotionSpring();
   private animations = new Set<Animation>();
@@ -180,7 +183,8 @@ export class LiquidMotion {
     if (body) { body.style.transform = 'none'; body.style.borderRadius = this.railRadius + 'px'; body.style.setProperty('--liquid-body-light', '0'); }
     for (const spring of Object.values(this.indicator)) spring.snap(0);
     const indicator = this.rail.querySelector<HTMLElement>('.liquid-active'); if (indicator) indicator.style.opacity = '0';
-    this.sizePosition = null; this.sizeX.snap(0); this.sizeY.snap(0);
+    this.sizePosition = null; this.sizeX.snap(0); this.sizeY.snap(0); this.selectionJelly.reset();
+    const rim = this.root.querySelector<SVGSVGElement>('.clay-selection-jelly'); if (rim) rim.style.opacity = '0';
     const size = this.root.querySelector<HTMLElement>('.clay-selection-size'); if (size) size.style.transform = 'none';
     this.animations.forEach(animation => animation.cancel()); this.animations.clear();
   }
@@ -211,6 +215,8 @@ export class LiquidMotion {
     }
     this.sizePosition = box; this.wake();
   }
+  /** 输入为精确选区的 CSS 矩形；不读取变形后的边缘作为新目标。 */
+  selectionSkin(box: MotionRect | null) { this.selectionJelly.update(box, this.clock.reduced); this.wake(); }
   private usable(node: Surface) {
     const r = node.rect;
     return node.el.isConnected && !node.el.matches(':disabled') && !node.el.closest('[inert]') && r.width > 0 && r.height > 0 && r.x >= -1 && r.y >= -1 && r.x + r.width <= this.rr.width + 1 && r.y + r.height <= this.rr.height + 1
@@ -349,6 +355,14 @@ export class LiquidMotion {
     const size = this.root.querySelector<HTMLElement>('.clay-selection-size');
     for (const spring of [this.sizeX,this.sizeY]) { if(reduced)spring.snap(0);else spring.step(dt,'neighbor');moving=spring.moving||moving; }
     if(size)size.style.transform='translate('+this.sizeX.x+'px,'+this.sizeY.x+'px)';
+    moving = this.selectionJelly.step(dt, reduced) || moving;
+    const rim = this.root.querySelector<SVGSVGElement>('.clay-selection-jelly');
+    if (rim) {
+      const shape = this.selectionJelly.frame;
+      rim.style.opacity = String(shape.energy);
+      rim.querySelector('.selection-jelly-material')?.setAttribute('d', shape.material);
+      rim.querySelectorAll('.selection-jelly-outline').forEach(path => path.setAttribute('d', shape.outline));
+    }
     return moving;
   }
   /** 浮卡仅缩放材质，正文单独淡入；快速切换从正在显示的矩形续接。 */
@@ -470,7 +484,7 @@ export class LiquidMotion {
 }
 
 /** 动效控制器随外壳卸载，宿主验帧完成后才启用；关闭版本由 React effect 清理保护。 */
-export function useLiquidMotion(root: RefObject<HTMLDivElement | null>, rail: RefObject<HTMLDivElement | null>, presented: boolean, panel: string | null, visiblePanel: string | null, source: RefObject<HTMLButtonElement | null>, position: { x: number; y: number; width: number }, railPosition: {x:number;y:number}, selection: MotionRect | null, onClosed: () => void) {
+export function useLiquidMotion(root: RefObject<HTMLDivElement | null>, rail: RefObject<HTMLDivElement | null>, presented: boolean, panel: string | null, visiblePanel: string | null, source: RefObject<HTMLButtonElement | null>, position: { x: number; y: number; width: number }, railPosition: {x:number;y:number}, selection: MotionRect | null, capture: MotionRect | null, onClosed: () => void) {
   const controller = useRef<LiquidMotion | null>(null);
   useLayoutEffect(() => {
     if (!root.current || !rail.current) return;
@@ -480,6 +494,7 @@ export function useLiquidMotion(root: RefObject<HTMLDivElement | null>, rail: Re
   useLayoutEffect(() => { controller.current?.present(presented); }, [presented]);
   useLayoutEffect(()=>controller.current?.invalidate(),[railPosition.x,railPosition.y,position.x,position.y]);
   useLayoutEffect(()=>{controller.current?.selection(selection);},[selection?.x,selection?.y,selection?.width,selection?.height]);
+  useLayoutEffect(()=>{controller.current?.selectionSkin(capture);},[capture?.x,capture?.y,capture?.width,capture?.height,presented]);
   useLayoutEffect(() => {
     if(!presented&&panel)return;
     const element = root.current?.querySelector<HTMLElement>('.clay-card');
