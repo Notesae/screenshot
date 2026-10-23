@@ -80,6 +80,12 @@ async function main(){
   assert.equal(await page.locator('[data-drawing-tool]').count(),0);assert.equal(await page.locator('[data-annotation-kind=ellipse]').getAttribute('data-tool-state'),'idle');
   assert.equal(await page.evaluate(n=>window.__motionTest.state.requests.slice(n).some(x=>x.startsWith('ai.')||x==='ocr.local'),before),false);await closeCard();
  });
+ await check('hovered-panel-survives-focus-transfer-and-closes-after-pointer-leaves',async()=>{
+  await card('圆形标注');const tool=ui.button(page,'圆形标注'),close=page.getByRole('button',{name:'关闭浮卡',exact:true});
+  await close.hover();await close.focus();await ui.button(page,'完成').focus();await page.waitForTimeout(400);
+  assert.equal(await tool.getAttribute('aria-expanded'),'true','指针仍在浮卡内时，焦点交接不能启动收回');
+  await page.mouse.move(20,20);await page.locator('.clay-card').waitFor({state:'detached'});
+ });
  await check('beauty-click-toggles-mode-and-hover-only-inspects',async()=>{
   const button=ui.button(page,'美化图片');await button.click();await page.mouse.move(20,20);
   assert.equal(await page.locator('.clay-card').count(),0);assert.equal(await button.getAttribute('aria-pressed'),'true');
