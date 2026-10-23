@@ -4,17 +4,21 @@
 .liquid-rail > :not(.liquid-rail-body,.liquid-sweep,.liquid-active,.liquid-bridge) { position: relative; z-index: 2; }
 .clay-editor .liquid-rail button[data-motion-button] { position: relative; isolation: isolate; background: transparent !important; box-shadow: none !important; filter: none !important; transform: none !important; transition: none !important; }
 .liquid-skin { position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; background: var(--clay-raised); box-shadow: var(--clay-button); }
-.liquid-skin::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(40px circle at var(--liquid-light-x,50%) var(--liquid-light-y,25%), #fff, transparent); opacity: var(--liquid-light,0); }
+.liquid-skin::after, .liquid-active::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(40px circle at var(--liquid-light-x,50%) var(--liquid-light-y,25%), #fff, transparent); opacity: var(--liquid-light,0); }
 .liquid-glyph { display: inline-flex; align-items: center; justify-content: center; gap: 8px; pointer-events: none; }
 .clay-editor .liquid-glyph > svg { width: var(--clay-size-icon); height: var(--clay-size-icon); }
 .clay-editor .clay-image-tools .liquid-glyph > svg { width: 21px; height: 21px; }
 [data-motion-action=done] > .liquid-skin { background: var(--clay-primary); box-shadow: var(--clay-primary-shadow); }
-[data-motion-button][aria-pressed=true] > .liquid-skin { background: transparent; box-shadow: none; }
+/* 选中材质只由蓝色指示器绘制，按压阴影和追光不能在原皮肤上重复叠加。 */
+[data-motion-button][aria-pressed=true] > .liquid-skin { visibility: hidden; }
 [data-motion-button][aria-expanded=true] > .liquid-skin { background: var(--clay-raised); box-shadow: var(--clay-press); }
 [data-motion-button]:focus-visible > .liquid-skin { filter: brightness(1.2); }
 [data-motion-button]:active:enabled > .liquid-skin { box-shadow: var(--clay-press); }
 [data-motion-button]:disabled > .liquid-skin { box-shadow: inset 0 1px 2px #ffffff0d; }
 .liquid-active { position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none; border-radius: var(--clay-radius-control); background: var(--clay-primary); box-shadow: var(--clay-primary-shadow); opacity: 0; transform-origin: center; }
+.liquid-active[data-motion-pressed=true] { box-shadow: var(--clay-press); }
+/* 焦点保留在语义按钮，蓝色材质同步承接原皮肤的键盘焦点亮度。 */
+.clay-editor .liquid-rail:has([data-motion-button][aria-pressed=true]:focus-visible) > .liquid-active { filter: brightness(1.2); }
 .clay-editor .liquid-rail > svg.liquid-bridge { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; fill: var(--clay-raisedMid); overflow: hidden; pointer-events: none; }
 .liquid-sweep { position: absolute; inset: 0; z-index: 3; pointer-events: none; border-radius: inherit; opacity: 0; background: linear-gradient(115deg,transparent 38%,#ffffff40 50%,transparent 62%); }
 .clay-editor .liquid-panel { background: transparent; box-shadow: none; overflow: visible; animation: none !important; }
@@ -44,9 +48,9 @@
 .clay-notice > .liquid-surface-content { display:flex; align-items:center; gap:12px; padding:12px 16px; }
 .clay-notice button { pointer-events:auto; }
 .clay-editor[data-motion-reduced=true] *, .clay-editor[data-motion-reduced=true] *::before, .clay-editor[data-motion-reduced=true] *::after { animation: none !important; transition: none !important; }
-.clay-editor[data-motion-economy=true] .liquid-sweep, .clay-editor[data-motion-reduced=true] :where(.liquid-bridge,.liquid-sweep), .clay-editor[data-motion-reduced=true] .liquid-skin::after { display: none; }
+.clay-editor[data-motion-economy=true] .liquid-sweep, .clay-editor[data-motion-reduced=true] :where(.liquid-bridge,.liquid-sweep), .clay-editor[data-motion-reduced=true] :is(.liquid-skin,.liquid-active)::after { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  .liquid-bridge, .liquid-sweep, .liquid-skin::after { display: none !important; }
+  .liquid-bridge, .liquid-sweep, .liquid-skin::after, .liquid-active::after { display: none !important; }
 }
 
 /* 折叠只改变容器高度；字段正文保持静止，取消粒屑不进入画布。 */

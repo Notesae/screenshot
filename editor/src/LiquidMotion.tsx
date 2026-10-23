@@ -213,7 +213,7 @@ export class LiquidMotion {
     return node.el.isConnected && !node.el.matches(':disabled') && !node.el.closest('[inert]') && r.width > 0 && r.height > 0 && r.x >= -1 && r.y >= -1 && r.x + r.width <= this.rr.width + 1 && r.y + r.height <= this.rr.height + 1
       && this.rr.x + r.x >= -1 && this.rr.y + r.y >= -1 && this.rr.x + r.x + r.width <= innerWidth + 1 && this.rr.y + r.y + r.height <= innerHeight + 1;
   }
-  /** 主轨、图标、蓝色选中面和局部桥共用一帧；静止后不保留后台循环。 */
+  /** 主轨、图标与局部桥共用一帧；蓝色选中面复用按钮材质几何，静止后休眠。 */
   private paint(dt: number, time: number) {
     if (!this.active || this.root.dataset.motionExit) return false;
     if (this.dirty) this.measure();
@@ -278,12 +278,21 @@ export class LiquidMotion {
     const ind = this.indicator;
     ind.opacity.to = selected ? 1 : 0;
     if (selected) {
-      ind.x.to = selected.rect.x + selected.faceX; ind.y.to = selected.rect.y + selected.faceY; ind.width.to = selected.rect.width;
+      // 迁移弹簧只追固定槽位，迎向与按压直接复用本帧材质，避免再次滞后或重复位移。
+      ind.x.to = selected.rect.x; ind.y.to = selected.rect.y; ind.width.to = selected.rect.width;
       if (!ind.opacity.x || reduced) { ind.x.snap(ind.x.to); ind.y.snap(ind.y.to); ind.width.snap(ind.width.to); }
     }
     for (const spring of Object.values(ind)) { if (reduced) spring.snap(spring.to); else spring.step(dt, 'indicator'); moving = spring.moving || moving; }
     const blob = this.rail.querySelector<HTMLElement>('.liquid-active')!;
-    Object.assign(blob.style, { width: ind.width.x + 'px', height: (selected?.rect.height ?? 36) + 'px', opacity: String(ind.opacity.x), transform: 'translate(' + ind.x.x + 'px,' + ind.y.x + 'px) scale(' + (1 + Math.min(.24, Math.abs(ind.x.v) / 1800)) + ',' + (1 - Math.min(.13, Math.abs(ind.x.v) / 3300)) + ')' });
+    const skin = selected?.skin;
+    // 蓝面、凹陷阴影和追光共享同一轮廓；文字仍走独立图文层，不随材质缩放。
+    blob.dataset.motionPressed = String(Boolean(selected && this.pressed === selected));
+    Object.assign(blob.style, {
+      width: ind.width.x + 'px', height: (selected?.rect.height ?? 36) + 'px',
+      opacity: String(ind.opacity.x * Number(skin?.style.opacity ?? 1)), borderRadius: skin?.style.borderRadius ?? '',
+      transform: 'translate(' + ind.x.x + 'px,' + ind.y.x + 'px) ' + (skin?.style.transform ?? '') + ' scale(' + (1 + Math.min(.24, Math.abs(ind.x.v) / 1800)) + ',' + (1 - Math.min(.13, Math.abs(ind.x.v) / 3300)) + ')'
+    });
+    for (const name of ['--liquid-light', '--liquid-light-x', '--liquid-light-y']) blob.style.setProperty(name, skin?.style.getPropertyValue(name) || '0');
     const path = this.rail.querySelector<SVGPathElement>('.liquid-bridge path')!;
     if (this.bridge && !reduced && !this.economy && this.usable(this.bridge.a) && this.usable(this.bridge.b)) {
       const progress = clamp((time - this.bridge.start) / T.duration.bridge);
