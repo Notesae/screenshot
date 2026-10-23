@@ -10,8 +10,8 @@ export function AnnotationToolButton({kind,state,expanded,disabled,onClick}:{kin
   return <MotionButton group="draw" data-hover-panel="properties" data-annotation-kind={kind} data-tool-state={state}
     aria-label={`${name}：${action}，悬停设置`} aria-expanded={expanded} aria-pressed={drawing} disabled={disabled} onClick={onClick}>
     <span className="annotation-mode-icon"><ToolGlyph kind={kind} animated/>
-      {state!=='idle'&&<svg className="annotation-mode-mark" viewBox="0 0 12 12" aria-hidden="true"><path d={drawing?'M6 2v8M2 6h8':'M1 4V1h3M8 1h3v3M11 8v3H8M4 11H1V8'}/></svg>}
+      <span className="annotation-mode-mark" aria-hidden="true"><svg className="is-draw" viewBox="0 0 12 12"><path d="M6 2v8M2 6h8"/></svg><svg className="is-edit" viewBox="0 0 12 12"><path d="M1 4V1h3M8 1h3v3M11 8v3H8M4 11H1V8"/></svg></span>
     </span>
-    {state!=='idle'&&<span className="annotation-mode-label" aria-hidden="true">{drawing?'绘制':'调整'}</span>}
+    <span className="annotation-mode-label" aria-hidden="true"><span className="is-draw">绘制</span><span className="is-edit">调整</span></span>
   </MotionButton>;
 }

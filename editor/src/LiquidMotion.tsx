@@ -2,14 +2,14 @@ import { useLayoutEffect, useRef, type ComponentPropsWithRef, type RefObject } f
 import { clamp, panelBridge, motionTokens as T, MotionClock, MotionSpring, type MotionRect } from './motion';
 import { ControlFeedback } from './ControlMotion';
 import { SurfaceTransition } from './surfaceTransition';
-import { paintSurface } from './surfacePaint';
-import { panelOutline } from './PanelSkin';
+import { paintPanel } from './PanelSkin';
 import { SelectionJelly, type SelectionGrip } from './SelectionJelly';
 import { RailToss, railOutline, railWarp } from './RailToss';
+import { ToolStateMotion } from './ToolStateMotion';
 
 /** 固定语义槽位承接输入，材质与图文各自变形，避免按钮追着光标改变命中区。 */
 export function MotionButton({ children, group = 'end', ...props }: ComponentPropsWithRef<'button'> & { group?: string }) {
-  return <button {...props} data-motion-button="" data-motion-group={group}><span className="liquid-skin" aria-hidden="true"/><span className="liquid-glyph">{children}</span></button>;
+  return <button {...props} data-motion-button="" data-motion-group={group}><span className="liquid-skin" aria-hidden="true"><span className="liquid-mode-well"/><span className="liquid-mode-blue"/></span><span className="liquid-glyph">{children}</span></button>;
 }
 
 /** 固定槽位保存运动状态；contact 为接触压缩，contactSide 为受压侧，contactShift 为本帧牵引目标。 */
@@ -21,6 +21,7 @@ const rect = (box: DOMRect): MotionRect => ({ x: box.left, y: box.top, width: bo
 
 /** v2 的局部表现控制器：共享帧循环、稳定命中、软体邻接和可中断退场。 */
 export class LiquidMotion {
+  private toolModes:ToolStateMotion;
   readonly clock = new MotionClock();
   private nodes: Surface[] = [];
   private dirty = true;
@@ -79,6 +80,7 @@ export class LiquidMotion {
     root.dataset.motionEconomy = String(this.economy);
     root.dataset.motionHidden = String(document.hidden); this.clock.setSuspended(true);
     this.clock.onIdle = () => { root.dataset.motionState = 'sleep'; };
+    this.toolModes=new ToolStateMotion(rail,this.clock);
     this.clock.listen((dt, time) => this.paint(dt, time));
     this.controls = new ControlFeedback(root, this.clock);
     const invalidate = () => { this.dirty = true; this.wake(); };
@@ -94,7 +96,7 @@ export class LiquidMotion {
       invalidate();
     }); this.resize.observe(rail); this.resize.observe(root);
     this.mutation = new MutationObserver(invalidate);
-    this.mutation.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'inert', 'aria-pressed', 'aria-expanded'] });
+    this.mutation.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'inert', 'aria-pressed', 'aria-expanded','data-tool-state'] });
     const listen = (target: EventTarget, name: string, fn: EventListener, capture = false) => {
       target.addEventListener(name, fn, capture); this.cleanup.push(() => target.removeEventListener(name, fn, capture));
     };
@@ -180,6 +182,7 @@ export class LiquidMotion {
   }
   /** 旧会话的迎向、按压、接触压力和尺寸惯性不能带到下一次揭示。 */
   private resetField() {
+    this.toolModes.reset();
     this.pointer.inside = false; this.pressed = this.nearest = null; this.contact = null;
     this.indicatorSource = null;
     for (const node of this.nodes) {
@@ -360,6 +363,12 @@ export class LiquidMotion {
       const entryX = toss.x + localX * (toss.scaleX - 1) + shear * warpedY * toss.scaleY, entryY = toss.y + warpedY * toss.scaleY - localY;
       node.skin.style.transform = 'translate(' + (x + entryX) + 'px,' + (y + entryY) + 'px) skewX(' + toss.shear + 'deg) scale(' + toss.scaleX + ',' + toss.scaleY + ') skewY(' + Math.atan(warp.slope) * 180 / Math.PI + 'deg) scale(' + (1 + T.field.stretch * a * .6 + (T.press.x - 1) * p - T.contact.squash * contact) + ',' + (warp.stretch * (1 + T.field.stretch * a * (Math.abs(dy) - .3) + (T.press.y - 1) * p + T.contact.bulge * contact)) + ')';
       node.glyph.style.transform = 'translate(' + (x * T.field.iconRatio + entryX) + 'px,' + (y * T.field.iconRatio + entryY + p * 1.2) + 'px)';
+      const mode=this.toolModes.pose(node.el);
+      if(mode){
+        const width=mode.width*(1+mode.strain),ratio=width/Math.max(1,node.rect.width);
+        node.skin.style.transform=`translate(${mode.x+(width-node.rect.width)/2}px,${mode.y}px) `+node.skin.style.transform+` scale(${ratio},${1/(1+mode.strain)})`;
+        node.glyph.style.transform=`translate(${mode.x}px,${mode.y}px) `+node.glyph.style.transform;
+      }
       node.skin.style.opacity = String(toss.skin); node.glyph.style.opacity = String(toss.content);
       // 受压侧略变平、外侧鼓起；图文只跟随平移，始终不参与软体挤压。
       node.skin.style.borderRadius = [node.radius + dx*a*3,node.radius - dx*a*2,node.radius + dx*a*2,node.radius - dx*a*3].map((value, corner) => Math.max(0, value + contact * T.contact.flatten * ((corner === 1 || corner === 2 ? 1 : -1) === node.contactSide ? -1 : .35)) + 'px').join(' ');
@@ -391,8 +400,8 @@ export class LiquidMotion {
     body.querySelector('.liquid-rail-light')?.setAttribute('cx',String(this.bodyLight.x));
     body.style.setProperty('--liquid-body-light',String(reduced||this.economy?0:Math.min(1,sum)));
     moving = this.bulge.moving || this.bodyLight.moving || moving;
-    const pressed = this.nodes.filter(node => node.el.getAttribute('aria-pressed') === 'true' && this.usable(node));
-    // 美化可以与标注同时启用，移动中的选择材质优先指示当前绘制工具。
+    const pressed = this.nodes.filter(node => !node.el.dataset.annotationKind && node.el.getAttribute('aria-pressed') === 'true' && this.usable(node));
+    // 标注三态拥有各自连续材质；共享选择层继续承接图片工具。
     const selected = pressed.find(node => node.group === 'draw') ?? pressed[0];
     const ind = this.indicator;
     ind.opacity.to = selected ? 1 : 0;
@@ -436,7 +445,7 @@ export class LiquidMotion {
     this.paintSelection();
     return moving;
   }
-  /** 浮卡仅缩放材质，正文单独淡入；快速切换从正在显示的矩形续接。 */
+  /** 浮卡与正文整体形变；快速切换从当前几何、受力和速度续接。 */
   panel(element: HTMLElement, source: HTMLElement | null, open: boolean, contentKey: string) {
     // 点击另一种工具可能先关闭旧卡；旧卡仍回到自己的按钮，新卡再接入新来源。
     if(!open&&this.panelSource?.isConnected)source=this.panelSource;
@@ -448,13 +457,11 @@ export class LiquidMotion {
     const version=++this.panelVersion;
     const link=this.root.querySelector<SVGPathElement>('.liquid-panel-bridge path');
     const sourceRect=source?rect(source.getBoundingClientRect()):null;
-    const target = rect(element.getBoundingClientRect()), skin = element.querySelector<HTMLElement>('.liquid-panel-skin')!;
-    const content = element.querySelector<HTMLElement>('.liquid-panel-content')!;
+    const target = rect(element.getBoundingClientRect()), body = element.querySelector<HTMLElement>('.liquid-panel-body')!;
     this.panelLayout = { actual: target, anchor: sourceRect };
     const origin = this.panelRect ?? sourceRect ?? target;
-    // 主浮卡的正文更早融入外壳，材质也逐渐显现，避免先出现实心卡片再分段揭开内容。
+    // 主浮卡共用一个可见度和合成层，避免内容与外壳分段揭开。
     const surface = this.panelTransition ??= new SurfaceTransition(origin, this.panelOpacity, this.panelMaterial, .08, 1.5, true);
-    const outline=skin.querySelector<SVGPathElement>('.liquid-panel-outline');
     if (open) surface.open(target, this.panelContent !== contentKey);
     else if(sourceRect)surface.closeTo(sourceRect);
     else surface.close();
@@ -465,14 +472,9 @@ export class LiquidMotion {
       else if(anchor)surface.redirect(anchor);
       if (finish) surface.finish(); else surface.step(elapsed);
       const box = this.panelRect = surface.box; this.panelOpacity = surface.alpha;
-      // 材质和正文各自续接，提前关闭或切换不会跳亮或重新从透明开始。
+      // 整体可见度继续当前状态，提前关闭或切换不重新从透明开始。
       this.panelMaterial = surface.material;
-      paintSurface(skin,content,box,actual,this.panelOpacity,this.panelMaterial);
-      // 外壳直接按当前像素重画，不能再缩放 SVG，否则边缘高光和回弹幅度也会被压扁。
-      skin.style.transform=`translate(${box.x-actual.x}px,${box.y-actual.y}px)`;
-      skin.style.width=`${Math.max(1,box.width)}px`;skin.style.height=`${Math.max(1,box.height)}px`;
-      outline?.setAttribute('d',panelOutline(box.width,box.height,surface.strain));
-      if(outline)skin.dataset.shaped='true';
+      paintPanel(body,box,actual,surface.strain,this.panelMaterial,surface.moving);
       // 连接只短暂存在于按钮与浮卡的近邻间隙，不跨过正文或远距离拖动。
       if(link){
         let d='';
@@ -550,7 +552,7 @@ export class LiquidMotion {
     this.paintSelection();
   }
   destroy() {
-    this.restore(); this.destroyed = true; this.controls.destroy(); this.clock.dispose(); this.resize.disconnect(); this.mutation.disconnect();
+    this.restore(); this.destroyed = true; this.controls.destroy(); this.toolModes.destroy(); this.clock.dispose(); this.resize.disconnect(); this.mutation.disconnect();
     this.cleanup.forEach(clean => clean());
   }
 }

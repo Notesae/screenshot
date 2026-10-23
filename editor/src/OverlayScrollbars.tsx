@@ -133,6 +133,8 @@ export function OverlayScrollbars() {
     }
 
     function layout(entry:Entry) {
+      // 浮卡整体变形期间不绘制根层滚动条，避免它脱离曲面；稳定后恢复原滚动位置。
+      if(entry.element.closest('[inert],.liquid-panel-body[data-motion-running=true]')){for(const axis of entry.axes)axis.track.hidden=true;return;}
       const element = entry.element, rect = element.getBoundingClientRect();
       const scaleX = element.offsetWidth ? rect.width / element.offsetWidth : 1, scaleY = element.offsetHeight ? rect.height / element.offsetHeight : 1;
       const left = rect.left + element.clientLeft * scaleX, top = rect.top + element.clientTop * scaleY;
@@ -181,7 +183,21 @@ export function OverlayScrollbars() {
       if (entry) reveal(entry);
     };
     const scrolled = (event:Event) => { const entry = entries.get(event.target as HTMLElement); if (entry) reveal(entry); schedule(); };
-    const changed = new MutationObserver(records => { if (records.some(record => !host.contains(record.target))) schedule(true); });
+    const changed = new MutationObserver(records => {
+      let scan=false,positionOnly=false;
+      for(const record of records){
+        if(host.contains(record.target))continue;
+        const target=record.target instanceof Element?record.target:record.target.parentElement;
+        if(!target||target.closest('.annotation-feedback'))continue;
+        if(record.type==='attributes'&&record.attributeName==='style'){
+          // 动效每帧写材质/图标样式，不能据此遍历整棵 DOM 并强制读取布局。
+          if(target.matches('.liquid-skin,.liquid-glyph,.liquid-active,.liquid-rail-body,.liquid-sweep,.liquid-panel-skin,.liquid-surface-skin,.control-skin,.control-content,[data-motion-button],[data-control-button],[data-selection-handle],input[type=range],.clay-slider-fill,.clay-slider-thumb,.annotation-sample,.annotation-tool-glyph,.clay-selection-jelly,.clay-selection-size,.clay-translation-tools'))continue;
+          if(target.matches('.liquid-panel-body,.liquid-panel-page,.liquid-panel-content,.liquid-surface-content,.clay-card,.clay-rail')){positionOnly=true;continue;}
+        }
+        scan=true;
+      }
+      if(scan||positionOnly)schedule(scan);
+    });
     const resizedWindow = () => schedule(true), loaded = () => schedule(true);
     changed.observe(root, { subtree:true, childList:true, characterData:true, attributes:true, attributeFilter:['class', 'style', 'hidden', 'inert', 'open'] });
     resized.observe(root);

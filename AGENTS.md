@@ -6,6 +6,7 @@
 - Keep native OS access and provider secrets in the host. The editor never receives API keys.
 - Do not add paid dependencies, silently download OCR models, send screenshots to a provider without an explicit user action, or claim untested features work.
 - Use Chinese user-facing copy and concise comments explaining non-obvious behavior. No Maven checks apply to this project.
+- 用户动效基准（2026-10-23）：所有动效都视作「有韧性的软体受力」，先产生连续拉扯/收腰或合并吸收，再继承受力速度衰减弹动并停稳；常规、绘制、调整三态及浮卡、滑块、档位点亮/熄灭均遵循此基准。快速反向和重开必须从当前形变与速度续接，不能重置姿态、硬切文字/材质或只做淡入淡出。浮卡整体连同内容一起形变；业务值即时生效，动效不能阻挡连续输入。优先共享时钟和合成层变换，避免逐帧布局读写、大面积滤镜及无意义循环；隐藏和减少动态直接到达准确终态。按现行约定只编译，不能宣称未经实机验证的流畅度已验收。
 - Keep screenshots, credentials, provider configuration, build outputs, and task exports out of Git.
 - Each independent worker owns its assigned paths. The integrator controls solution files, root scripts, docs, CI, and commits.
 - 用户最新要求（2026-10-23）：日常修改和修复暂时不运行 GitHub 自动化测试、CI 测试、本地自动化回归或复杂测试，由用户自行验收；仅在用户明确确认进入发布版本阶段后恢复测试，覆盖此前恢复测试/CI 的约定。日常仅执行必要编译、打包与文件更新，不主动触发或重跑 CI，不擅自修改仓库工作流或绕过合并门禁；不将编译通过写成桌面交互已经验收。

@@ -298,12 +298,12 @@ export function CompactOverlay(props:Props) {
         </div>
         <HistoryButtons canUndo={props.canUndo} canRedo={props.canRedo} undo={props.undo} redo={props.redo}/>
         {(['text','rect','ellipse','arrow','brush','highlight','mosaic'] as const).map(kind=><AnnotationToolButton key={kind} kind={kind} state={drawingTool===kind?'drawing':!drawingTool&&(props.selection?.type===kind||kind==='mosaic'&&props.selection?.type==='cover')?'editing':'idle'} expanded={panel==='properties'&&inspectedTool===kind} disabled={!hasContent||props.renderStatus!=='ready'} onClick={()=>{hover.dismiss();canvasRef.current?.add(kind);}}/>)}
-        <MotionButton data-motion-action="done" className="clay-primary" aria-label="完成" data-tooltip="完成并复制到剪贴板" disabled={!hasContent||props.renderStatus!=='ready'} onClick={complete}><Check aria-hidden="true"/>完成</MotionButton>
+        <MotionButton data-motion-action="done" className="clay-primary" aria-label="完成" data-tooltip="完成并复制到剪贴板" disabled={!hasContent||props.renderStatus!=='ready'} onClick={complete}><Check aria-hidden="true"/></MotionButton>
         <MotionButton aria-label="钉到桌面" data-tooltip="钉到桌面，可拖动、缩放和切换置顶" disabled={!hasContent||props.renderStatus!=='ready'||!!aiBusy} onClick={()=>{setComparison(null);props.onPin();}}><Pin aria-hidden="true"/></MotionButton>
         <MotionButton data-panel-trigger="more" data-hover-panel="more" aria-label="更多操作：悬停展开" aria-expanded={panel==='more'} onClick={()=>hover.dismiss()}><MoreHorizontal aria-hidden="true"/></MotionButton><MotionButton aria-label="收起编辑，保留文档" data-tooltip="收起编辑" onClick={()=>props.onPresentation('hidden')}><X aria-hidden="true"/></MotionButton>
       </div>
       {visiblePanel&&<section id="clay-active-panel" data-panel={visiblePanel} aria-hidden={!panel} inert={!panel} className={'clay-card liquid-panel '+(visiblePanel==='more'?'clay-drawer ':'')+(!panel?'is-closing':'')} role="region" aria-label={title} style={{left:tools.card.x,top:tools.card.y,width:tools.card.width,maxHeight:tools.card.height}}>
-        <PanelSkin/><div className="liquid-panel-content"><div ref={page} className="liquid-panel-page" inert={switching}>
+        <div className="liquid-panel-body"><PanelSkin/><div className="liquid-panel-content"><div ref={page} className="liquid-panel-page" inert={switching}>
         <header className="clay-card-heading" tabIndex={0} aria-label={'移动'+title+'，方向键微调'} onPointerDown={event=>beginDrag('card',event)} onPointerMove={moveDrag} onPointerUp={endDrag} onLostPointerCapture={endDrag} onKeyDown={event=>{if(event.target===event.currentTarget)moveByKey('card',event);}}><span className="clay-panel-mark" aria-hidden="true">{visiblePanel==='properties'&&propertyKind?<ToolGlyph kind={propertyKind}/>:visiblePanel==='beauty'?<Sparkles/>:visiblePanel==='text'?<ScanText/>:visiblePanel==='recovery'?<RotateCcw/>:<MoreHorizontal/>}</span><div className="clay-panel-heading-copy"><h2>{title}</h2><p>{panelCaption}</p></div><ControlButton aria-label="关闭浮卡" onClick={closePanel}><X aria-hidden="true"/></ControlButton></header>
         <div className="clay-card-content" ref={cardContent}>
           {visiblePanel==='beauty'&&doc.image&&editor.mode!=='reflow'&&<StyleTools document={doc} update={update} comparing={comparing} onCompare={()=>{canvasRef.current?.exitSelection();setComparison(comparing?null:doc);}} onGesture={beautyGesture} onError={props.onError}/>}
@@ -321,7 +321,7 @@ export function CompactOverlay(props:Props) {
             <div className="clay-action-grid"><ControlButton onClick={()=>{setPanel(null);props.onConfigure();}}><Settings2 aria-hidden="true"/>设置</ControlButton><ControlButton onClick={()=>setPositions({})}><RotateCcw aria-hidden="true"/>重置工具位置</ControlButton></div>
           </>}
         </div>
-        </div></div>
+        </div></div></div>
       </section>}
     </fieldset>
     {readerMounted&&reader&&editor.imageTranslation&&<ImageTranslationReader rootRef={readerRoot} open={reading} data={editor.imageTranslation} box={reader.box} screen={screen} full={reader.full} onClose={closeReader} onBoundsChange={setReaderBounds} onReset={()=>setReaderBounds(null)}/>}

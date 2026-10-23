@@ -1,3 +1,4 @@
+import { MotionRange } from './MotionRange';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Check, Eye, RotateCcw } from 'lucide-react';
 import { ControlButton } from './ControlMotion';
@@ -120,7 +121,7 @@ function BeautyRange({label,value,max,onChange,onGesture}:{label:string;value:nu
   },[]);
   function commit(){const next=Number(draft);if(!draft.trim()||!Number.isFinite(next)||next<0||next>max){setDraft(String(value));setError(`请输入 0–${max} 之间的像素值。`);return;}setDraft(String(Math.round(next)));setError('');if(Math.round(next)!==value)latest.current.onChange(Math.round(next));}
   return <div className="beauty-range"><div className="beauty-range-heading"><label htmlFor={id}>{label}</label><label className="beauty-number"><input aria-label={label+'像素'} aria-invalid={Boolean(error)} aria-describedby={error?id+'-error':undefined} type="number" min={0} max={max} step={1} value={draft} onChange={event=>setDraft(event.target.value)} onBlur={commit} onKeyDown={event=>{if(event.key==='Enter'&&!event.nativeEvent.isComposing){event.preventDefault();event.currentTarget.blur();}}}/><span>px</span></label></div>
-    <input id={id} aria-label={label} type="range" min={0} max={max} value={value} style={{'--range-progress':`${value/max*100}%`} as CSSProperties} onPointerDown={event=>{if(event.button===0){begin();event.currentTarget.setPointerCapture(event.pointerId);}}} onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end} onBlur={end} onKeyDown={event=>{if(/^(Arrow(Left|Right|Up|Down)|Home|End|PageUp|PageDown)$/.test(event.key))begin();}} onKeyUp={end} onChange={event=>onChange(Number(event.target.value),gesture.current)}/>
+    <MotionRange id={id} aria-label={label} min={0} max={max} value={value} style={{'--range-progress':`${value/max*100}%`} as CSSProperties} onPointerDown={event=>{if(event.button===0){begin();event.currentTarget.setPointerCapture(event.pointerId);}}} onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end} onBlur={end} onKeyDown={event=>{if(/^(Arrow(Left|Right|Up|Down)|Home|End|PageUp|PageDown)$/.test(event.key))begin();}} onKeyUp={end} onChange={event=>onChange(Number(event.target.value),gesture.current)}/>
     {error&&<p id={id+'-error'} className="field-error" role="status">{error}</p>}
   </div>;
 }

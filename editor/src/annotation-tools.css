@@ -2,12 +2,19 @@
 .clay-editor svg.annotation-tool-glyph { width: 21px; height: 21px; overflow: visible; transform: translateY(var(--tool-nudge,0px)); }
 .annotation-tool-ink path { stroke-dasharray: 1; stroke-dashoffset: calc(1 - var(--tool-draw,1)); }
 /* 蓝色凸面表示下一笔，凹面控制点表示正在调整；状态文案不依赖颜色识别。 */
-.annotation-mode-icon { position: relative; display: inline-flex; }
-.clay-editor svg.annotation-mode-mark { position: absolute; right: -5px; bottom: -3px; width: 12px; height: 12px; padding: 1px; border-radius: 4px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; background: var(--clay-accent); }
-.annotation-mode-label { font-size: 11px; line-height: 1; }
-.clay-editor button[data-tool-state=editing] { color: var(--clay-ink); }
-.clay-editor [data-tool-state=editing] > .liquid-skin { background: var(--clay-well); box-shadow: var(--clay-inset); }
-.clay-editor [data-tool-state=editing] svg.annotation-mode-mark { background: var(--clay-well); }
+.clay-editor .clay-rail button[data-tool-state] { width: 75px; padding-inline: 9px; flex: none; color: var(--clay-ink); }
+.clay-editor .clay-rail button[data-tool-state=idle] { width: 39px; }
+[data-tool-state] > .liquid-glyph { display: block; width: 100%; height: 21px; }
+.annotation-mode-icon { position: absolute; left: 0; top: 0; display: inline-flex; }
+.annotation-mode-mark { position: absolute; right: -5px; bottom: -3px; width: 12px; height: 12px; border-radius: 4px; background: var(--clay-well); opacity: clamp(0,var(--tool-reveal,0),1); transform: translateX(calc((1 - var(--tool-reveal,0)) * -8px)) scale(calc(.7 + var(--tool-reveal,0) * .3)); }
+.clay-editor .annotation-mode-mark > svg { position: absolute; inset: 0; width: 12px; height: 12px; padding: 1px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.annotation-mode-label { position: absolute; left: 29px; top: 5px; width: 26px; height: 12px; font-size: 11px; line-height: 12px; opacity: clamp(0,var(--tool-reveal,0),1); transform-origin: left center; transform: translateX(calc((1 - var(--tool-reveal,0)) * -17px)) scaleX(calc(.8 + var(--tool-reveal,0) * .2)); }
+.annotation-mode-label > span { position: absolute; inset: 0; }
+[data-tool-state] .is-draw { opacity: var(--tool-draw-state,0); transform: translateY(calc((1 - var(--tool-draw-state,0)) * 4px)); }
+[data-tool-state] .is-edit { opacity: var(--tool-edit-state,0); transform: translateY(calc((1 - var(--tool-edit-state,0)) * -4px)); }
+.liquid-mode-well,.liquid-mode-blue { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; }
+[data-tool-state] .liquid-mode-well { background: var(--clay-well); box-shadow: var(--clay-inset); opacity: var(--tool-edit-state,0); }
+[data-tool-state] .liquid-mode-blue { background: var(--clay-primary); box-shadow: var(--clay-primary-shadow); opacity: var(--tool-draw-state,0); }
 .clay-editor svg.annotation-feedback { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 3; }
 .annotation-feedback path { fill: none; stroke: var(--clay-focus); stroke-width: 1.5px; stroke-linecap: round; stroke-linejoin: round; }
 .canvas-sheet[data-beauty-comparing] > .annotation-feedback, .clay-editor:is(.is-awaiting,.is-suspended,[data-motion-reduced=true]) .annotation-feedback { visibility: hidden; }
@@ -44,7 +51,10 @@
 .clay-editor .annotation-sizes button { min-height: 34px; min-width: 0; padding: 5px 8px; --control-face: var(--clay-well); --control-shadow: none; color: var(--clay-muted); }
 .annotation-sizes .control-content { gap: 8px; justify-content: center; }
 .annotation-size-line { display: block; width: 16px; border-radius: 4px; background: currentColor; }
-.clay-editor .annotation-sizes button[aria-pressed=true] { --control-face: var(--clay-raised); --control-shadow: var(--clay-button); color: var(--clay-focus); }
+.clay-editor .annotation-sizes button[data-soft-selection] { --control-face: var(--clay-well); --control-shadow: none; color: color-mix(in srgb,var(--clay-focus) calc(var(--control-selected,0) * 100%),var(--clay-muted)); }
+.control-selection { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; }
+[data-soft-selection] .control-selection { background: var(--clay-raised); box-shadow: var(--clay-button); opacity: var(--control-selected,0); transform: scale(calc(.82 + var(--control-selected,0) * .18 + var(--control-selection-pull,0)),calc(.85 + var(--control-selected,0) * .15 - var(--control-selection-pull,0))); }
+[data-soft-selection] .annotation-size-line { transform: scale(calc(1 + var(--control-selection-pull,0) * 1.6),calc(1 - var(--control-selection-pull,0))); }
 .annotation-instruction { margin: 0; color: var(--clay-muted); font-size: 12px; line-height: 1.65; }
 .annotation-inspector-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 4px; }
 .annotation-inspector-footer > span { font-size: 11px; color: var(--clay-muted); }

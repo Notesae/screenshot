@@ -1,3 +1,4 @@
+import { MotionRange } from './MotionRange';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import { Check, Trash2 } from 'lucide-react';
 import { ControlButton } from './ControlMotion';
@@ -44,7 +45,7 @@ export function AnnotationPalette({canvasRef,selection,tool,disabled=false,onErr
     </section>}
     {(text||mosaic||stroked)&&<section className="annotation-setting" aria-label={label}>
       <AnnotationAmount key={current.id+label} label={label} value={amount} min={min} max={max} disabled={disabled} onChange={setAmount}/>
-      <div className="annotation-sizes" role="group" aria-label={label+'预设'}>{sizes.map(value=><ControlButton key={value} disabled={disabled} aria-label={`${label} ${value} 像素`} aria-pressed={amount===value} onClick={()=>setAmount(value)}>{stroked?<><span className="annotation-size-line" style={{height:Math.min(value,8)}}/><span>{value}</span></>:<span>{value} px</span>}</ControlButton>)}</div>
+      <div className="annotation-sizes" role="group" aria-label={label+'预设'}>{sizes.map(value=><ControlButton key={value} data-soft-selection="" disabled={disabled} aria-label={`${label} ${value} 像素`} aria-pressed={amount===value} onClick={()=>setAmount(value)}>{stroked?<><span className="annotation-size-line" style={{height:Math.min(value,8)}}/><span>{value}</span></>:<span>{value} px</span>}</ControlButton>)}</div>
     </section>}
     <p className="annotation-instruction">{annotationHints[kind]}</p>
     {!selection&&<p className="clay-hint">选中工具后可连续绘制。再次点击工具或按 Esc 退出。</p>}
@@ -61,7 +62,7 @@ function AnnotationAmount({label,value,min,max,disabled,onChange}:{label:string;
   useEffect(()=>{window.addEventListener('blur',end);return()=>window.removeEventListener('blur',end);},[]);
   function commit(){const next=Number(draft);if(!draft.trim()||!Number.isFinite(next)||next<min||next>max){setDraft(String(value));setError(`请输入 ${min}–${max} 之间的数值。`);return;}setDraft(String(Math.round(next)));setError('');if(Math.round(next)!==value)onChange(Math.round(next));}
   return <div className="annotation-amount"><div className="annotation-setting-heading"><label htmlFor={id}>{label}</label><div className="annotation-number"><input type="number" aria-label={label+'像素'} aria-invalid={Boolean(error)} min={min} max={max} step={1} disabled={disabled} value={draft} onChange={event=>setDraft(event.target.value)} onBlur={commit} onKeyDown={event=>{if(event.key==='Enter'&&!event.nativeEvent.isComposing)event.currentTarget.blur();}}/><span>px</span></div></div>
-    <input id={id} type="range" min={min} max={max} step={1} disabled={disabled} value={value} style={{'--range-progress':`${(value-min)/(max-min)*100}%`} as CSSProperties} onPointerDown={event=>{if(event.button===0){begin();event.currentTarget.setPointerCapture(event.pointerId);}}} onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end} onBlur={end} onKeyDown={event=>{if(/^(Arrow(Left|Right|Up|Down)|Home|End|PageUp|PageDown)$/.test(event.key))begin();}} onKeyUp={end} onChange={event=>onChange(Number(event.target.value),gesture.current)}/>
+    <MotionRange id={id} min={min} max={max} step={1} disabled={disabled} value={value} style={{'--range-progress':`${(value-min)/(max-min)*100}%`} as CSSProperties} onPointerDown={event=>{if(event.button===0){begin();event.currentTarget.setPointerCapture(event.pointerId);}}} onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end} onBlur={end} onKeyDown={event=>{if(/^(Arrow(Left|Right|Up|Down)|Home|End|PageUp|PageDown)$/.test(event.key))begin();}} onKeyUp={end} onChange={event=>onChange(Number(event.target.value),gesture.current)}/>
     {error&&<p className="field-error" role="status">{error}</p>}
   </div>;
 }

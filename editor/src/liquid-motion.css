@@ -48,11 +48,8 @@
 .clay-editor .liquid-rail:has([data-motion-button][data-motion-material=true]:focus-visible) > .liquid-active { filter: brightness(1.2); }
 .liquid-sweep { position: absolute; inset: 0; z-index: 3; pointer-events: none; border-radius: inherit; opacity: 0; background: linear-gradient(115deg,transparent 38%,#ffffff40 50%,transparent 62%); }
 .clay-editor .liquid-panel { background: transparent; box-shadow: none; overflow: visible; animation: none !important; }
-.liquid-panel-skin { position: absolute; inset: 0; z-index: 0; border-radius: inherit; transform-origin: top left; pointer-events: none; filter: drop-shadow(0 12px 18px #0006) drop-shadow(0 3px 5px #0004); }
-/* 宿主尚未揭示、主时钟未启动时仍提供完整静态材质，首帧不会只剩文字。 */
-.liquid-panel-skin:not([data-shaped=true]) { background: var(--clay-card-face); box-shadow: var(--clay-elevation); filter: none; }
-.clay-editor svg.liquid-panel-contour { display: block; width: 100%; height: 100%; overflow: visible; }
-.clay-editor[data-motion-economy=true] .liquid-panel-outline { filter: none; }
+.liquid-panel-body { position: relative; display: flex; flex-direction: column; min-height: 0; border-radius: inherit; transform-origin: top left; isolation: isolate; }
+.liquid-panel-skin { position: absolute; inset: 0; z-index: 0; border-radius: inherit; background: var(--clay-card-face); box-shadow: var(--clay-elevation); pointer-events: none; }
 .liquid-panel-content { position: relative; z-index: 1; display: flex; flex-direction: column; min-height: 0; border-radius: inherit; overflow: hidden; }
 .liquid-panel-page { display: flex; flex-direction: column; min-height: 0; border-radius: inherit; }
 .clay-editor .liquid-panel.is-closing { animation: none; }
@@ -114,6 +111,14 @@
 .clay-select-trigger[aria-expanded=true] .control-content > svg { transform:rotate(180deg); }
 .clay-editor input[type=range]::-webkit-slider-thumb { transform:scale(var(--range-scale-x,1),var(--range-scale-y,1)); background:linear-gradient(var(--clay-ink),var(--clay-muted)); box-shadow:var(--clay-button); }
 .clay-editor input[type=range]::-moz-range-thumb { transform:scale(var(--range-scale-x,1),var(--range-scale-y,1)); background:linear-gradient(var(--clay-ink),var(--clay-muted)); box-shadow:var(--clay-button); }
+/* 可见滑块与真实 range 分层；值即时提交，材质沿同一速度拉长、反向和回弹。 */
+.clay-slider { position: relative; display: block; width: 100%; height: 28px; flex: none; }
+.clay-slider-track { position: absolute; left: 9px; right: 9px; top: 11px; height: 6px; border-radius: 99px; background: var(--clay-well); box-shadow: var(--clay-inset); pointer-events: none; }
+.clay-slider-fill { position: absolute; inset: 0; border-radius: inherit; background: var(--clay-primary); transform-origin: left; pointer-events: none; }
+.clay-slider-thumb { position: absolute; left: 0; top: 5px; width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(var(--clay-focus),var(--clay-accentTop)); box-shadow: var(--clay-button); pointer-events: none; }
+.clay-editor .clay-slider > input[type=range] { position: absolute; inset: 0; margin: 0; width: 100%; height: 28px; opacity: 0; }
+.clay-slider:has(input:focus-visible) .clay-slider-thumb { filter: brightness(1.2); box-shadow: var(--clay-button),0 0 10px color-mix(in srgb,var(--clay-focus) 45%,transparent); }
+.clay-slider[data-disabled=true] { opacity: .45; }
 .clay-editor input[type=checkbox] { position:relative; isolation:isolate; background:transparent; box-shadow:none; }
 .clay-editor input[type=checkbox]::before { content:''; position:absolute; inset:0; z-index:-1; border-radius:inherit; background:var(--clay-well); box-shadow:var(--clay-inset); pointer-events:none; transform:scale(var(--check-scale-x,1),var(--check-scale-y,1)); }
 .clay-editor input[type=checkbox]:is(:checked,:indeterminate)::before { background:var(--clay-accentBottom); }
