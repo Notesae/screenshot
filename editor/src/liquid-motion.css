@@ -71,7 +71,6 @@
 .clay-editor > svg.liquid-panel-bridge { position:absolute; inset:0; width:100%; height:100%; z-index:4; overflow:hidden; fill:var(--clay-surfaceMid); pointer-events:none; }
 .clay-editor[data-motion-reduced=true] > .liquid-panel-bridge, .clay-editor.is-reading > .liquid-panel-bridge { display:none; }
 
-.liquid-rail-body::after { content:''; position:absolute; inset:0; border-radius:inherit; background:radial-gradient(ellipse 85px 30px at var(--liquid-body-light-x,50%) 0px,#ffffff25,transparent); opacity:var(--liquid-body-light,0); pointer-events:none; }
 /* 通知使用原有状态色和关闭槽位，正文不拦截截图输入。 */
 .clay-notice > .liquid-surface-skin { background:var(--clay-face); }
 .clay-notice.is-error > .liquid-surface-skin { background:var(--clay-errorSurface); }

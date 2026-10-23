@@ -386,7 +386,8 @@ export class LiquidMotion {
       this.grip.icon.style.transform = 'translate(' + (toss.x + localX * (toss.scaleX - 1) + shear * warpedY * toss.scaleY) + 'px,' + (toss.y + warpedY * toss.scaleY - localY) + 'px)';
       this.grip.icon.style.opacity = String(toss.content);
     }
-    body.style.setProperty('--liquid-body-light-x',this.bodyLight.x+'px');
+    // 追光在同一 SVG 轮廓内移动，不再覆盖一张独立矩形背景。
+    body.querySelector('.liquid-rail-light')?.setAttribute('cx',String(this.bodyLight.x));
     body.style.setProperty('--liquid-body-light',String(reduced||this.economy?0:Math.min(1,sum)));
     moving = this.bulge.moving || this.bodyLight.moving || moving;
     const selected = this.nodes.find(node => node.el.getAttribute('aria-pressed') === 'true' && this.usable(node));
