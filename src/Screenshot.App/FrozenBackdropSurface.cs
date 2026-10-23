@@ -103,10 +103,11 @@ public sealed class FrozenBackdropSurface : Grid
         Wake();
     }
     internal void Suspend() { _ready = _allowed = false; StopAndReset(); }
+    // 输入已经按当前选区中心归一化；禁止再按整个桌面视口重新计算幅度。
     internal void Move(Point point)
     {
         if (!_ready || (!_allowed && !_motion.Held) || _reduced || ActualWidth <= 0 || ActualHeight <= 0) return;
-        _motion.Move(point.X / ActualWidth * 2 - 1, point.Y / ActualHeight * 2 - 1); Wake();
+        _motion.Move(point.X, point.Y); Wake();
     }
     internal void Hold()
     {
@@ -126,7 +127,6 @@ public sealed class FrozenBackdropSurface : Grid
         if (_interactionHeld || !_motion.Held) return;
         _motion.Release(); if (!_allowed) _motion.Center(); Wake();
     }
-    internal void Leave() { _motion.Leave(); Wake(); }
     private void StopAndReset() { SoftClayMotion.StopTimeline(this); _animating = _pointerHeld = _interactionHeld = false; _motion.Reset(); ApplyFrame(_motion.Frame); }
     private void Wake()
     {
