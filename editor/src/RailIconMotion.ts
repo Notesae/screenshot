@@ -18,16 +18,16 @@ export class RailIconMotion {
       if(event.pointerType!=='mouse'||Math.hypot(event.clientX-this.pointer.x,event.clientY-this.pointer.y)<.75)return;
       this.pointer={x:event.clientX,y:event.clientY};
       const target=owner(event);
-      if(target!==this.hovered){this.hovered=target;if(!this.blocked())this.pulse(target,.1);}
+      if(target!==this.hovered){this.hovered=target;if(!this.blocked())this.pulse(target,.18);}
     }) as EventListener);
     listen(rail,'pointerleave',()=>{this.hovered=null;});
-    listen(rail,'focusin',event=>{const target=owner(event);if(target?.matches(':focus-visible')&&!this.blocked())this.pulse(target,.12);});
+    listen(rail,'focusin',event=>{const target=owner(event);if(target?.matches(':focus-visible')&&!this.blocked())this.pulse(target,.2);});
     const press=(target:HTMLElement|null)=>{if(this.blocked())return;const icon=target&&this.icons.get(target);if(icon&&this.usable(icon)){icon.held=true;this.clock.wake();}};
     const release=()=>{for(const icon of this.icons.values())if(icon.held){icon.held=false;this.clock.wake();}};
     listen(rail,'pointerdown',((event:PointerEvent)=>{if(event.button===0)press(owner(event));}) as EventListener);
     listen(rail,'keydown',((event:KeyboardEvent)=>{if(!event.repeat&&(event.key==='Enter'||event.key===' '||owner(event)?.classList.contains('clay-grip')&&event.key.startsWith('Arrow')))press(owner(event));}) as EventListener);
     // 辅助技术的 click 没有前置按压；同样只改变外力，不重置图标形状。
-    listen(rail,'click',event=>{if(!this.blocked())this.pulse(owner(event),.08);});
+    listen(rail,'click',event=>{if(!this.blocked())this.pulse(owner(event),.14);});
     listen(window,'pointerup',release);listen(window,'pointercancel',release);listen(window,'keyup',release);listen(window,'blur',()=>this.reset());
   }
   private usable(icon:Icon){return icon.owner.isConnected&&!icon.owner.matches(':disabled')&&!icon.owner.closest('[inert]');}
@@ -57,19 +57,21 @@ export class RailIconMotion {
   }
   private restore(part:Part){const style=part.element.style;[style.transform,style.transformOrigin,style.transformBox]=part.original;delete part.element.dataset.railIconPart;}
   private paint(icon:Icon){
-    const f=clamp(icon.force.x,-1.3,1.3),lag=clamp(icon.force.x-icon.tail.x,-1,1),pose=f+':'+lag;
+    // 柔性限幅避免较强受力撞到硬上限后停顿，再反向时仍连续。
+    const f=1.45*Math.tanh(icon.force.x/1.45),lag=1.2*Math.tanh((icon.force.x-icon.tail.x)/1.2),pose=f+':'+lag;
     if(icon.painted===pose)return;icon.painted=pose;
     for(const part of icon.parts){
-      const {x,y,index}=part;let dx=x*lag*1.3,dy=y*lag*.9,turn=lag*4,sx=1+f*.1,sy=1-f*.075,skew=lag*4;
+      // 21px 图标需要可辨的横纵形变；面积近似守恒，卸力后按原速度反向回鼓。
+      const {x,y,index}=part;let dx=x*lag*2,dy=y*lag*1.4,turn=lag*7,sx=1+f*.22,sy=1/sx,skew=lag*7;
       // 不同构造按部件受力：括角/点阵分开合拢，箭杆/笔尖弯转，书页和译文笔画相向牵拉。
-      if(['more','mosaic','grip','scan'].includes(icon.kind)){dx+=x*f*2;dy+=y*f*1.25;turn=lag*2;}
-      else if(['translate','read'].includes(icon.kind)){dx+=x*f*1.4;turn+=x*f*10;}
-      else if(['arrow','brush','highlight','pin'].includes(icon.kind)){turn+=f*(icon.kind==='pin'?8:-9);dx+=y*lag;}
-      else if(['undo','redo'].includes(icon.kind)){turn+=f*(icon.kind==='undo'?-13:13);skew=0;}
-      else if(['close','cancel'].includes(icon.kind)){turn+=(index%2?1:-1)*f*8;sx=1+f*.08;sy=1-f*.08;}
-      else if(icon.kind==='done'){turn-=f*7;skew+=f*5;}
-      else if(icon.kind==='appearance'){turn+=x*f*9;dx+=x*f;}
-      else if(['rect','ellipse','text'].includes(icon.kind)){skew+=f*5;}
+      if(['more','mosaic','grip','scan'].includes(icon.kind)){dx+=x*f*3;dy+=y*f*2;turn=lag*3;}
+      else if(['translate','read'].includes(icon.kind)){dx+=x*f*2.4;turn+=x*f*16;}
+      else if(['arrow','brush','highlight','pin'].includes(icon.kind)){turn+=f*(icon.kind==='pin'?14:-16);dx+=y*lag*1.6;}
+      else if(['undo','redo'].includes(icon.kind)){turn+=f*(icon.kind==='undo'?-23:23);skew=0;}
+      else if(['close','cancel'].includes(icon.kind)){turn+=(index%2?1:-1)*f*14;sx=1+f*.18;sy=1/sx;}
+      else if(icon.kind==='done'){turn-=f*12;skew+=f*8;}
+      else if(icon.kind==='appearance'){turn+=x*f*15;dx+=x*f*1.7;}
+      else if(['rect','ellipse','text'].includes(icon.kind)){skew+=f*9;}
       part.element.style.transform=f===0&&lag===0?part.original[0]:`translate(${dx}px,${dy}px) rotate(${turn}deg) skewX(${skew}deg) scale(${sx},${sy})`;
     }
   }
@@ -79,7 +81,7 @@ export class RailIconMotion {
       if(this.clock.reduced||!this.usable(icon)){this.clear(icon);continue;}
       if(blocked){icon.pulse=0;icon.held=false;}
       else icon.pulse=Math.max(0,icon.pulse-dt);
-      icon.force.to=this.modeForce(icon.owner)+(blocked?0:icon.held?-.8:icon.pulse>0?.7:0);
+      icon.force.to=this.modeForce(icon.owner)*1.6+(blocked?0:icon.held?-.9:icon.pulse>0?1:0);
       icon.force.step(dt,icon.held?'press':'toolRecoil');
       icon.tail.to=icon.force.x;icon.tail.step(dt,'selection');
       this.paint(icon);moving=icon.force.moving||icon.tail.moving||icon.pulse>0||moving;

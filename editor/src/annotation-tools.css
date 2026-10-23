@@ -13,7 +13,8 @@
 [data-tool-state] .is-edit { opacity: var(--tool-edit-state,0); transform: translateY(calc((1 - var(--tool-edit-state,0)) * -4px)); }
 .liquid-mode-well,.liquid-mode-blue { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; }
 [data-tool-state] .liquid-mode-well { background: var(--clay-well); box-shadow: var(--clay-inset); opacity: var(--tool-edit-state,0); }
-[data-tool-state] .liquid-mode-blue { background: var(--clay-primary); box-shadow: var(--clay-primary-shadow); opacity: var(--tool-draw-state,0); }
+[data-tool-state] .liquid-mode-blue { background: var(--clay-primary); opacity: var(--tool-draw-state,0); }
+[data-tool-state] .liquid-mode-blue::before { content: ''; position: absolute; inset: 0; border-radius: inherit; box-shadow: var(--clay-primary-shadow); opacity: calc(1 - var(--liquid-depth,0)); }
 .clay-editor svg.annotation-feedback { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 3; }
 .annotation-feedback path { fill: none; stroke: var(--clay-focus); stroke-width: 1.5px; stroke-linecap: round; stroke-linejoin: round; }
 .canvas-sheet[data-beauty-comparing] > .annotation-feedback, .clay-editor:is(.is-awaiting,.is-suspended,[data-motion-reduced=true]) .annotation-feedback { visibility: hidden; }

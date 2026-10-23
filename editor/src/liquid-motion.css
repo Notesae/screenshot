@@ -13,7 +13,11 @@
 .liquid-rail > :not(.liquid-rail-body,.liquid-sweep,.liquid-active) { position: relative; z-index: auto; }
 .liquid-rail > .clay-grip { z-index: 2; }
 .clay-editor .liquid-rail button[data-motion-button] { position: relative; z-index: auto; isolation: auto; background: transparent !important; box-shadow: none !important; filter: none !important; transform: none !important; transition: none !important; }
-.liquid-skin { position: absolute; inset: 0; z-index: 0; border-radius: inherit; pointer-events: none; background: var(--clay-raised); box-shadow: var(--clay-button); }
+.liquid-skin { position: absolute; inset: 0; z-index: 0; border-radius: inherit; pointer-events: none; background: var(--clay-raised); --liquid-rest-shadow: var(--clay-button); }
+/* 高光与凹影常驻同一形变表面，只混合权重；浮卡关闭不能硬切上沿阴影。 */
+.liquid-skin::before, .liquid-skin-depth { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; }
+.liquid-skin::before { content: ''; box-shadow: var(--liquid-rest-shadow); opacity: calc((1 - var(--liquid-depth,0)) * (1 - var(--tool-edit-state,0)) * (1 - var(--tool-draw-state,0))); }
+.liquid-skin-depth { box-shadow: var(--clay-press); opacity: var(--liquid-depth,0); }
 .liquid-skin::after, .liquid-active::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(40px circle at var(--liquid-light-x,50%) var(--liquid-light-y,25%), #fff, transparent); opacity: var(--liquid-light,0); }
 .liquid-glyph { position: relative; z-index: 2; display: inline-flex; align-items: center; justify-content: center; gap: 8px; pointer-events: none; }
 .clay-editor .liquid-glyph > svg { width: var(--clay-size-icon); height: var(--clay-size-icon); }
@@ -30,14 +34,12 @@
 .clay-editor svg.clay-translation-material { position: absolute; left: -14px; top: -12px; width: 140px; height: 60px; overflow: visible; opacity: var(--split-material,0); pointer-events: none; filter: drop-shadow(0 5px 5px #0005); }
 .clay-translation-tools[data-split-active=true] .liquid-skin { opacity: calc(1 - var(--split-material,1)) !important; }
 .clay-editor[data-motion-economy=true] .clay-translation-material > path { filter: none; }
-[data-motion-action=done] > .liquid-skin { background: var(--clay-primary); box-shadow: var(--clay-primary-shadow); }
+[data-motion-action=done] > .liquid-skin { background: var(--clay-primary); --liquid-rest-shadow: var(--clay-primary-shadow); }
 /* 材质交接由连续状态控制；逻辑取消选中不能提前恢复一张独立灰皮肤。 */
 [data-motion-button][data-motion-material=true] > .liquid-skin { visibility: hidden; }
-[data-motion-button][aria-expanded=true] > .liquid-skin { background: var(--clay-raised); box-shadow: var(--clay-press); }
-[data-motion-button][data-hover-panel=beauty][aria-pressed=true] > .liquid-skin { background: var(--clay-primary); box-shadow: var(--clay-primary-shadow); }
+[data-motion-button][data-hover-panel=beauty][aria-pressed=true] > .liquid-skin { background: var(--clay-primary); --liquid-rest-shadow: var(--clay-primary-shadow); }
 [data-motion-button]:focus-visible > .liquid-skin { filter: brightness(1.2); }
-[data-motion-button]:active:enabled > .liquid-skin { box-shadow: var(--clay-press); }
-[data-motion-button]:disabled > .liquid-skin { box-shadow: inset 0 1px 2px #ffffff0d; }
+[data-motion-button]:disabled > .liquid-skin { --liquid-rest-shadow: inset 0 1px 2px #ffffff0d; }
 /* 灰底、蓝色涂层和凹陷阴影共用一个变换与圆角，颜色和深度按弹簧进度混合。 */
 .liquid-active { position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none; border-radius: var(--clay-radius-control); background: var(--clay-raised); opacity: 0; transform-origin: center; }
 .liquid-active::before, .liquid-active-color, .liquid-active-color::before, .liquid-active-depth { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; }

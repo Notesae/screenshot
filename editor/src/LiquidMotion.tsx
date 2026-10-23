@@ -10,11 +10,11 @@ import { RailIconMotion } from './RailIconMotion';
 
 /** 固定语义槽位承接输入，材质与图文各自变形，避免按钮追着光标改变命中区。 */
 export function MotionButton({ children, group = 'end', ...props }: ComponentPropsWithRef<'button'> & { group?: string }) {
-  return <button {...props} data-motion-button="" data-motion-group={group}><span className="liquid-skin" aria-hidden="true"><span className="liquid-mode-well"/><span className="liquid-mode-blue"/></span><span className="liquid-glyph">{children}</span></button>;
+  return <button {...props} data-motion-button="" data-motion-group={group}><span className="liquid-skin" aria-hidden="true"><span className="liquid-mode-well"/><span className="liquid-mode-blue"/><span className="liquid-skin-depth"/></span><span className="liquid-glyph">{children}</span></button>;
 }
 
 /** 固定槽位保存运动状态；contact 为接触压缩，contactSide 为受压侧，contactShift 为本帧牵引目标。 */
-type Surface = { el: HTMLButtonElement; skin: HTMLElement; glyph: HTMLElement; group: string; rect: MotionRect; x: MotionSpring; y: MotionSpring; attention: MotionSpring; press: MotionSpring; contact: MotionSpring; contactSide: number; contactShift: number; faceX: number; faceY: number; radius: number };
+type Surface = { el: HTMLButtonElement; skin: HTMLElement; glyph: HTMLElement; group: string; rect: MotionRect; x: MotionSpring; y: MotionSpring; pullX: MotionSpring; pullY: MotionSpring; attention: MotionSpring; press: MotionSpring; expanded: MotionSpring; contact: MotionSpring; contactSide: number; contactShift: number; faceX: number; faceY: number; radius: number };
 /** 仅指向当前挂载的编辑外壳；卸载会使旧完成链取消，不接触文档或系统能力。 */
 let currentMotion: LiquidMotion | null = null;
 export function presentationMotion(node?: Node | null) { return currentMotion && (!node || currentMotion.owns(node)) ? currentMotion : null; }
@@ -175,7 +175,7 @@ export class LiquidMotion {
   /** 整体搬动后丢弃旧轨道的屏幕坐标与局部余振，下一帧直接测量新落点。 */
   rebaseRail(){
     this.toolModes.reset();this.icons.reset();this.pointer.inside=false;this.contact=null;this.nearest=null;
-    for(const node of this.nodes)for(const spring of [node.x,node.y,node.attention,node.contact])spring.snap(0);
+    for(const node of this.nodes)for(const spring of [node.x,node.y,node.pullX,node.pullY,node.attention,node.contact])spring.snap(0);
     this.invalidate();
   }
   owns(node: Node) { return this.root.contains(node); }
@@ -209,12 +209,13 @@ export class LiquidMotion {
     this.pointer.inside = false; this.pressed = this.nearest = null; this.contact = null;
     this.indicatorSource = null;
     for (const node of this.nodes) {
-      for (const spring of [node.x, node.y, node.attention, node.press, node.contact]) spring.snap(0);
+      for (const spring of [node.x, node.y, node.pullX, node.pullY, node.attention, node.press, node.expanded, node.contact]) spring.snap(0);
       node.faceX = node.faceY = node.contactShift = node.contactSide = 0;
       delete node.el.dataset.motionMaterial;
       node.skin.style.transform = node.glyph.style.transform = 'none';
       node.skin.style.opacity = node.glyph.style.opacity = '1';
       node.skin.style.borderRadius = node.radius + 'px'; node.skin.style.setProperty('--liquid-light', '0');
+      node.skin.style.setProperty('--liquid-depth', '0');
     }
     this.entrance.finish();
     if (this.grip) { this.grip.icon.style.transform = 'none'; this.grip.icon.style.opacity = '1'; }
@@ -251,7 +252,7 @@ export class LiquidMotion {
     const existing = new Map(this.nodes.map(node => [node.el, node]));
     this.nodes = [...this.rail.querySelectorAll<HTMLButtonElement>('[data-motion-button]')].map(el => {
       const box = el.getBoundingClientRect();
-      const node = existing.get(el) ?? { el, skin: el.querySelector<HTMLElement>('.liquid-skin')!, glyph: el.querySelector<HTMLElement>('.liquid-glyph')!, group: el.dataset.motionGroup || 'end', x: new MotionSpring(), y: new MotionSpring(), attention: new MotionSpring(), press: new MotionSpring(), contact: new MotionSpring(), contactSide: 0, contactShift: 0, faceX: 0, faceY: 0, radius: 0, rect: rect(box) };
+      const node = existing.get(el) ?? { el, skin: el.querySelector<HTMLElement>('.liquid-skin')!, glyph: el.querySelector<HTMLElement>('.liquid-glyph')!, group: el.dataset.motionGroup || 'end', x: new MotionSpring(), y: new MotionSpring(), pullX: new MotionSpring(), pullY: new MotionSpring(), attention: new MotionSpring(), press: new MotionSpring(), expanded: new MotionSpring(), contact: new MotionSpring(), contactSide: 0, contactShift: 0, faceX: 0, faceY: 0, radius: 0, rect: rect(box) };
       node.radius = parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0;
       node.rect = { x: box.left - this.rr.x, y: box.top - this.rr.y, width: box.width, height: box.height };
       return node;
@@ -381,20 +382,27 @@ export class LiquidMotion {
         dx = clamp((pointer.x - this.rr.x - node.rect.x - node.rect.width / 2) / (node.rect.width * .7), -1, 1);
         dy = clamp((pointer.y - this.rr.y - node.rect.y - node.rect.height / 2) / (node.rect.height * .7), -1, 1);
       }
-      if (this.pressed !== node) { node.attention.to = attention; node.x.to = clamp(dx * attention * T.field.shiftX + node.contactShift, -T.field.maxShift, T.field.maxShift); node.y.to = dy * attention * T.field.shiftY; }
-      const preset = near === node ? 'attention' : 'neighbor';
-      if (reduced) { node.x.snap(0); node.y.snap(0); node.attention.snap(0); node.press.snap(0); node.contact.snap(0); }
-      else {
-        node.x.step(dt, preset); node.y.step(dt, preset); node.attention.step(dt, preset); node.press.step(dt, 'press'); node.contact.step(dt, 'press');
+      if (this.pressed !== node) {
+        node.attention.to = attention; node.x.to = clamp(dx * attention * T.field.shiftX + node.contactShift, -T.field.maxShift, T.field.maxShift); node.y.to = dy * attention * T.field.shiftY;
+        // 移出/三态交接只卸力，边缘曲率不能直接读取已清零的指针方向。
+        node.pullX.to = dx * attention; node.pullY.to = dy * attention;
       }
-      const a = node.attention.x, p = node.press.x, contact = clamp(node.contact.x);
+      node.expanded.to = Number(this.usable(node) && node.el.getAttribute('aria-expanded') === 'true');
+      const preset = near === node ? 'attention' : 'neighbor';
+      if (reduced) { node.x.snap(0); node.y.snap(0); node.pullX.snap(0); node.pullY.snap(0); node.attention.snap(0); node.press.snap(0); node.contact.snap(0); node.expanded.snap(node.expanded.to); }
+      else {
+        node.x.step(dt, preset); node.y.step(dt, preset); node.pullX.step(dt, preset); node.pullY.step(dt, preset); node.attention.step(dt, preset); node.press.step(dt, 'press'); node.contact.step(dt, 'press'); node.expanded.step(dt, 'toolLayout');
+      }
+      const a = node.attention.x, p = node.press.x, contact = clamp(node.contact.x), bendX = node.pullX.x, bendY = Math.abs(node.pullY.x);
+      // 按压与浮卡开合共同混合高光/凹影，最后一帧仍沿同一材质收束。
+      node.skin.style.setProperty('--liquid-depth', String(1 - (1 - clamp(node.expanded.x)) * (1 - clamp(p))));
       const limit = Math.min(1, T.field.maxShift / (Math.hypot(node.x.x, node.y.x) || 1));
       const x = node.faceX = node.x.x * limit, y = node.faceY = node.y.x * limit;
       // 所有按钮按同一个软体坐标映射移动；材质参与拉伸，图文只平移，避免各自飞行和字号变化。
       const localX = node.rect.x + node.rect.width / 2 - this.rr.width / 2, localY = node.rect.y + node.rect.height / 2 - this.rr.height / 2;
       const warp = railWarp(localX + this.rr.width / 2, localY + this.rr.height / 2, this.rr.width, this.rr.height, toss), warpedY = warp.y - this.rr.height / 2;
       const entryX = toss.x + localX * (toss.scaleX - 1) + shear * warpedY * toss.scaleY, entryY = toss.y + warpedY * toss.scaleY - localY;
-      node.skin.style.transform = 'translate(' + (x + entryX) + 'px,' + (y + entryY) + 'px) skewX(' + toss.shear + 'deg) scale(' + toss.scaleX + ',' + toss.scaleY + ') skewY(' + Math.atan(warp.slope) * 180 / Math.PI + 'deg) scale(' + (1 + T.field.stretch * a * .6 + (T.press.x - 1) * p - T.contact.squash * contact) + ',' + (warp.stretch * (1 + T.field.stretch * a * (Math.abs(dy) - .3) + (T.press.y - 1) * p + T.contact.bulge * contact)) + ')';
+      node.skin.style.transform = 'translate(' + (x + entryX) + 'px,' + (y + entryY) + 'px) skewX(' + toss.shear + 'deg) scale(' + toss.scaleX + ',' + toss.scaleY + ') skewY(' + Math.atan(warp.slope) * 180 / Math.PI + 'deg) scale(' + (1 + T.field.stretch * a * .6 + (T.press.x - 1) * p - T.contact.squash * contact) + ',' + (warp.stretch * (1 + T.field.stretch * (bendY - .3 * a) + (T.press.y - 1) * p + T.contact.bulge * contact)) + ')';
       node.glyph.style.transform = 'translate(' + (x * T.field.iconRatio + entryX) + 'px,' + (y * T.field.iconRatio + entryY + p * 1.2) + 'px)';
       const mode=this.toolModes.pose(node.el);
       if(mode){
@@ -405,12 +413,12 @@ export class LiquidMotion {
       }
       node.skin.style.opacity = String(toss.skin); node.glyph.style.opacity = String(toss.content);
       // 受压侧略变平、外侧鼓起；图文只跟随平移，始终不参与软体挤压。
-      node.skin.style.borderRadius = [node.radius + dx*a*3,node.radius - dx*a*2,node.radius + dx*a*2,node.radius - dx*a*3].map((value, corner) => Math.max(0, value + contact * T.contact.flatten * ((corner === 1 || corner === 2 ? 1 : -1) === node.contactSide ? -1 : .35)) + 'px').join(' ');
+      node.skin.style.borderRadius = [node.radius + bendX*3,node.radius - bendX*2,node.radius + bendX*2,node.radius - bendX*3].map((value, corner) => Math.max(0, value + contact * T.contact.flatten * ((corner === 1 || corner === 2 ? 1 : -1) === node.contactSide ? -1 : .35)) + 'px').join(' ');
       node.skin.style.setProperty('--liquid-light', String(this.economy ? 0 : clamp(a * .95, 0, .8)));
       node.skin.style.setProperty('--liquid-light-y', clamp((pointer.y - this.rr.y - node.rect.y) / node.rect.height * 100, 0, 100) + '%');
       node.skin.style.setProperty('--liquid-light-x', clamp((pointer.x - this.rr.x - node.rect.x) / node.rect.width * 100, 0, 100) + '%');
       node.el.dataset.motionReady = String(toss.content >= .95);
-      for (const spring of [node.x, node.y, node.attention, node.press, node.contact]) moving = spring.moving || moving;
+      for (const spring of [node.x, node.y, node.pullX, node.pullY, node.attention, node.press, node.expanded, node.contact]) moving = spring.moving || moving;
       sum += a; center += (node.rect.x + node.rect.width/2)*a;
     }
     this.bulge.to = near ? clamp((pointer.y - this.rr.y - this.rr.height / 2) / this.rr.height, -1, 1) * T.field.bodyBulge * Math.min(sum, 1.2) : 0;
@@ -466,7 +474,7 @@ export class LiquidMotion {
     });
     // 同一连续进度只改变涂层与阴影权重，不再按 pointerup 或 aria-pressed 瞬间换面。
     blob.style.setProperty('--liquid-selection', String(clamp(ind.opacity.x)));
-    blob.style.setProperty('--liquid-press', String(reduced ? Number(Boolean(source && this.pressed === source)) : clamp(source?.press.x ?? 0)));
+    blob.style.setProperty('--liquid-press', skin?.style.getPropertyValue('--liquid-depth') || '0');
     for (const name of ['--liquid-light', '--liquid-light-x', '--liquid-light-y']) blob.style.setProperty(name, skin?.style.getPropertyValue(name) || '0');
     const panel = this.panelElement, layout = this.panelLayout;
     if (panel?.isConnected && layout && !panel.classList.contains('is-closing') && !this.clock.has('panel')) {
