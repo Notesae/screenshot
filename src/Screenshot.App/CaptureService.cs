@@ -311,20 +311,63 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
         graphics.DrawPath(edgePen, path);
         return handles;
     }
-    // 放大镜只读取本次冻结图，最近邻放大显示真实像素；不访问系统指针或再次捕获。
-    private void DrawMagnifier(Graphics g)
+    /// <summary>放大镜和两行读数组成同宽卡片；只采样冻结图，最近邻预览保持真实像素和取色坐标。</summary>
+    private void DrawMagnifier(Graphics graphics)
     {
-        var source=new Rectangle(Math.Clamp(_pointer.X-7,0,Math.Max(0,_frozen.Width-15)),Math.Clamp(_pointer.Y-7,0,Math.Max(0,_frozen.Height-15)),Math.Min(15,_frozen.Width),Math.Min(15,_frozen.Height));
-        var target=new Rectangle(Math.Clamp(_pointer.X+28,0,Math.Max(0,ClientSize.Width-128)),Math.Clamp(_pointer.Y+28,0,Math.Max(0,ClientSize.Height-156)),120,120);
-        var state=g.Save();g.InterpolationMode=System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;g.PixelOffsetMode=System.Drawing.Drawing2D.PixelOffsetMode.Half;
-        using var clip=SoftClayDrawing.Rounded(target,(float)SoftClayTheme.Number("radius","floating"));g.SetClip(clip);g.DrawImage(_frozen,target,source,GraphicsUnit.Pixel);g.Restore(state);
-        g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;using var border=new Pen(SoftClayDrawing.Color("accent"),1.25f);g.DrawPath(border,clip);
-        var px=Math.Clamp(_pointer.X,0,_frozen.Width-1);var py=Math.Clamp(_pointer.Y,0,_frozen.Height-1);
-        var centerX=target.X+(px-source.X)*target.Width/source.Width;var centerY=target.Y+(py-source.Y)*target.Height/source.Height;
-        g.DrawRectangle(border,centerX,centerY,Math.Max(1,target.Width/source.Width),Math.Max(1,target.Height/source.Height));
-        var color=_frozen.GetPixel(px,py);DrawHint(g,$"{px+_desktop.X}, {py+_desktop.Y} · #{color.R:X2}{color.G:X2}{color.B:X2} · M 隐藏",target.X,target.Bottom+3);
+        // 预览、页脚与留白共用 DPI 比例；测量整张卡片后避让屏幕边缘，不能只约束预览区域。
+        var scale = DeviceDpi / 96f;
+        var side = Math.Max(1, (int)Math.Round(150 * scale));
+        var height = side + (int)Math.Round(52 * scale);
+        var gap = (int)Math.Round(28 * scale); var margin = (int)Math.Round(8 * scale);
+        var x = _pointer.X + gap; var y = _pointer.Y + gap;
+        if (x + side + margin > ClientSize.Width) x = _pointer.X - gap - side;
+        if (y + height + margin > ClientSize.Height) y = _pointer.Y - gap - height;
+        x = Math.Clamp(x, 0, Math.Max(0, ClientSize.Width - side));
+        y = Math.Clamp(y, 0, Math.Max(0, ClientSize.Height - height));
+        var card = new Rectangle(x, y, side, height); var preview = new Rectangle(x, y, side, side);
+        var source = new Rectangle(Math.Clamp(_pointer.X - 7, 0, Math.Max(0, _frozen.Width - 15)), Math.Clamp(_pointer.Y - 7, 0, Math.Max(0, _frozen.Height - 15)), Math.Min(15, _frozen.Width), Math.Min(15, _frozen.Height));
+        var px = Math.Clamp(_pointer.X, 0, _frozen.Width - 1); var py = Math.Clamp(_pointer.Y, 0, _frozen.Height - 1);
+        var color = _frozen.GetPixel(px, py);
+        using var outline = SoftClayDrawing.Rounded(card, (float)SoftClayTheme.Number("radius", "floating") * scale);
+        using var border = new Pen(SoftClayDrawing.Color("border"), scale);
+        var state = graphics.Save();
+        graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        graphics.SetClip(outline, System.Drawing.Drawing2D.CombineMode.Intersect);
+        SoftClayDrawing.Surface(graphics, card, (float)SoftClayTheme.Number("radius", "floating") * scale);
+        // 像素图只放大，不做平滑；采样格边框按实际源像素位置计算，靠近桌面边缘时也不偏移。
+        var imageState = graphics.Save();
+        graphics.SetClip(preview, System.Drawing.Drawing2D.CombineMode.Intersect);
+        graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
+        graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
+        graphics.DrawImage(_frozen, preview, source, GraphicsUnit.Pixel);
+        using var focus = new Pen(SoftClayDrawing.Color("accent"), 1.25f * scale);
+        var cellWidth = preview.Width / (float)source.Width; var cellHeight = preview.Height / (float)source.Height;
+        graphics.DrawRectangle(focus, preview.X + (px - source.X) * cellWidth, preview.Y + (py - source.Y) * cellHeight, cellWidth, cellHeight);
+        graphics.Restore(imageState);
+        // 坐标独占次要信息行；色值、实色样本和快捷键分组排列，不再拼成宽度失控的长胶囊。
+        var family = SoftClayTheme.Font.Source.Split(',')[0].Trim();
+        using var font = new Font(family, 12 * scale, FontStyle.Regular, GraphicsUnit.Pixel);
+        using var captionFont = new Font(family, 11 * scale, FontStyle.Regular, GraphicsUnit.Pixel);
+        using var ink = new SolidBrush(SoftClayDrawing.Color("ink")); using var muted = new SolidBrush(SoftClayDrawing.Color("muted"));
+        using var sample = new SolidBrush(color); using var keyFill = new SolidBrush(SoftClayDrawing.Color("wellActive"));
+        using var textFormat = new StringFormat(StringFormat.GenericTypographic) { FormatFlags = StringFormatFlags.NoWrap };
+        using var keyFormat = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+        graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+        var left = card.Left + 10 * scale; var right = card.Right - 10 * scale;
+        var footerTop = preview.Bottom;
+        graphics.DrawString($"X {px + _desktop.X}    Y {py + _desktop.Y}", captionFont, muted, new RectangleF(left, footerTop + 7 * scale, right - left, 16 * scale), textFormat);
+        using var swatch = SoftClayDrawing.Rounded(new RectangleF(left, footerTop + 30 * scale, 10 * scale, 10 * scale), 3 * scale);
+        graphics.FillPath(sample, swatch); graphics.DrawPath(border, swatch);
+        graphics.DrawString($"#{color.R:X2}{color.G:X2}{color.B:X2}", font, ink, left + 16 * scale, footerTop + 27 * scale, textFormat);
+        var key = new RectangleF(right - 44 * scale, footerTop + 27 * scale, 17 * scale, 17 * scale);
+        using var keyOutline = SoftClayDrawing.Rounded(key, 4 * scale);
+        graphics.FillPath(keyFill, keyOutline); graphics.DrawPath(border, keyOutline);
+        graphics.DrawString("M", captionFont, ink, key, keyFormat);
+        graphics.DrawString("隐藏", captionFont, muted, key.Right + 5 * scale, footerTop + 29 * scale, textFormat);
+        graphics.Restore(state);
+        graphics.DrawPath(border, outline);
     }
-    // 尺寸和指针读数使用同一凸面胶囊；文字随窗口 DPI 缩放，截图像素保持原样。
+    // 尺寸与操作提示使用轻量凸面胶囊；放大镜读数由独立卡片排版，截图像素保持原样。
     private Rectangle DrawHint(Graphics graphics,string text,int x,int y,bool animated=false)
     {
         // WPF/CSS 字号以 DIP 记录，GDI 的点数换算后继续随窗口 DPI 缩放。

@@ -235,7 +235,9 @@
     <Setter Property="MaxDropDownHeight" Value="280"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBox">
       <Grid>
-        <ToggleButton x:Name="Toggle" Focusable="False" IsChecked="{Binding IsDropDownOpen,Mode=TwoWay,RelativeSource={RelativeSource TemplatedParent}}">
+        <!-- 内部按钮显式沿用下拉框字体与前景色，避免系统 ToggleButton 样式将选中文字改回黑色。 -->
+        <ToggleButton x:Name="Toggle" Focusable="False" Foreground="{TemplateBinding Foreground}" FontFamily="{TemplateBinding FontFamily}" FontSize="{TemplateBinding FontSize}"
+                      IsChecked="{Binding IsDropDownOpen,Mode=TwoWay,RelativeSource={RelativeSource TemplatedParent}}">
           <ToggleButton.Template><ControlTemplate TargetType="ToggleButton">
             <!-- 固定输入槽位；底板承接形变，文字与箭头共享不缩放的图文层。 -->
             <Grid Background="Transparent">
@@ -243,7 +245,7 @@
                 <Border x:Name="Focus" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayFocusFill}" Visibility="Collapsed"/>
               </local:SoftClaySurface>
               <Grid x:Name="Glyph" IsHitTestVisible="False">
-                <ContentPresenter Margin="12,9,36,9" VerticalAlignment="Center"
+                <ContentPresenter Margin="12,9,36,9" VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}"
                                   Content="{Binding SelectionBoxItem,RelativeSource={RelativeSource AncestorType={x:Type ComboBox}}}"
                                   ContentTemplate="{Binding SelectionBoxItemTemplate,RelativeSource={RelativeSource AncestorType={x:Type ComboBox}}}"
                                   ContentTemplateSelector="{Binding ItemTemplateSelector,RelativeSource={RelativeSource AncestorType={x:Type ComboBox}}}"
