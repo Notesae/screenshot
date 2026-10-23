@@ -30,7 +30,7 @@ export function TranslationTools(props: Props) {
       const state = motion.current, pose = state.pose;
       path.setAttribute('d', splitOutline(pose, radius));
       node.dataset.splitActive = String(state.moving);
-      node.style.setProperty('--split-source-shift', `${-1.5 * pose.strain}px`);
+      node.style.setProperty('--split-source-shift', `${3.4 * pose.strain}px`);
       node.style.setProperty('--split-offset', `${pose.distance - splitGeometry.distance}px`);
       node.style.setProperty('--split-alpha', String(pose.glyph));
       if (slot.current) slot.current.style.width = `${pose.layout}px`;
@@ -49,7 +49,7 @@ export function TranslationTools(props: Props) {
   }, [desired, shown]);
   useLayoutEffect(() => () => { presentationMotion()?.clock.cancel(key); }, []);
   return <span ref={root} className="clay-translation-tools">
-    <svg className="clay-translation-material" viewBox="-14 -10 124 56" aria-hidden="true">
+    <svg className="clay-translation-material" viewBox="-14 -12 140 60" aria-hidden="true">
       <defs><linearGradient id={id} x1="0" y1="0" x2="0" y2="36" gradientUnits="userSpaceOnUse">
         <stop stopColor="var(--clay-raisedTop)"/><stop offset=".5" stopColor="var(--clay-raisedMid)"/><stop offset="1" stopColor="var(--clay-raisedBottom)"/>
       </linearGradient></defs><path ref={outline} fill={`url(#${id})`}/>

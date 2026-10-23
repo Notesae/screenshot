@@ -1,47 +1,68 @@
 import { clamp } from './motion';
 
-/** 38×36 的图片工具共用 6px 间距；布局与材质分开，回弹不会挤动整条导轨。 */
+/** 38×36 的图片工具共用 6px 间距；拉开时临时让位，布局不跟随余振反复伸缩。 */
 export const splitGeometry = { width: 38, height: 36, gap: 6, distance: 44 };
-type Pose = { distance: number; layout: number; strain: number; size: number; glyph: number; joined: boolean; neck: number };
-const closed = (): Pose => ({ distance: 0, layout: 0, strain: 0, size: .08, glyph: 0, joined: true, neck: 10 });
-const opened = (): Pose => ({ distance: 44, layout: 44, strain: 0, size: 1, glyph: 1, joined: false, neck: 0 });
-const pulled = (): Pose => ({ distance: 62, layout: 44, strain: 1, size: 1, glyph: 1, joined: true, neck: .45 });
+type Pose = { distance: number; layout: number; strain: number; childStrain: number; mass: number; size: number; glyph: number; joined: boolean; neck: number };
+type Phase = 'closed' | 'pull' | 'recoil' | 'open' | 'return' | 'absorb' | 'settle';
+const closed = (): Pose => ({ distance: 0, layout: 0, strain: 0, childStrain: 0, mass: 0, size: 0, glyph: 0, joined: true, neck: 10 });
+const opened = (): Pose => ({ ...closed(), distance: 44, layout: 44, size: 1, glyph: 1, joined: false, neck: 0 });
+const pulled = (): Pose => ({ ...opened(), distance: 74, layout: 62, strain: 1, childStrain: 1, joined: true, neck: .3 });
 const smooth = (value: number) => { const t = clamp(value); return t * t * (3 - 2 * t); };
+// 阻尼振子的初速度为零；末尾再收敛到精确静止，避免切回控件皮肤时抖一下。
+const wave = (time: number, damping: number, frequency: number) => Math.exp(-damping * time) * (Math.cos(frequency * time) + damping / frequency * Math.sin(frequency * time));
 
 /** 鼓出、拉细、断开、余振独立成段；反向收回从当前姿态续接，不跳回起点。 */
 export class SlimeSplit {
   pose = closed();
   private from = closed();
-  private phase: 'closed' | 'pull' | 'recoil' | 'open' | 'merge' = 'closed';
+  private phase: Phase = 'closed';
   private elapsed = 0;
-  get moving() { return this.phase === 'pull' || this.phase === 'recoil' || this.phase === 'merge'; }
+  get moving() { return this.phase !== 'closed' && this.phase !== 'open'; }
   aim(open: boolean) {
-    if ((open && this.phase !== 'merge' && this.phase !== 'closed') || (!open && (this.phase === 'closed' || this.phase === 'merge'))) return;
-    this.from = { ...this.pose }; this.elapsed = 0; this.phase = open ? 'pull' : 'merge';
+    const closing = this.phase === 'return' || this.phase === 'absorb' || this.phase === 'settle';
+    if ((open && !closing && this.phase !== 'closed') || (!open && (closing || this.phase === 'closed'))) return;
+    this.begin(open ? 'pull' : 'return');
   }
+  private begin(phase: Phase) { this.from = { ...this.pose }; this.elapsed = 0; this.phase = phase; }
   finish(open: boolean) { this.pose = open ? opened() : closed(); this.phase = open ? 'open' : 'closed'; this.elapsed = 0; }
   step(dt: number) {
     if (!this.moving) return;
-    this.elapsed += clamp(dt, 0, .04);
+    this.elapsed += clamp(dt, 0, .064);
     if (this.phase === 'recoil') {
-      // 约三次逐渐减弱的余振；断点初速度为零，与拉扯末帧连续。
-      const t = this.elapsed, wave = Math.exp(-5.8 * t) * (Math.cos(30 * t) + 5.8 / 30 * Math.sin(30 * t));
-      // 向内回摆的行程更短，断开的两团保持空隙，不在第一次回弹时重新粘合。
-      this.pose = { ...opened(), distance: 44 + 12 * wave + 6 * wave * wave, strain: wave };
-      if (t >= .78) this.finish(true);
+      // 两侧分别保留弹性形变，右团向内的行程较短，防止断开后重新碰粘。
+      const t = this.elapsed, tail = 1 - smooth((t - .72) / .18);
+      const source = wave(t, 4.8, 27) * tail, child = wave(t, 5.4, 27) * tail;
+      this.pose = { ...opened(), distance: 44 + 14 * child + 16 * child * child, layout: 44 + 18 * (1 - smooth(t / .32)), strain: source, childStrain: child };
+      if (t >= .9) this.finish(true);
       return;
     }
-    const opening = this.phase === 'pull', duration = opening ? .38 : .22;
-    const t = clamp(this.elapsed / duration), blend = smooth(t), target = opening ? pulled() : closed();
+    if (this.phase === 'settle') {
+      // 吸收完毕后只有母体轻颤；子按钮已缩入，不能在收尾时闪回一块独立皮肤。
+      const t = this.elapsed, recoil = wave(t, 8, 34) * (1 - smooth((t - .22) / .14));
+      this.pose = { ...closed(), strain: this.from.strain * recoil, mass: this.from.mass * recoil };
+      if (t >= .36) this.finish(false);
+      return;
+    }
+    const opening = this.phase === 'pull', returning = this.phase === 'return';
+    const duration = opening ? .56 : returning ? .18 : .2;
+    const t = clamp(this.elapsed / duration), blend = smooth(t);
+    // 回收先牵出连接，再缩小吸入；尚未分出的按钮不会被反向拉到更远处。
+    const strength = clamp(this.from.layout / 44);
+    const target: Pose = opening ? pulled() : returning
+      ? { ...this.from, distance: Math.min(30, this.from.distance), strain: .45 * strength, childStrain: .65 * strength, size: Math.min(.82, this.from.size), neck: 7, glyph: this.from.glyph * .8, joined: true }
+      : { ...closed(), strain: -.28 * strength, mass: .1 * strength };
     const mix = (key: Exclude<keyof Pose, 'joined'>) => this.from[key] + (target[key] - this.from[key]) * blend;
+    const distance = mix('distance'), stretch = clamp((distance - 34) / 40);
     this.pose = {
-      distance: mix('distance'), layout: mix('layout'), strain: mix('strain'), size: mix('size'),
+      distance, layout: mix('layout'), strain: mix('strain'), childStrain: mix('childStrain'), mass: mix('mass'), size: mix('size'),
       glyph: opening ? this.from.glyph + (1 - this.from.glyph) * smooth((t - .18) / .55) : mix('glyph'),
-      joined: opening || mix('distance') < 56, neck: mix('neck')
+      joined: opening || this.from.joined || t > .05,
+      // 距离越大，细颈越薄；最后保留亚像素细丝再断开，不用透明度代替拉扯。
+      neck: opening ? this.from.neck + (.3 + 8 * Math.pow(1 - stretch, 1.8) - this.from.neck) * smooth(t / .2) : mix('neck')
     };
     if (t === 1) {
-      if (opening) { this.pose = { ...pulled(), joined: false }; this.phase = 'recoil'; this.elapsed = 0; }
-      else this.finish(false);
+      if (opening) { this.pose = { ...pulled(), joined: false }; this.begin('recoil'); }
+      else this.begin(returning ? 'absorb' : 'settle');
     }
   }
 }
@@ -63,11 +84,11 @@ function lobe(cx: number, cy: number, rx: number, ry: number, radius: number, le
 
 /** 两个软团和细颈用同一条非零填充路径绘制，重叠处不叠阴影、不出现接缝。 */
 export function splitOutline(pose: Pose, radius: number) {
-  const { strain: s, size } = pose, ax = 19 - 3 * s, bx = 19 + pose.distance;
-  const aw = 19 * (1 + .07 * s), ah = 18 / (1 + .1 * s);
-  const bw = 19 * size * (1 + .12 * s), bh = 18 * size / (1 + .2 * s);
-  let path = lobe(ax, 18, aw, ah, radius + Math.max(0, s) * 3, 0, 6 * s)
-    + lobe(bx, 18, bw, bh, (radius + Math.max(0, s) * 3) * size, 5 * s * size, 0);
+  const { strain: s, childStrain: c, size, mass } = pose, ax = 19 + 3.4 * s, bx = 19 + pose.distance;
+  const aw = 19 * (1 + .18 * s) * (1 + mass), ah = 18 * (1 + mass) / (1 + .2 * s);
+  const bw = 19 * size * (1 + .22 * c), bh = 18 * size / (1 + .28 * c);
+  let path = lobe(ax, 18, aw, ah, radius + Math.max(0, s) * 3, 0, 7 * s);
+  if (size > .001) path += lobe(bx, 18, bw, bh, (radius + Math.max(0, c) * 3) * size, 6 * c * size, 0);
   // 接点埋入两侧外壳，中央收成细丝；断开后仅保留两侧带惯性的牵引尖端。
   const x1 = ax + aw - 7, x2 = bx - bw + 7, middle = (x1 + x2) / 2;
   if (pose.joined && x2 > x1 && pose.distance > 12) {

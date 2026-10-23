@@ -26,7 +26,7 @@
 .clay-translation-split-slot .liquid-glyph > svg { opacity: var(--split-alpha); }
 .clay-translation-source-glyph { display: inline-flex; transform: translateX(var(--split-source-shift)); }
 .clay-editor .clay-translation-source-glyph > svg { width: 21px; height: 21px; }
-.clay-editor svg.clay-translation-material { position: absolute; left: -14px; top: -10px; width: 124px; height: 56px; overflow: visible; opacity: 0; pointer-events: none; filter: drop-shadow(0 5px 5px #0005); }
+.clay-editor svg.clay-translation-material { position: absolute; left: -14px; top: -12px; width: 140px; height: 60px; overflow: visible; opacity: 0; pointer-events: none; filter: drop-shadow(0 5px 5px #0005); }
 .clay-translation-tools[data-split-active=true] .clay-translation-material { opacity: 1; }
 .clay-translation-tools[data-split-active=true] .liquid-skin { visibility: hidden; }
 [data-motion-action=done] > .liquid-skin { background: var(--clay-primary); box-shadow: var(--clay-primary-shadow); }
