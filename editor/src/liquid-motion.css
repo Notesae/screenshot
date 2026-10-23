@@ -96,16 +96,17 @@
 .clay-editor button[data-control-button] { position:relative; isolation:isolate; --control-face:var(--clay-raised); --control-shadow:var(--clay-button); background:transparent !important; box-shadow:none !important; transform:none !important; filter:none !important; transition:none !important; }
 .control-skin { position:absolute; inset:0; z-index:-1; border-radius:inherit; background:var(--control-face); box-shadow:var(--control-shadow); pointer-events:none; }
 .control-content { display:inline-flex; align-items:center; justify-content:inherit; gap:inherit; min-width:0; width:100%; pointer-events:none; }
-.clay-editor [data-control-button]:hover:enabled > .control-skin { filter:brightness(1.04); }
-.clay-editor [data-control-button]:focus-visible:enabled > .control-skin { filter:brightness(1.14); }
-.clay-editor [data-control-button]:active:enabled > .control-skin { box-shadow:var(--clay-press); }
-.clay-editor button[data-control-button]:is(.clay-primary,[aria-pressed=true]) { --control-face:var(--clay-primary); --control-shadow:var(--clay-primary-shadow); }
+.control-soft-body { position:absolute; inset:0; display:flex; align-items:center; justify-content:inherit; gap:inherit; padding:inherit; border-radius:inherit; isolation:isolate; pointer-events:none; }
+.clay-editor [data-control-button]:hover:enabled .control-skin { filter:brightness(1.04); }
+.clay-editor [data-control-button]:focus-visible:enabled .control-skin { filter:brightness(1.14); }
+.clay-editor [data-control-button]:active:enabled .control-skin { box-shadow:var(--clay-press); }
+.clay-editor button[data-control-button]:is(.clay-primary,[aria-pressed=true]):not([data-soft-selection]) { --control-face:var(--clay-primary); --control-shadow:var(--clay-primary-shadow); }
 .clay-editor button[data-control-button].clay-danger:hover:enabled { --control-face:var(--clay-errorSurface); }
 .clay-editor button[data-control-button]:is(.clay-select-trigger,.clay-color-trigger) { --control-face:var(--clay-well); --control-shadow:var(--clay-inset); }
 .clay-editor button[data-control-button]:is(.clay-select-trigger,.clay-color-trigger):is(:hover,:focus-visible,[aria-expanded=true]) { --control-face:var(--clay-wellActive); }
 .clay-editor :is(.clay-card-heading,.clay-notice,.clay-reader-actions,.canvas-zoom) button[data-control-button], .clay-editor .clay-reader-mode button[data-control-button], .clay-editor .clay-select-menu button[data-control-button], .clay-editor .clay-color-options button[data-control-button] { --control-face:transparent; --control-shadow:none; }
 .clay-editor .clay-reader-mode button[data-control-button][aria-pressed=true] { --control-face:var(--clay-raised); --control-shadow:var(--clay-button); }
-.clay-editor .clay-select-menu button[data-control-button]:is(.is-active,[aria-selected=true]), .clay-editor .clay-color-options button[data-control-button][aria-pressed=true] { --control-face:var(--clay-selected); }
+.clay-editor .clay-select-menu button[data-control-button]:is(.is-active,[aria-selected=true]), .clay-editor .clay-color-options button[data-control-button][aria-pressed=true]:not([data-soft-selection]) { --control-face:var(--clay-selected); }
 .clay-select-trigger > .control-content > span, .clay-select-menu .control-content > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .clay-select-trigger .control-content > svg { transition:transform 170ms ease; }
 .clay-select-trigger[aria-expanded=true] .control-content > svg { transform:rotate(180deg); }
@@ -113,9 +114,9 @@
 .clay-editor input[type=range]::-moz-range-thumb { transform:scale(var(--range-scale-x,1),var(--range-scale-y,1)); background:linear-gradient(var(--clay-ink),var(--clay-muted)); box-shadow:var(--clay-button); }
 /* 可见滑块与真实 range 分层；值即时提交，材质沿同一速度拉长、反向和回弹。 */
 .clay-slider { position: relative; display: block; width: 100%; height: 28px; flex: none; }
-.clay-slider-track { position: absolute; left: 9px; right: 9px; top: 11px; height: 6px; border-radius: 99px; background: var(--clay-well); box-shadow: var(--clay-inset); pointer-events: none; }
-.clay-slider-fill { position: absolute; inset: 0; border-radius: inherit; background: var(--clay-primary); transform-origin: left; pointer-events: none; }
-.clay-slider-thumb { position: absolute; left: 0; top: 5px; width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(var(--clay-focus),var(--clay-accentTop)); box-shadow: var(--clay-button); pointer-events: none; }
+.clay-slider-track { position: absolute; left: 9px; right: 9px; top: 12px; height: 4px; border-radius: 99px; background: var(--clay-well); box-shadow: var(--clay-inset); pointer-events: none; }
+.clay-slider-fill { position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(90deg,color-mix(in srgb,var(--clay-focus) 40%,#777570),color-mix(in srgb,var(--clay-focus) 55%,#b4b0a9)); transform-origin: left; pointer-events: none; }
+.clay-slider-thumb { position: absolute; left: 0; top: 5px; width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(155deg,#f0ede8,#bcb8b1); box-shadow: inset 0 1px 1px #fff8,0 2px 4px #0006,0 0 1px #0005; pointer-events: none; }
 .clay-editor .clay-slider > input[type=range] { position: absolute; inset: 0; margin: 0; width: 100%; height: 28px; opacity: 0; }
 .clay-slider:has(input:focus-visible) .clay-slider-thumb { filter: brightness(1.2); box-shadow: var(--clay-button),0 0 10px color-mix(in srgb,var(--clay-focus) 45%,transparent); }
 .clay-slider[data-disabled=true] { opacity: .45; }

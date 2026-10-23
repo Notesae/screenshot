@@ -41,8 +41,8 @@
 .annotation-swatches { display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 8px; }
 .clay-editor button.annotation-swatch { height: 34px; min-height: 34px; min-width: 0; padding: 5px; --control-face: transparent; --control-shadow: none; }
 .annotation-swatch-face { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: var(--swatch); box-shadow: inset 0 1px 2px #ffffff4d, 0 2px 4px #0004; }
-.annotation-swatch-face > svg { width: 15px; height: 15px; stroke: #181719; stroke-width: 2.5; }
-.clay-editor .annotation-swatch[aria-pressed=true], .clay-editor .annotation-swatch:focus-visible { --control-face: var(--clay-raised); --control-shadow: var(--clay-button); }
+.annotation-swatch-face > svg { width: 15px; height: 15px; stroke: #181719; stroke-width: 2.5; opacity:var(--control-selected,0); }
+.clay-editor button.annotation-swatch[data-soft-selection] { --control-face: transparent; --control-shadow: none; }
 .clay-editor .annotation-setting .clay-color-trigger { min-height: 34px; padding-block: 6px; }
 .annotation-amount { display: grid; gap: 6px; }
 .annotation-number { display: flex; align-items: center; gap: 6px; color: var(--clay-muted); }
@@ -51,10 +51,9 @@
 .clay-editor .annotation-sizes button { min-height: 34px; min-width: 0; padding: 5px 8px; --control-face: var(--clay-well); --control-shadow: none; color: var(--clay-muted); }
 .annotation-sizes .control-content { gap: 8px; justify-content: center; }
 .annotation-size-line { display: block; width: 16px; border-radius: 4px; background: currentColor; }
-.clay-editor .annotation-sizes button[data-soft-selection] { --control-face: var(--clay-well); --control-shadow: none; color: color-mix(in srgb,var(--clay-focus) calc(var(--control-selected,0) * 100%),var(--clay-muted)); }
+.clay-editor .annotation-sizes button[data-soft-selection] { --control-face: var(--clay-well); --control-shadow: none; color: color-mix(in srgb,var(--clay-ink) calc(var(--control-selected,0) * 100%),var(--clay-muted)); }
 .control-selection { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; }
-[data-soft-selection] .control-selection { background: var(--clay-raised); box-shadow: var(--clay-button); opacity: var(--control-selected,0); transform: scale(calc(.82 + var(--control-selected,0) * .18 + var(--control-selection-pull,0)),calc(.85 + var(--control-selected,0) * .15 - var(--control-selection-pull,0))); }
-[data-soft-selection] .annotation-size-line { transform: scale(calc(1 + var(--control-selection-pull,0) * 1.6),calc(1 - var(--control-selection-pull,0))); }
+[data-soft-selection] .control-selection { background: var(--clay-raised); box-shadow: var(--clay-button); opacity: var(--control-selected,0); }
 .annotation-instruction { margin: 0; color: var(--clay-muted); font-size: 12px; line-height: 1.65; }
 .annotation-inspector-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 4px; }
 .annotation-inspector-footer > span { font-size: 11px; color: var(--clay-muted); }

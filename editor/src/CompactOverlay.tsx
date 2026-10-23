@@ -177,6 +177,7 @@ export function CompactOverlay(props:Props) {
   }
   function beginSelectionFollow(){
     if(!metadata||selectionTools.current)return;
+    presentationMotion(rootRef.current)?.rebaseRail();
     selectionTools.current={area:metadata.selection,next:metadata.selection,rail:{x:tools.rail.x,y:tools.rail.y},card:positions.card,above:tools.rail.y<(mapped?.frame.y??0)};
   }
   /** 相对手势起点平移轨道，避免自动避让在拖动途中上下换边；手动卡片保持相对偏移。 */
@@ -264,6 +265,7 @@ export function CompactOverlay(props:Props) {
     presentationMotion()?.placePanel();
     // 开始手动操作即固定两组当前位置，关闭自动避让；拖动允许跨屏和与其他面板重叠。
     if(rootRef.current)rootRef.current.dataset.motionDragging=kind;
+    if(kind==='rail')presentationMotion(rootRef.current)?.rebaseRail();
     setPositions(value=>({rail:{x:tools.rail.x,y:tools.rail.y},card:visiblePanel?{x:tools.card.x,y:tools.card.y}:value.card}));
     const origin=kind==='rail'?tools.rail:tools.card;drag.current={kind,pointer:event.pointerId,start:{x:event.clientX,y:event.clientY},origin};event.currentTarget.setPointerCapture(event.pointerId);event.preventDefault();
   }
@@ -271,7 +273,7 @@ export function CompactOverlay(props:Props) {
   function endDrag(){drag.current=null;if(rootRef.current)delete rootRef.current.dataset.motionDragging;}
   function moveByKey(kind:'rail'|'card',event:KeyboardEvent<HTMLElement>){
     const delta=event.shiftKey?24:8,directions:Record<string,Point>={ArrowLeft:{x:-delta,y:0},ArrowRight:{x:delta,y:0},ArrowUp:{x:0,y:-delta},ArrowDown:{x:0,y:delta}};
-    const direction=directions[event.key];if(!direction)return;event.preventDefault();presentationMotion()?.placePanel(kind==='card');const current=tools[kind];setPositions(value=>({...value,rail:value.rail??{x:tools.rail.x,y:tools.rail.y},card:value.card??(visiblePanel?{x:tools.card.x,y:tools.card.y}:undefined),[kind]:{x:current.x+direction.x,y:current.y+direction.y}}));
+    const direction=directions[event.key];if(!direction)return;event.preventDefault();presentationMotion()?.placePanel(kind==='card');if(kind==='rail')presentationMotion(rootRef.current)?.rebaseRail();const current=tools[kind];setPositions(value=>({...value,rail:value.rail??{x:tools.rail.x,y:tools.rail.y},card:value.card??(visiblePanel?{x:tools.card.x,y:tools.card.y}:undefined),[kind]:{x:current.x+direction.x,y:current.y+direction.y}}));
   }
   const propertyKind=propertySelection?.type??propertyTool;
   const title=visiblePanel==='beauty'?'美化截图':visiblePanel==='text'?'识别与校对':visiblePanel==='properties'?(propertyKind?annotationNames[propertyKind]:'标注工具'):visiblePanel==='recovery'?'历史记录':'更多操作';

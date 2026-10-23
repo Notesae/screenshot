@@ -40,7 +40,7 @@ export function AnnotationPalette({canvasRef,selection,tool,disabled=false,onErr
     <div ref={sample} className="annotation-sample"><AnnotationSample kind={kind} style={style}/><span>{selection?'当前标注':'下一次绘制'}{(text||mosaic||stroked)&&<output>{amount} px</output>}</span></div>
     {!mosaic&&<section className="annotation-setting" aria-label="颜色">
       <div className="annotation-setting-heading"><span>颜色</span><span className="annotation-color-code">{style.color.toUpperCase()}</span></div>
-      <div className="annotation-swatches" role="group" aria-label="快捷颜色">{colors.map(color=><ControlButton key={color.value} className="annotation-swatch" disabled={disabled} aria-label={color.name} aria-pressed={style.color.toLowerCase()===color.value} style={{'--swatch':color.value} as CSSProperties} onClick={()=>apply({color:color.value})}><span className="annotation-swatch-face">{style.color.toLowerCase()===color.value&&<Check aria-hidden="true"/>}</span></ControlButton>)}</div>
+      <div className="annotation-swatches" role="group" aria-label="快捷颜色">{colors.map(color=><ControlButton key={color.value} className="annotation-swatch" data-soft-selection="" disabled={disabled} aria-label={color.name} aria-pressed={style.color.toLowerCase()===color.value} style={{'--swatch':color.value} as CSSProperties} onClick={()=>apply({color:color.value})}><span className="annotation-swatch-face"><Check aria-hidden="true"/></span></ControlButton>)}</div>
       <ColorField label="自定义标注颜色" disabled={disabled} value={style.color} onChange={color=>apply({color})}/>
     </section>}
     {(text||mosaic||stroked)&&<section className="annotation-setting" aria-label={label}>

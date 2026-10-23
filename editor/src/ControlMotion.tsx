@@ -3,7 +3,9 @@ import { clamp, MotionClock, MotionSpring, motionTokens as T } from './motion';
 
 /** 普通控件与主轨一样保留固定槽位；材质形变，正文只平移。 */
 export function ControlButton({ children, ...props }: ComponentPropsWithRef<'button'>) {
-  return <button {...props} data-control-button=""><span className="control-skin" aria-hidden="true"><span className="control-selection"/></span><span className="control-content">{children}</span></button>;
+  const soft='data-soft-selection' in props;
+  const face=<><span className="control-skin" aria-hidden="true"><span className="control-selection"/></span><span className="control-content">{children}</span></>;
+  return <button {...props} data-control-button="">{soft?<span className="control-soft-body">{face}</span>:face}</button>;
 }
 
 type ControlState = { element: HTMLButtonElement | HTMLInputElement; x: MotionSpring; y: MotionSpring; press: MotionSpring; selected:MotionSpring; down: boolean };
@@ -92,7 +94,10 @@ export class ControlFeedback {
     const x = state.x.x, y = state.y.x, p = state.press.x;
     if(state.element.hasAttribute('data-soft-selection')){
       state.element.style.setProperty('--control-selected',String(clamp(state.selected.x)));
-      state.element.style.setProperty('--control-selection-pull',String(clamp(state.selected.v*.018,-.13,.13)));
+      // 皮肤、选中材质与标识同属一个软体，不能各自缩放成嵌套的两层按钮。
+      const body=state.element.querySelector<HTMLElement>('.control-soft-body'),pull=clamp(state.selected.v*.009,-.055,.055);
+      if(body)body.style.transform=`translate(${x}px,${y}px) scale(${1+(T.press.x-1)*p+pull},${1+(T.press.y-1)*p-pull})`;
+      return;
     }
     if (state.element.hasAttribute('data-selection-handle')) {
       state.element.style.setProperty('--handle-scale-x', String(1 + (T.press.x - 1) * p));

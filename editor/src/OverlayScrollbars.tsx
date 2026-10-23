@@ -191,7 +191,7 @@ export function OverlayScrollbars() {
         if(!target||target.closest('.annotation-feedback'))continue;
         if(record.type==='attributes'&&record.attributeName==='style'){
           // 动效每帧写材质/图标样式，不能据此遍历整棵 DOM 并强制读取布局。
-          if(target.matches('.liquid-skin,.liquid-glyph,.liquid-active,.liquid-rail-body,.liquid-sweep,.liquid-panel-skin,.liquid-surface-skin,.control-skin,.control-content,[data-motion-button],[data-control-button],[data-selection-handle],input[type=range],.clay-slider-fill,.clay-slider-thumb,.annotation-sample,.annotation-tool-glyph,.clay-selection-jelly,.clay-selection-size,.clay-translation-tools'))continue;
+          if(target.matches('.liquid-skin,.liquid-glyph,.liquid-active,.liquid-rail-body,.liquid-sweep,.liquid-panel-skin,.liquid-surface-skin,.control-skin,.control-content,.control-soft-body,[data-motion-button],[data-control-button],[data-selection-handle],input[type=range],.clay-slider-fill,.clay-slider-thumb,.annotation-sample,.annotation-tool-glyph,.clay-selection-jelly,.clay-selection-size,.clay-translation-tools'))continue;
           if(target.matches('.liquid-panel-body,.liquid-panel-page,.liquid-panel-content,.liquid-surface-content,.clay-card,.clay-rail')){positionOnly=true;continue;}
         }
         scan=true;

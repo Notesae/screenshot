@@ -35,7 +35,7 @@ export class LiquidMotion {
   // 整条轨道只保留一份抛出/回摆姿态，底座和全部控件共同跟随。
   private entrance = new RailToss();
   // 拖动柄只移动内部图标，语义命中槽位保持固定。
-  private grip: { icon: SVGElement; rect: MotionRect } | null = null;
+  private grip: { element:HTMLElement; icon: SVGElement; rect: MotionRect } | null = null;
   private bulge = new MotionSpring();
   // 底座沿注意力中心接收光与曲率，基础圆角仍由生产主题测量。
   private bodyLight = new MotionSpring();
@@ -60,6 +60,7 @@ export class LiquidMotion {
   private controls: ControlFeedback;
   // 尺寸读数即时变化，只有胶囊外壳保留 5/4px 以内的短惯性。
   private sizePosition: MotionRect | null = null;
+  private capturePosition: MotionRect | null = null;
   // 选区软边只消费真实显示矩形，与尺寸胶囊共用主时钟。
   private selectionJelly = new SelectionJelly();
   private sizeX = new MotionSpring();
@@ -115,7 +116,7 @@ export class LiquidMotion {
       const index = this.nodes.indexOf(node);
       for (const offset of [-1, 1]) {
         const neighbor = this.nodes[index + offset];
-        if (!this.clock.reduced && neighbor && node.group !== 'end' && neighbor.group === node.group && this.usable(neighbor)) neighbor.y.v += T.press.neighborImpulse;
+        if (!node.el.dataset.toolState && !this.clock.reduced && neighbor && node.group !== 'end' && neighbor.group === node.group && this.usable(neighbor)) neighbor.y.v += T.press.neighborImpulse;
       }
       this.wake();
     };
@@ -135,7 +136,7 @@ export class LiquidMotion {
     listen(window, 'keyup', ((event: KeyboardEvent) => { if (event.key === ' ' || event.key === 'Enter') release(); }) as EventListener);
     listen(window, 'pointerup', release); listen(window, 'pointercancel', release);
     listen(window, 'blur', () => { this.pointer.inside = false; release(); });
-    listen(window, 'resize', invalidate); listen(root, 'scroll', invalidate, true);
+    listen(window, 'resize', ()=>this.rebaseRail()); listen(root, 'scroll', invalidate, true);
     listen(document, 'visibilitychange', () => {
       root.dataset.motionHidden = String(document.hidden);
       if (document.hidden) {
@@ -156,6 +157,12 @@ export class LiquidMotion {
     updateReduced();
   }
   invalidate(){this.dirty=true;this.wake();}
+  /** 整体搬动后丢弃旧轨道的屏幕坐标与局部余振，下一帧直接测量新落点。 */
+  rebaseRail(){
+    this.toolModes.reset();this.pointer.inside=false;this.contact=null;this.nearest=null;
+    for(const node of this.nodes)for(const spring of [node.x,node.y,node.attention,node.contact])spring.snap(0);
+    this.invalidate();
+  }
   owns(node: Node) { return this.root.contains(node); }
   /** 只结束浮卡轨道；键盘的下一次位置提交需即时，拖动由手势作用域接管。 */
   placePanel(immediate = false) {
@@ -215,7 +222,7 @@ export class LiquidMotion {
     const grip = this.rail.querySelector<HTMLElement>('.clay-grip'), icon = grip?.querySelector<SVGElement>('svg');
     if (grip && icon) {
       const box = grip.getBoundingClientRect();
-      this.grip = { icon, rect: { x: box.x - this.rr.x, y: box.y - this.rr.y, width: box.width, height: box.height } };
+      this.grip = { element:grip, icon, rect: { x: box.x - this.rr.x, y: box.y - this.rr.y, width: box.width, height: box.height } };
     } else this.grip = null;
     const railStyle = getComputedStyle(this.rail);
     this.railRadius = parseFloat(railStyle.borderTopLeftRadius) || 0;
@@ -233,6 +240,7 @@ export class LiquidMotion {
       node.rect = { x: box.left - this.rr.x, y: box.top - this.rr.y, width: box.width, height: box.height };
       return node;
     });
+    this.toolModes.layout(this.rr,[...this.nodes.map(node=>({element:node.el as HTMLElement,box:node.rect})),...(this.grip?[{element:this.grip.element,box:this.grip.rect}]:[])]);
     if (this.panelElement?.isConnected) {
       this.panelLayout = { actual: rect(this.panelElement.getBoundingClientRect()), anchor: this.panelSource?.isConnected ? rect(this.panelSource.getBoundingClientRect()) : null };
     }
@@ -252,7 +260,11 @@ export class LiquidMotion {
     this.sizePosition = box; this.wake();
   }
   /** 输入为精确选区的 CSS 矩形；不读取变形后的边缘作为新目标。 */
-  selectionSkin(box: MotionRect | null) { this.selectionJelly.update(box, this.clock.reduced); this.paintSelection(); this.wake(); }
+  selectionSkin(box: MotionRect | null) {
+    const old=this.capturePosition;
+    if(box?.x!==old?.x||box?.y!==old?.y||box?.width!==old?.width||box?.height!==old?.height)this.rebaseRail();
+    this.capturePosition=box;this.selectionJelly.update(box, this.clock.reduced);this.paintSelection();this.wake();
+  }
   /** 抓点只驱动统一软体轮廓；松手不阻塞裁剪提交，取消和隐藏不生成释放冲量。 */
   selectionGesture(held: boolean, cancelled = false, grip?: SelectionGrip) {
     if (!this.active || document.hidden || this.root.dataset.motionExit || this.clock.reduced) return;
@@ -314,13 +326,17 @@ export class LiquidMotion {
   private paint(dt: number, time: number) {
     if (!this.active || this.root.dataset.motionExit) return false;
     if (this.dirty) this.measure();
+    const modeMoving=this.toolModes.moving;
+    this.toolModes.step(dt);
+    // 重排本身提供整组受力；静止鼠标不能因按钮从下方经过而逐个触发迎向/碰撞。
+    if(modeMoving){this.pointer.inside=false;this.nearest=null;this.contact=null;}
     if (this.pressed && !this.usable(this.pressed)) { this.pressed.press.snap(0); this.pressed = null; }
     this.root.dataset.motionFrames = String(this.clock.frames); this.root.dataset.motionState = 'awake';
     const reduced = this.clock.reduced, pointer = this.pointer;
     if (this.root.dataset.motionDragging) this.entrance.finish();
     this.entrance.step(dt, reduced);
     const toss = this.entrance.frame, shear = Math.tan(toss.shear * Math.PI / 180);
-    const reacting = !this.entrance.moving && !reduced && pointer.inside && !this.pressed && this.fine.matches && !this.root.inert && !this.root.dataset.motionDragging;
+    const reacting = !modeMoving && !this.entrance.moving && !reduced && pointer.inside && !this.pressed && this.fine.matches && !this.root.inert && !this.root.dataset.motionDragging;
     const radius = T.field.radius;
     const distance = (node: Surface) => Math.hypot(pointer.x - this.rr.x - node.rect.x - node.rect.width / 2, pointer.y - this.rr.y - node.rect.y - node.rect.height / 2);
     const near = reacting ? this.nodes.filter(node => this.usable(node) && distance(node) < radius).sort((a, b) => distance(a) - distance(b))[0] : undefined;
@@ -338,7 +354,7 @@ export class LiquidMotion {
     this.nearest = near ?? null;
     this.followContact(time, near);
     // 牵引目标仍随时间变化，整段接触结束前不能因某一帧恰好静止而提前休眠。
-    let moving = this.entrance.moving || Boolean(this.contact), sum = 0, center = 0;
+    let moving = this.toolModes.moving || this.entrance.moving || Boolean(this.contact), sum = 0, center = 0;
     for (const [index, node] of this.nodes.entries()) {
       let attention = 0, dx = 0, dy = 0;
       if (near && this.usable(node)) {
@@ -385,6 +401,8 @@ export class LiquidMotion {
     const body = this.rail.querySelector<HTMLElement>('.liquid-rail-body')!;
     body.style.transformOrigin = 'center'; body.style.opacity = '1';
     body.style.transform = 'translate(' + toss.x + 'px,' + toss.y + 'px) skewX(' + (toss.shear + this.bulge.x * .35) + 'deg) scale(' + toss.scaleX + ',' + toss.scaleY + ')';
+    const railPose=this.toolModes.body;
+    if(railPose)body.style.transform=`translate(${railPose.x+(railPose.width-this.rr.width)/2}px,${railPose.y+(railPose.height-this.rr.height)/2}px) `+body.style.transform+` scale(${railPose.width/Math.max(1,this.rr.width)},${railPose.height/Math.max(1,this.rr.height)})`;
     // 圆角抵消整体缩放，小团才是圆润软泥；前后端的曲率随错开的受力回摆。
     const radii = [this.railRadius+Math.max(0,-this.bulge.x),this.railRadius+Math.max(0,this.bulge.x),this.railRadius,this.railRadius].map((value, corner) => Math.max(4, value + (1 - toss.unfold) * 18 + (((corner === 0 || corner === 3 ? -1 : 1) === toss.direction) ? toss.lead : toss.tail) * 9));
     body.style.borderRadius = radii.map(value => value / toss.scaleX + 'px').join(' ') + ' / ' + radii.map(value => value / toss.scaleY + 'px').join(' ');
@@ -394,6 +412,8 @@ export class LiquidMotion {
       const localX = this.grip.rect.x + this.grip.rect.width / 2 - this.rr.width / 2, localY = this.grip.rect.y + this.grip.rect.height / 2 - this.rr.height / 2;
       const warpedY = railWarp(localX + this.rr.width / 2, localY + this.rr.height / 2, this.rr.width, this.rr.height, toss).y - this.rr.height / 2;
       this.grip.icon.style.transform = 'translate(' + (toss.x + localX * (toss.scaleX - 1) + shear * warpedY * toss.scaleY) + 'px,' + (toss.y + warpedY * toss.scaleY - localY) + 'px)';
+      const gripPose=this.toolModes.pose(this.grip.element);
+      if(gripPose)this.grip.icon.style.transform=`translate(${gripPose.x}px,${gripPose.y}px) `+this.grip.icon.style.transform;
       this.grip.icon.style.opacity = String(toss.content);
     }
     // 追光在同一 SVG 轮廓内移动，不再覆盖一张独立矩形背景。
@@ -413,7 +433,7 @@ export class LiquidMotion {
     if (source) {
       // 迁移只追固定槽位；取消选中仍沿用最后来源的完整按压、迎向与入场姿态。
       ind.x.to = source.rect.x; ind.y.to = source.rect.y; ind.width.to = source.rect.width;
-      if (!previousSource || reduced) { ind.x.snap(ind.x.to); ind.y.snap(ind.y.to); ind.width.snap(ind.width.to); }
+      if (!previousSource || reduced || modeMoving) { ind.x.snap(ind.x.to); ind.y.snap(ind.y.to); ind.width.snap(ind.width.to); }
     }
     for (const spring of Object.values(ind)) { if (reduced) spring.snap(spring.to); else spring.step(dt, 'indicator'); moving = spring.moving || moving; }
     // 颜色、迁移和按压都落定才交回普通皮肤，避免旧轮廓仍在退场就提前换面。
