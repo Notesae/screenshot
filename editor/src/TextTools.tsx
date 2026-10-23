@@ -35,7 +35,7 @@ export function TextTools(props: TextToolsProps) {
     <MotionDetails><summary>识别设置 · {props.ocrEngine === 'local' ? '本地离线' : '云端服务'}</summary>
     <label className="control-label">识别方式<Select aria-label="识别方式" value={props.ocrEngine} onChange={value=> props.setOcrEngine(value as 'local' | 'cloud')}><option value="local">本地 OCR · 离线</option><option value="cloud">云端 OCR · 所选服务</option></Select></label>
     {props.ocrEngine === 'local' && <p className="ai-note" role="status">{props.localStatus ? props.localStatus.available ? `本地模型已就绪 · ${props.localStatus.modelVersion}` : `本地识别不可用：${props.localStatus.message}${props.localStatus.missingFiles.length ? `（缺少 ${props.localStatus.missingFiles.join('、')}）` : ''}` : '正在查询本地模型状态；不会自动下载。'}</p>}
-    {props.ocrEngine === 'cloud' && <>{providerControls}<p className="ai-note">点击识别才发送当前裁剪图，并先应用实色遮盖（旋转时保守扩大）。已识别文字仍需检查，项目保留原图。</p></>}
+    {props.ocrEngine === 'cloud' && <>{providerControls}<p className="ai-note">点击识别才发送当前裁剪图，马赛克与旧遮盖区域会先实色封闭（旋转时保守扩大）。已识别文字仍需检查，项目保留原图。</p></>}
 
     </MotionDetails>
     <ControlButton className="wide-button" disabled={!!busy || !!aiBusy || !doc.image || (props.ocrEngine === 'local' && !props.localStatus?.available) || (props.ocrEngine === 'cloud' && !props.providerId)} onClick={() => props.onAi('ocr')}><ScanText/>{props.ocrEngine === 'local' ? '本地识别文字' : '云端识别文字'}</ControlButton>

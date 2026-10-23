@@ -1,5 +1,11 @@
 # Native bridge v1
 
+## 2026-10-23 新标注工具字段
+
+无新增宿主桥方法。项目 schemaVersion 保持 2，标注白名单增加 ellipse、brush、mosaic，旧 cover 仍可读取和编辑；矩形仅换图标。ellipse 复用 width/height 与变换字段；brush 的 points 为 2–1024 个局部 [x,y] 数值对，每轴必须在 0–16000，strokeWidth 为 1–48（默认 3）；mosaic 的 blockSize 为 6–64（默认 12）。只读取对应类型支持的字段，不恢复任意 SVG 路径、图片资源、滤镜或 Fabric JSON。
+
+马赛克仅在本地合成当前已绘制内容，临时采样板不进入项目或桥消息。图片导出、美化缩略图和原样对比使用同一绘制对象；imageForProcessing 将 mosaic 与旧 cover 一起映回裁剪原图，保守扩大范围、实色封闭后才缩放供 OCR/图片翻译使用。显式识别/翻译的权限和上传条件保持不变，不因新增工具发起服务请求。
+
 ## 2026-10-23 图片美化预览
 
 第一轮美化无新增桥方法或项目字段。预设、参数、恢复原样继续调用现有文档历史；美化预设只应用 mode/padding/radius/background/shadow/borderWidth/borderColor。旧文字样式仍可读取，编辑器不通过美化入口切换 reflow。缩略图和原样对比仅从当前本地文档合成，包含已提交标注、遮盖和译文，不捕获额外桌面、不写盘或发送服务请求。对比副本不成为 exportPng 的来源；完成仍从已提交文档生成 PNG，并遵守现有复制确认与收起时序。

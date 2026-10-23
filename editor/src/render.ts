@@ -94,7 +94,7 @@ export async function normalizeImage(value: LoadedImage): Promise<LoadedImage> {
   return parseImage({ ...image, dataUrl });
 }
 
-/** OCR 只用当前内容和实色隐私遮盖；装饰与其他标注不参与，原图仍供本地编辑。 */
+/** OCR 只用当前内容，马赛克与旧遮盖区域统一实色封闭；装饰与其他标注不参与，原图留在本地。 */
 export async function imageForProcessing(doc: ProjectDocument): Promise<LoadedImage> {
   if (!doc.image) throw new Error('请先载入图片。');
   const masks = processingMasks(doc);

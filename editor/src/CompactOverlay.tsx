@@ -10,7 +10,7 @@ import { OverlayScrollbars } from './OverlayScrollbars';
 import { flushSync } from 'react-dom';
 import { matchesPresentationViewport, readPresentationViewport } from './presentationViewport';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type PointerEvent, type KeyboardEvent } from 'react';
-import { ArrowUpRight, BookOpen, Check, Copy, FolderOpen, Frame, GripVertical, Highlighter, ImagePlus, Languages, MoreHorizontal, RotateCcw, ScanText, Settings2, Shield, Sparkles, Trash2, Type, X } from 'lucide-react';
+import { ArrowUpRight, BookOpen, Brush, Check, Circle, Copy, FolderOpen, Frame, GripVertical, Grid2X2, Highlighter, ImagePlus, Languages, MoreHorizontal, RotateCcw, ScanText, Settings2, Sparkles, Square, Trash2, Type, X } from 'lucide-react';
 import { StyleTools } from './StyleTools';
 import { TextTools, type TextToolsProps } from './TextTools';
 import { CaptureControls } from './CaptureControls';
@@ -179,7 +179,8 @@ export function CompactOverlay(props:Props) {
   }
   useEffect(()=>{if(props.requestedPanel){panelOrigin(railRef.current?.querySelector<HTMLButtonElement>('[data-panel-trigger="more"]')??null);setPanel(props.requestedPanel.kind);}},[props.requestedPanel]);
   useEffect(()=>{if(cardContent.current)cardContent.current.scrollTop=0;},[panel]);
-  useEffect(()=>{if(props.selection){panelOrigin(railRef.current?.querySelector<HTMLButtonElement>(`[data-annotation-kind="${props.selection.type}"]`)??null);setPanel('properties');}},[props.selection?.id]);
+  // 旧实色遮盖的属性卡仍从替换后的马赛克入口展开，沿用同一套浮卡动效。
+  useEffect(()=>{if(props.selection){const kind=props.selection.type==='cover'?'mosaic':props.selection.type;panelOrigin(railRef.current?.querySelector<HTMLButtonElement>(`[data-annotation-kind="${kind}"]`)??null);setPanel('properties');}},[props.selection?.id]);
   // resize 回调同步提交整组布局；选区、画布和工具不能各使用不同一帧的视口。
   useLayoutEffect(()=>{
     const resize=()=>flushSync(()=>setViewport(readPresentationViewport()));
@@ -275,7 +276,7 @@ export function CompactOverlay(props:Props) {
         </div>
         {editor.imageTranslation?.blocks.length&&editor.mode!=='reflow'?<MotionButton ref={readerTrigger} data-tooltip="放大阅读完整译文，不改变截图排版" aria-label="阅读完整译文" aria-expanded={reading} disabled={!!aiBusy||props.renderStatus!=='ready'} onClick={()=>{setPanel(null);canvasRef.current?.exitSelection();setReading(value=>!value);}}><BookOpen aria-hidden="true"/>阅读译文</MotionButton>:null}
         <HistoryButtons canUndo={props.canUndo} canRedo={props.canRedo} undo={props.undo} redo={props.redo}/>
-        {([{kind:'text',label:'文字标注',icon:Type},{kind:'rect',label:'矩形标注',icon:Frame},{kind:'arrow',label:'箭头标注',icon:ArrowUpRight},{kind:'highlight',label:'高亮标注',icon:Highlighter},{kind:'cover',label:'实色遮盖',icon:Shield}] as const).map(item=><MotionButton group="draw" key={item.kind} data-annotation-kind={item.kind} data-tooltip={item.label} aria-label={item.label} aria-pressed={drawingTool===item.kind} disabled={!hasContent||props.renderStatus!=='ready'} onClick={event=>{panelOrigin(event.currentTarget);setPanel(null);canvasRef.current?.add(item.kind);}}><item.icon aria-hidden="true"/></MotionButton>)}
+        {([{kind:'text',label:'文字标注',icon:Type},{kind:'rect',label:'矩形标注',icon:Square},{kind:'ellipse',label:'圆形标注',icon:Circle},{kind:'arrow',label:'箭头标注',icon:ArrowUpRight},{kind:'brush',label:'画笔',icon:Brush},{kind:'highlight',label:'高亮标注',icon:Highlighter},{kind:'mosaic',label:'马赛克',icon:Grid2X2}] as const).map(item=><MotionButton group="draw" key={item.kind} data-annotation-kind={item.kind} data-tooltip={item.label} aria-label={item.label} aria-pressed={drawingTool===item.kind} disabled={!hasContent||props.renderStatus!=='ready'} onClick={event=>{panelOrigin(event.currentTarget);setPanel(null);canvasRef.current?.add(item.kind);}}><item.icon aria-hidden="true"/></MotionButton>)}
         <MotionButton data-motion-action="done" className="clay-primary" aria-label="完成" data-tooltip="完成并复制到剪贴板" disabled={!hasContent||props.renderStatus!=='ready'} onClick={complete}><Check aria-hidden="true"/>完成</MotionButton>
         <MotionButton data-panel-trigger="more" aria-label="更多操作" aria-expanded={panel==='more'} onClick={event=>openPanel('more',event.currentTarget)}><MoreHorizontal aria-hidden="true"/></MotionButton><MotionButton aria-label="收起编辑，保留文档" data-tooltip="收起编辑" onClick={()=>props.onPresentation('hidden')}><X aria-hidden="true"/></MotionButton>
       </div>

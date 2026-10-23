@@ -1,17 +1,18 @@
 import { ControlButton } from './ControlMotion';
 import { Select } from './Select';
 import { useEffect, useLayoutEffect, useRef, useState, forwardRef, useImperativeHandle, type PointerEvent as ReactPointerEvent } from 'react';
-import { Canvas, StaticCanvas, FabricImage, FabricObject, Path, Point, Textbox } from 'fabric';
+import { Canvas, StaticCanvas, Ellipse, FabricImage, FabricObject, Path, Point, Textbox } from 'fabric';
 import { Minus, Plus } from 'lucide-react';
 import { renderBase } from './render';
 import { baseRenderKey } from './renderIdentity';
-import { contentGeometry, outputSize, type Annotation, type AnnotationKind, type ProjectDocument } from './document';
-import { annotationFromObject as serialize, annotationToObject as restore, patchAnnotationObject, positionArrow } from './annotations';
+import { contentGeometry, MAX_BRUSH_POINTS, outputSize, type Annotation, type AnnotationKind, type ProjectDocument } from './document';
+import { annotationFromObject as serialize, annotationToObject as restore, patchAnnotationObject, positionArrow, positionBrush, type AnnotationChange } from './annotations';
 import { renderBeautyContent } from './beautyPreview';
 
-export type CanvasSelection = Pick<Annotation, 'id' | 'type' | 'color' | 'fontSize'>;
+// 属性浮卡只接收可编辑的样式，不复制画笔轨迹或马赛克采样图。
+export type CanvasSelection = Pick<Annotation, 'id' | 'type' | 'color' | 'fontSize' | 'strokeWidth' | 'blockSize'>;
 export type CanvasRenderStatus = 'loading' | 'ready' | 'error';
-export type CanvasHandle = { exportPng: (scale: number) => Promise<string>; add: (type: AnnotationKind) => void; remove: () => void; patchSelection: (change: {color: string; fontSize: number}) => boolean; interactionState: () => { editing: boolean; selected: boolean }; exitSelection: () => void; hasAnnotationAt: (event:PointerEvent) => boolean; getDisplayScale?: () => number };
+export type CanvasHandle = { exportPng: (scale: number) => Promise<string>; add: (type: AnnotationKind) => void; remove: () => void; patchSelection: (change: AnnotationChange) => boolean; interactionState: () => { editing: boolean; selected: boolean }; exitSelection: () => void; hasAnnotationAt: (event:PointerEvent) => boolean; getDisplayScale?: () => number };
 // 设置与历史面板可隐藏视图工具，不卸载画布或影响文档。
 type Props = { compareRaw?:boolean;onCompareError?:(error:unknown)=>void; showViewControls?:boolean; document: ProjectDocument; onAnnotations: (objects: Annotation[], group?: string) => void; onError: (error: unknown) => void; fixedDisplayScale?: { x: number; y: number }; onReady?: () => void; onRenderStatus?: (status: CanvasRenderStatus) => void; onSelection?: (selection:CanvasSelection|null)=>void; onDrawingToolChange?: (tool:AnnotationKind|null)=>void };
 // 每个底图都是renderBase私有canvas；替换/卸载时归零背板，避免等待GC回收大图像素。
@@ -42,12 +43,12 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
   const [activeTool,setActiveTool]=useState<AnnotationKind|null>(null);
   const tool=useRef<AnnotationKind|null>(null);
   // 草稿只在当前画布预览，松手后整体入历史；取消不生成空对象或撤销记录。
-  const drawing=useRef<{type:AnnotationKind;start:Point;object:FabricObject|null;pointer:number;element:HTMLElement}|null>(null);
+  const drawing=useRef<{type:AnnotationKind;start:Point;object:FabricObject|null;points:Point[];pointer:number;element:HTMLElement}|null>(null);
   const selectedStyle = useRef<CanvasSelection|null>(null);
   function publishSelection() {
     if (updating.current) return;
     const object = fabric.current?.getActiveObject(), annotation = object ? serialize(object) : null;
-    const next = annotation ? { id:annotation.id,type:annotation.type,color:annotation.color,fontSize:annotation.fontSize } : null;
+    const next = annotation ? { id:annotation.id,type:annotation.type,color:annotation.color,fontSize:annotation.fontSize,strokeWidth:annotation.strokeWidth,blockSize:annotation.blockSize } : null;
     if (JSON.stringify(next) === JSON.stringify(selectedStyle.current)) return;
     selectedStyle.current = next; callbacks.current.onSelection?.(next);
   }
@@ -75,20 +76,39 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
     event.preventDefault();event.stopPropagation();
     const start=drawingPoint(event),object=type==='text'?null:restore({id:crypto.randomUUID(),type,left:start.x,top:start.y,width:1,height:1,scaleX:1,scaleY:1,angle:0,text:'',color:type==='cover'?'#30332e':type==='highlight'?'#ffe066':'#b4432c',fontSize:26});
     if(object){object.set({selectable:false,evented:false});canvas.add(object);}
-    drawing.current={type,start,object,pointer:event.pointerId,element:event.currentTarget};event.currentTarget.setPointerCapture(event.pointerId);
+    drawing.current={type,start,object,points:[start],pointer:event.pointerId,element:event.currentTarget};event.currentTarget.setPointerCapture(event.pointerId);
   }
+  // 笔迹按真实像素取样并限制点数；圆形按 Shift 约束为正圆，所有草稿仍只在松手时入历史。
   function moveDrawing(event:ReactPointerEvent<HTMLDivElement>){
     const draft=drawing.current;if(!draft||event.pointerId!==draft.pointer||!draft.object)return;
     event.preventDefault();event.stopPropagation();const next=drawingPoint(event);
     if(draft.type==='arrow')positionArrow(draft.object as Path,draft.start,next);
-    else{draft.object.set({left:Math.min(draft.start.x,next.x),top:Math.min(draft.start.y,next.y),width:Math.max(1,Math.abs(next.x-draft.start.x)),height:Math.max(1,Math.abs(next.y-draft.start.y))});draft.object.setCoords();}
+    else if(draft.type==='brush'){
+      const previous=draft.points[draft.points.length-1];
+      if(previous.distanceFrom(next)<.75&&event.type!=='pointerup')return;
+      if(previous.distanceFrom(next)>0){
+        // 长笔划逐步稀疏旧采样，首尾保留，避免到上限后尾部突然停止绘制。
+        if(draft.points.length>=MAX_BRUSH_POINTS)draft.points=draft.points.filter((_,index)=>index%2===0||index===draft.points.length-1);
+        draft.points.push(next);
+      }
+      positionBrush(draft.object as Path,draft.points);
+    }else{
+      if(draft.type==='ellipse'&&event.shiftKey){
+        const edge=Math.min(Math.abs(next.x-draft.start.x),Math.abs(next.y-draft.start.y));
+        next.setXY(draft.start.x+Math.sign(next.x-draft.start.x)*edge,draft.start.y+Math.sign(next.y-draft.start.y)*edge);
+      }
+      const width=Math.max(1,Math.abs(next.x-draft.start.x)),height=Math.max(1,Math.abs(next.y-draft.start.y));
+      draft.object.set({left:Math.min(draft.start.x,next.x),top:Math.min(draft.start.y,next.y),width,height});
+      if(draft.object instanceof Ellipse)draft.object.set({rx:width/2,ry:height/2});
+      draft.object.setCoords();
+    }
     fabric.current?.requestRenderAll();
   }
   // 有效手势只提交一次标注；文字点击定位后进入编辑，几何标注必须拖出范围。
   function endDrawing(event:ReactPointerEvent<HTMLDivElement>){
     const draft=drawing.current,canvas=fabric.current;if(!draft||!canvas||event.pointerId!==draft.pointer)return;
     event.preventDefault();event.stopPropagation();moveDrawing(event);const end=drawingPoint(event);
-    const valid=draft.type==='text'||(draft.type==='arrow'?draft.start.distanceFrom(end)>=2:Math.abs(end.x-draft.start.x)>=2&&Math.abs(end.y-draft.start.y)>=2);
+    const valid=draft.type==='text'||(draft.type==='brush'?draft.points.length>=2:draft.type==='arrow'?draft.start.distanceFrom(end)>=2:Math.abs(end.x-draft.start.x)>=2&&Math.abs(end.y-draft.start.y)>=2);
     if(!valid){if(draft.object)canvas.remove(draft.object);drawing.current=null;if(draft.element.hasPointerCapture(draft.pointer))draft.element.releasePointerCapture(draft.pointer);return;}
     const object=draft.object??restore({id:crypto.randomUUID(),type:'text',left:end.x,top:end.y,width:Math.max(30,Math.min(240,canvas.width-end.x)),height:40,scaleX:1,scaleY:1,angle:0,text:'文字',color:'#b4432c',fontSize:26});
     if(!draft.object)canvas.add(object);
@@ -211,6 +231,9 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
     patchSelection(change) {
       const canvas = fabric.current, object = canvas?.getActiveObject();
       if (!canvas || !loaded.current || !object || !/^#[0-9a-f]{6}$/i.test(change.color) || !Number.isFinite(change.fontSize) || change.fontSize < 8 || change.fontSize > 240) return false;
+      // 同时约束浮卡传入的线宽和块大小，项目读取与交互编辑使用一致范围。
+      if (change.strokeWidth !== undefined && (!Number.isFinite(change.strokeWidth) || change.strokeWidth < 1 || change.strokeWidth > 48)) return false;
+      if (change.blockSize !== undefined && (!Number.isFinite(change.blockSize) || change.blockSize < 6 || change.blockSize > 64)) return false;
       patchAnnotationObject(object, change); canvas.requestRenderAll();
       const objects = canvas.getObjects().filter(o => o.selectable).map(serialize);
       lastAnnotations.current = objects; callbacks.current.onAnnotations(objects);publishSelection(); return true;
