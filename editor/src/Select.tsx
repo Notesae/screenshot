@@ -15,11 +15,13 @@ export function Select(props:Props) {
   const options=Children.toArray(props.children).filter(isValidElement<Option>).map(child=>({value:String(child.props.value??Children.toArray(child.props.children).join('')),label:child.props.children,disabled:child.props.disabled}));
   const selected=options.findIndex(option=>option.value===String(props.value));
   const [open,setOpen]=useState(false),[active,setActive]=useState(0),[placement,setPlacement]=useState({left:0,top:0,width:0,height:240});
+  const anchor=useRef<DOMRect|null>(null);
   const mounted=useSurfaceMotion(open,menu,button.current,JSON.stringify(placement));
   const search=useRef({text:'',at:0});
   function reveal(index=selected) {
     if(!button.current||button.current.matches(':disabled'))return;
     const rect=button.current.getBoundingClientRect(),below=window.innerHeight-rect.bottom-12,above=rect.top-12;
+    anchor.current=rect;
     const height=Math.min(280,Math.max(48,Math.max(below,above))),down=below>=Math.min(280,options.length*40+12)||below>=above;
     const width=Math.min(Math.max(rect.width,180),window.innerWidth-16);
     setPlacement({left:Math.max(8,Math.min(rect.left,window.innerWidth-width-8)),top:down?rect.bottom+6:Math.max(8,rect.top-Math.min(height,options.length*40+12)-6),width,height:down?Math.min(height,below):Math.min(height,above)});
@@ -52,7 +54,13 @@ export function Select(props:Props) {
   useEffect(()=>{
     if(!open)return;
     const outside=(event:PointerEvent)=>{if(!button.current?.contains(event.target as Node)&&!containsScrollTarget(menu.current,event.target))setOpen(false);};
-    const moved=(event:Event)=>{if(!menu.current?.contains(event.target as Node))setOpen(false);};
+    const moved=(event:Event)=>{
+      if(event.target instanceof Node&&menu.current?.contains(event.target))return;
+      // 浮卡换页/滚动条测量也会派发滚动；触发器原位时不能把刚打开的菜单收掉。
+      const before=anchor.current,after=button.current?.getBoundingClientRect();
+      if(event.type==='scroll'&&before&&after&&Math.abs(before.left-after.left)<.5&&Math.abs(before.top-after.top)<.5&&Math.abs(before.width-after.width)<.5&&Math.abs(before.height-after.height)<.5)return;
+      setOpen(false);
+    };
     document.addEventListener('pointerdown',outside,true);window.addEventListener('resize',moved);window.addEventListener('scroll',moved,true);
     return()=>{document.removeEventListener('pointerdown',outside,true);window.removeEventListener('resize',moved);window.removeEventListener('scroll',moved,true);};
   },[open]);
