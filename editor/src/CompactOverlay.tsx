@@ -5,6 +5,8 @@ import { useBackdropMotion } from './BackdropMotion';
 import { MotionButton, presentationMotion, useLiquidMotion } from './LiquidMotion';
 import { TranslationTools } from './TranslationTools';
 import { ToolGlyph } from './ToolGlyph';
+import { AnnotationToolButton } from './AnnotationToolButton';
+import { PanelSkin } from './PanelSkin';
 import { annotationNames } from './annotationAppearance';
 import { usePanelPage } from './usePanelPage';
 import { useToolHoverPanel } from './useToolHoverPanel';
@@ -295,13 +297,13 @@ export function CompactOverlay(props:Props) {
             onRead={()=>{setPanel(null);canvasRef.current?.exitSelection();setReading(value=>!value);}}/>
         </div>
         <HistoryButtons canUndo={props.canUndo} canRedo={props.canRedo} undo={props.undo} redo={props.redo}/>
-        {(['text','rect','ellipse','arrow','brush','highlight','mosaic'] as const).map(kind=><MotionButton group="draw" key={kind} data-hover-panel="properties" data-annotation-kind={kind} aria-label={annotationNames[kind]+'：点击绘制，悬停设置'} aria-expanded={panel==='properties'&&inspectedTool===kind} aria-pressed={drawingTool===kind||!drawingTool&&props.selection?.type===kind} disabled={!hasContent||props.renderStatus!=='ready'} onClick={()=>{hover.dismiss();canvasRef.current?.add(kind);}}><ToolGlyph kind={kind} animated/></MotionButton>)}
+        {(['text','rect','ellipse','arrow','brush','highlight','mosaic'] as const).map(kind=><AnnotationToolButton key={kind} kind={kind} state={drawingTool===kind?'drawing':!drawingTool&&(props.selection?.type===kind||kind==='mosaic'&&props.selection?.type==='cover')?'editing':'idle'} expanded={panel==='properties'&&inspectedTool===kind} disabled={!hasContent||props.renderStatus!=='ready'} onClick={()=>{hover.dismiss();canvasRef.current?.add(kind);}}/>)}
         <MotionButton data-motion-action="done" className="clay-primary" aria-label="完成" data-tooltip="完成并复制到剪贴板" disabled={!hasContent||props.renderStatus!=='ready'} onClick={complete}><Check aria-hidden="true"/>完成</MotionButton>
         <MotionButton aria-label="钉到桌面" data-tooltip="钉到桌面，可拖动、缩放和切换置顶" disabled={!hasContent||props.renderStatus!=='ready'||!!aiBusy} onClick={()=>{setComparison(null);props.onPin();}}><Pin aria-hidden="true"/></MotionButton>
         <MotionButton data-panel-trigger="more" data-hover-panel="more" aria-label="更多操作：悬停展开" aria-expanded={panel==='more'} onClick={()=>hover.dismiss()}><MoreHorizontal aria-hidden="true"/></MotionButton><MotionButton aria-label="收起编辑，保留文档" data-tooltip="收起编辑" onClick={()=>props.onPresentation('hidden')}><X aria-hidden="true"/></MotionButton>
       </div>
       {visiblePanel&&<section id="clay-active-panel" data-panel={visiblePanel} aria-hidden={!panel} inert={!panel} className={'clay-card liquid-panel '+(visiblePanel==='more'?'clay-drawer ':'')+(!panel?'is-closing':'')} role="region" aria-label={title} style={{left:tools.card.x,top:tools.card.y,width:tools.card.width,maxHeight:tools.card.height}}>
-        <span className="liquid-panel-skin" aria-hidden="true"/><div className="liquid-panel-content"><div ref={page} className="liquid-panel-page" inert={switching}>
+        <PanelSkin/><div className="liquid-panel-content"><div ref={page} className="liquid-panel-page" inert={switching}>
         <header className="clay-card-heading" tabIndex={0} aria-label={'移动'+title+'，方向键微调'} onPointerDown={event=>beginDrag('card',event)} onPointerMove={moveDrag} onPointerUp={endDrag} onLostPointerCapture={endDrag} onKeyDown={event=>{if(event.target===event.currentTarget)moveByKey('card',event);}}><span className="clay-panel-mark" aria-hidden="true">{visiblePanel==='properties'&&propertyKind?<ToolGlyph kind={propertyKind}/>:visiblePanel==='beauty'?<Sparkles/>:visiblePanel==='text'?<ScanText/>:visiblePanel==='recovery'?<RotateCcw/>:<MoreHorizontal/>}</span><div className="clay-panel-heading-copy"><h2>{title}</h2><p>{panelCaption}</p></div><ControlButton aria-label="关闭浮卡" onClick={closePanel}><X aria-hidden="true"/></ControlButton></header>
         <div className="clay-card-content" ref={cardContent}>
           {visiblePanel==='beauty'&&doc.image&&editor.mode!=='reflow'&&<StyleTools document={doc} update={update} comparing={comparing} onCompare={()=>{canvasRef.current?.exitSelection();setComparison(comparing?null:doc);}} onGesture={beautyGesture} onError={props.onError}/>}

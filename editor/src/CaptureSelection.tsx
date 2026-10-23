@@ -12,7 +12,7 @@ export function CaptureSelection({ viewport, metadata, disabled, settled, onAdju
   const [preview, setPreview] = useState<PixelRect|null>(null), [pending,setPending]=useState(false);
   const frame=useRef<HTMLDivElement>(null),sequence=useRef(0);
   // 手势与异步提交分开：浏览器自动释放指针捕获不能清除正在等待绘制的落点。
-  const drag = useRef<{ id: number; x: number; y: number; handle: CaptureHandle; area: PixelRect; next: PixelRect; element: HTMLElement }|null>(null);
+  const drag = useRef<{ id: number; x: number; y: number; handle: CaptureHandle; area: PixelRect; next: PixelRect; element: HTMLElement; focus: HTMLElement | null; started: boolean }|null>(null);
   const active=Boolean(metadata?.captureId&&!metadata.contentScale);
   function reset(){setPreview(null);setPending(false);onPreview(null);}
   useEffect(()=>()=>{sequence.current++;},[]);
@@ -21,8 +21,8 @@ export function CaptureSelection({ viewport, metadata, disabled, settled, onAdju
   },[pending,settled,metadata?.selection,preview]);
   function cancel() {
     const current=drag.current;if(!current)return;
-    presentationMotion(current.element)?.selectionGesture(false, true);
-    drag.current=null;reset();onDragging(false);
+    if(current.started){presentationMotion(current.element)?.selectionGesture(false, true);reset();onDragging(false);}
+    drag.current=null;
     if(current.element.hasPointerCapture(current.id))current.element.releasePointerCapture(current.id);
   }
   // 捕获阶段区分手柄、背景与标注，只有前两者接管选区手势。
@@ -34,23 +34,30 @@ export function CaptureSelection({ viewport, metadata, disabled, settled, onAdju
       const r=frame.current?.getBoundingClientRect();
       if(!r||event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom||target.closest('button,input,textarea,select,[contenteditable="true"]')||hitAnnotation(event.nativeEvent))return;
     }
-    event.preventDefault();event.stopPropagation();onBegin();
-    (handleButton??frame.current)?.focus({preventScroll:true});event.currentTarget.setPointerCapture(event.pointerId);
-    drag.current={id:event.pointerId,x:event.clientX,y:event.clientY,handle,area:metadata.selection,next:metadata.selection,element:event.currentTarget};
-    onDragging(true);presentationMotion(event.currentTarget)?.selectionGesture(true, false, {handle,point:{x:event.clientX,y:event.clientY}});
+    event.preventDefault();event.stopPropagation();event.currentTarget.setPointerCapture(event.pointerId);
+    drag.current={id:event.pointerId,x:event.clientX,y:event.clientY,handle,area:metadata.selection,next:metadata.selection,element:event.currentTarget,focus:handleButton??frame.current,started:false};
   }
   function move(event: PointerEvent<HTMLDivElement>) {
     const current=drag.current;if(!current||!metadata||event.pointerId!==current.id)return;
-    current.next=adjustSelection(current.area,current.handle,(event.clientX-current.x)*metadata.desktopBounds.width/viewport.width,(event.clientY-current.y)*metadata.desktopBounds.height/viewport.height,metadata.desktopBounds);
+    const dx=event.clientX-current.x,dy=event.clientY-current.y;
+    const next=adjustSelection(current.area,current.handle,dx*metadata.desktopBounds.width/viewport.width,dy*metadata.desktopBounds.height/viewport.height,metadata.desktopBounds);
+    // 长按和手部微抖仍是点击；跨过 3px 且实际选区改变后才交接工具、焦点与预览。
+    if(!current.started){
+      if(Math.hypot(dx,dy)<3||sameArea(next,current.area))return;
+      current.started=true;onBegin();current.focus?.focus({preventScroll:true});onDragging(true);
+      presentationMotion(current.element)?.selectionGesture(true,false,{handle:current.handle,point:{x:current.x,y:current.y}});
+    }
+    if(sameArea(next,current.next))return;
+    current.next=next;
     setPreview(current.next);onPreview(current.next);
   }
   // 松手只结束指针手势；成功后由同一图片的绘制完成信号清除预览，失败才回滚。
   async function end(event: PointerEvent<HTMLDivElement>) {
     const current=drag.current;if(!current||!metadata||event.pointerId!==current.id)return;
-    move(event);drag.current=null;onDragging(false);
-    // 原位置点击不重复释放上一段拖动尚未消散的受力。
-    presentationMotion(current.element)?.selectionGesture(false, sameArea(current.next,current.area));
+    move(event);drag.current=null;
     if(current.element.hasPointerCapture(current.id))current.element.releasePointerCapture(current.id);
+    if(!current.started)return;
+    onDragging(false);presentationMotion(current.element)?.selectionGesture(false, sameArea(current.next,current.area));
     if(sameArea(current.next,metadata.selection)){reset();return;}
     setPending(true);const request=++sequence.current;
     try{if(!await onAdjust(current.next)&&request===sequence.current)reset();}catch{if(request===sequence.current)reset();}

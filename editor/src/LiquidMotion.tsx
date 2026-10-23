@@ -3,6 +3,7 @@ import { clamp, panelBridge, motionTokens as T, MotionClock, MotionSpring, type 
 import { ControlFeedback } from './ControlMotion';
 import { SurfaceTransition } from './surfaceTransition';
 import { paintSurface } from './surfacePaint';
+import { panelOutline } from './PanelSkin';
 import { SelectionJelly, type SelectionGrip } from './SelectionJelly';
 import { RailToss, railOutline, railWarp } from './RailToss';
 
@@ -444,7 +445,7 @@ export class LiquidMotion {
       if (this.panelElement) this.resize.unobserve(this.panelElement);
       this.panelElement = element; this.resize.observe(element);
     }
-    const version=++this.panelVersion,started=performance.now();
+    const version=++this.panelVersion;
     const link=this.root.querySelector<SVGPathElement>('.liquid-panel-bridge path');
     const sourceRect=source?rect(source.getBoundingClientRect()):null;
     const target = rect(element.getBoundingClientRect()), skin = element.querySelector<HTMLElement>('.liquid-panel-skin')!;
@@ -452,7 +453,8 @@ export class LiquidMotion {
     this.panelLayout = { actual: target, anchor: sourceRect };
     const origin = this.panelRect ?? sourceRect ?? target;
     // 主浮卡的正文更早融入外壳，材质也逐渐显现，避免先出现实心卡片再分段揭开内容。
-    const surface = this.panelTransition ??= new SurfaceTransition(origin, this.panelOpacity, this.panelMaterial, .08, 1.5);
+    const surface = this.panelTransition ??= new SurfaceTransition(origin, this.panelOpacity, this.panelMaterial, .08, 1.5, true);
+    const outline=skin.querySelector<SVGPathElement>('.liquid-panel-outline');
     if (open) surface.open(target, this.panelContent !== contentKey);
     else if(sourceRect)surface.closeTo(sourceRect);
     else surface.close();
@@ -466,11 +468,16 @@ export class LiquidMotion {
       // 材质和正文各自续接，提前关闭或切换不会跳亮或重新从透明开始。
       this.panelMaterial = surface.material;
       paintSurface(skin,content,box,actual,this.panelOpacity,this.panelMaterial);
+      // 外壳直接按当前像素重画，不能再缩放 SVG，否则边缘高光和回弹幅度也会被压扁。
+      skin.style.transform=`translate(${box.x-actual.x}px,${box.y-actual.y}px)`;
+      skin.style.width=`${Math.max(1,box.width)}px`;skin.style.height=`${Math.max(1,box.height)}px`;
+      outline?.setAttribute('d',panelOutline(box.width,box.height,surface.strain));
+      if(outline)skin.dataset.shaped='true';
       // 连接只短暂存在于按钮与浮卡的近邻间隙，不跨过正文或远距离拖动。
       if(link){
         let d='';
-        if(anchor&&!this.clock.reduced&&!this.economy&&!this.root.dataset.motionDragging&&performance.now()-started<T.duration.bridge){
-          d=panelBridge(anchor,box);
+        if(anchor&&!this.clock.reduced&&!this.economy&&!this.root.dataset.motionDragging&&surface.moving&&this.panelMaterial<.995){
+          d=panelBridge(anchor,box,1-this.panelMaterial);
         }
         link.setAttribute('d',d);
         link.style.opacity=String(this.panelMaterial);

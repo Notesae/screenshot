@@ -184,7 +184,7 @@ export function liquidBridge(a: MotionRect, b: MotionRect, neck = motionTokens.b
 }
 
 /** 主浮卡的近邻连接支持上下左右，只跨空隙，不穿过按钮或卡片正文。 */
-export function panelBridge(source:MotionRect,box:MotionRect){
+export function panelBridge(source:MotionRect,box:MotionRect,attachment=1){
   const candidates:{x1:number;y1:number;x2:number;y2:number}[]=[];
   const sx=source.x+source.width/2,sy=source.y+source.height/2;
   const bx=clamp(sx,box.x+Math.min(12,box.width/2),box.x+box.width-Math.min(12,box.width/2));
@@ -197,6 +197,11 @@ export function panelBridge(source:MotionRect,box:MotionRect){
   const p=candidates.sort((a,b)=>gap(a)-gap(b))[0];if(!p)return '';
   const length=gap(p);if(length<1||length>motionTokens.bridge.panelMaxGap)return '';
   const nx=-(p.y2-p.y1)/length,ny=(p.x2-p.x1)/length;
-  const r=Math.min(7,source.width/4,source.height/4,box.width/4,box.height/4),mx=(p.x1+p.x2)/2,my=(p.y1+p.y2)/2;
-  return `M${p.x1+nx*r} ${p.y1+ny*r}C${mx+nx*r*.4} ${my+ny*r*.4} ${mx+nx*r*.4} ${my+ny*r*.4} ${p.x2+nx*r} ${p.y2+ny*r}L${p.x2-nx*r} ${p.y2-ny*r}C${mx-nx*r*.4} ${my-ny*r*.4} ${mx-nx*r*.4} ${my-ny*r*.4} ${p.x1-nx*r} ${p.y1-ny*r}Z`;
+  // 距离和材质交接共同收细连接颈；收回时反向长回，不在固定毫秒数切掉液桥。
+  const r=Math.min(9,source.width/4,source.height/4,box.width/4,box.height/4)*Math.sqrt(clamp(attachment))*clamp((motionTokens.bridge.panelMaxGap-length)/12);
+  if(r<.15)return '';
+  const neck=Math.max(.05,r*.55*Math.pow(1-length/motionTokens.bridge.panelMaxGap,2)*attachment);
+  const at=(t:number,side:number)=>`${p.x1+(p.x2-p.x1)*t+nx*side} ${p.y1+(p.y2-p.y1)*t+ny*side}`;
+  return `M${at(0,r)}C${at(.14,r)} ${at(.32,neck)} ${at(.5,neck)}C${at(.68,neck)} ${at(.86,r)} ${at(1,r)}`
+    +`L${at(1,-r)}C${at(.86,-r)} ${at(.68,-neck)} ${at(.5,-neck)}C${at(.32,-neck)} ${at(.14,-r)} ${at(0,-r)}Z`;
 }

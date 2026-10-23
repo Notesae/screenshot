@@ -48,7 +48,11 @@
 .clay-editor .liquid-rail:has([data-motion-button][data-motion-material=true]:focus-visible) > .liquid-active { filter: brightness(1.2); }
 .liquid-sweep { position: absolute; inset: 0; z-index: 3; pointer-events: none; border-radius: inherit; opacity: 0; background: linear-gradient(115deg,transparent 38%,#ffffff40 50%,transparent 62%); }
 .clay-editor .liquid-panel { background: transparent; box-shadow: none; overflow: visible; animation: none !important; }
-.liquid-panel-skin { position: absolute; inset: 0; z-index: 0; border-radius: inherit; background: var(--clay-card-face); box-shadow: var(--clay-elevation); transform-origin: top left; pointer-events: none; }
+.liquid-panel-skin { position: absolute; inset: 0; z-index: 0; border-radius: inherit; transform-origin: top left; pointer-events: none; filter: drop-shadow(0 12px 18px #0006) drop-shadow(0 3px 5px #0004); }
+/* 宿主尚未揭示、主时钟未启动时仍提供完整静态材质，首帧不会只剩文字。 */
+.liquid-panel-skin:not([data-shaped=true]) { background: var(--clay-card-face); box-shadow: var(--clay-elevation); filter: none; }
+.clay-editor svg.liquid-panel-contour { display: block; width: 100%; height: 100%; overflow: visible; }
+.clay-editor[data-motion-economy=true] .liquid-panel-outline { filter: none; }
 .liquid-panel-content { position: relative; z-index: 1; display: flex; flex-direction: column; min-height: 0; border-radius: inherit; overflow: hidden; }
 .liquid-panel-page { display: flex; flex-direction: column; min-height: 0; border-radius: inherit; }
 .clay-editor .liquid-panel.is-closing { animation: none; }

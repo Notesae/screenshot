@@ -1,6 +1,13 @@
 /* 图标描画与真实标注反馈共用调度器；没有循环动画，也不改动内容的几何。 */
 .clay-editor svg.annotation-tool-glyph { width: 21px; height: 21px; overflow: visible; transform: translateY(var(--tool-nudge,0px)); }
 .annotation-tool-ink path { stroke-dasharray: 1; stroke-dashoffset: calc(1 - var(--tool-draw,1)); }
+/* 蓝色凸面表示下一笔，凹面控制点表示正在调整；状态文案不依赖颜色识别。 */
+.annotation-mode-icon { position: relative; display: inline-flex; }
+.clay-editor svg.annotation-mode-mark { position: absolute; right: -5px; bottom: -3px; width: 12px; height: 12px; padding: 1px; border-radius: 4px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; background: var(--clay-accent); }
+.annotation-mode-label { font-size: 11px; line-height: 1; }
+.clay-editor button[data-tool-state=editing] { color: var(--clay-ink); }
+.clay-editor [data-tool-state=editing] > .liquid-skin { background: var(--clay-well); box-shadow: var(--clay-inset); }
+.clay-editor [data-tool-state=editing] svg.annotation-mode-mark { background: var(--clay-well); }
 .clay-editor svg.annotation-feedback { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 3; }
 .annotation-feedback path { fill: none; stroke: var(--clay-focus); stroke-width: 1.5px; stroke-linecap: round; stroke-linejoin: round; }
 .canvas-sheet[data-beauty-comparing] > .annotation-feedback, .clay-editor:is(.is-awaiting,.is-suspended,[data-motion-reduced=true]) .annotation-feedback { visibility: hidden; }

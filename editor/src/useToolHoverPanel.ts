@@ -10,16 +10,21 @@ export function useToolHoverPanel(root: RefObject<HTMLElement | null>, options: 
   useEffect(() => {
     const node = root.current; if (!node) return;
     let opening: ReturnType<typeof setTimeout> | undefined, closing: ReturnType<typeof setTimeout> | undefined;
-    let candidate: HTMLButtonElement | null = null, pressed = false;
+    let candidate: HTMLButtonElement | null = null, pressed = false, keyboard = false;
     const trigger = (target: EventTarget | null) => target instanceof Element ? target.closest<HTMLButtonElement>('[data-hover-panel]') : null;
     const inCard = (target: EventTarget | null) => target instanceof Element && !!target.closest('.clay-card:not(.is-closing),.clay-color-popover:not([inert]),.clay-select-menu:not([inert]),.clay-scrollbar');
+    const editingField = () => {
+      const focused=document.activeElement;
+      // 鼠标调节滑杆留下的焦点不代表输入中；键盘操作的可见焦点仍保留参数入口。
+      return inCard(focused)&&(focused?.matches('textarea,[contenteditable=true],input:not([type=range]):not([type=checkbox]):not([type=radio]):not([type=button])')||keyboard&&focused?.matches(':focus-visible'));
+    };
     const clear = () => { clearTimeout(opening); clearTimeout(closing); candidate = null; };
     clearTimers.current = clear;
     const closeSoon = () => {
       clearTimeout(opening); candidate = null; clearTimeout(closing);
       closing = setTimeout(() => {
         // 按住滑杆或正在键盘输入时不自动收回；下一次在画布按下会主动关闭。
-        if (pressed || inCard(document.activeElement) && document.activeElement?.matches('input,textarea,[contenteditable=true]')) return;
+        if (pressed || editingField()) return;
         latest.current.close();
       }, 260);
     };
@@ -49,14 +54,22 @@ export function useToolHoverPanel(root: RefObject<HTMLElement | null>, options: 
     };
     const down = (event: Event) => {
       if (!(event.target instanceof Node) || !node.contains(event.target)) return;
-      pressed = true;
+      pressed = true;keyboard=false;
       if (inCard(event.target)) { clear(); return; }
       suppress.current = trigger(event.target); dismiss();
     };
-    const up = () => { pressed = false; };
+    const up = (event: PointerEvent) => {
+      if(!pressed)return;
+      pressed=false;
+      // 指针捕获期间 target 仍是滑杆；用松手的实际落点恢复跨隙收回计时。
+      const target=document.elementFromPoint(event.clientX,event.clientY);
+      if(event.type==='pointercancel'||!inCard(target)&&!trigger(target))closeSoon();
+    };
     const blur = () => { pressed = false; suppress.current = null; dismiss(); };
+    const key = () => { keyboard=true; };
     node.addEventListener('pointerover', enter); node.addEventListener('pointerout', leave);
     node.addEventListener('focusin', enter); node.addEventListener('focusout', leave);
+    node.addEventListener('keydown',key);
     // 画布的 React 捕获处理会停止传播，因此在窗口捕获阶段先收起卡片。
     window.addEventListener('pointerdown', down, true); window.addEventListener('pointerup', up, true); window.addEventListener('pointercancel', up, true); window.addEventListener('blur', blur);
     const stop = observeMotionScope(node, hidden => { if (hidden) dismiss(); });
@@ -64,6 +77,7 @@ export function useToolHoverPanel(root: RefObject<HTMLElement | null>, options: 
       clear(); stop(); clearTimers.current = () => {};
       node.removeEventListener('pointerover', enter); node.removeEventListener('pointerout', leave);
       node.removeEventListener('focusin', enter); node.removeEventListener('focusout', leave);
+      node.removeEventListener('keydown',key);
       window.removeEventListener('pointerdown', down, true); window.removeEventListener('pointerup', up, true); window.removeEventListener('pointercancel', up, true); window.removeEventListener('blur', blur);
     };
   }, [root]);

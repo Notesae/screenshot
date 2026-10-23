@@ -4,6 +4,7 @@ import type { Annotation, AnnotationKind } from './document';
 import { MosaicRect } from './MosaicRect';
 import { arrowPath, brushPath, hasStroke } from './annotationAppearance';
 import { ElasticArrow, ElasticEllipse, ElasticRect } from './AnnotationElasticity';
+import { InkPath } from './InkPath';
 // 画笔几何只放在受控元数据中，序列化时不读取 Fabric 的任意路径指令。
 const kinds = new WeakMap<FabricObject, { type: AnnotationKind; id: string; points?: [number, number][]; strokeWidth?: number }>();
 // 属性修改共用入口；线宽用于几何笔触，块大小仅用于马赛克。
@@ -14,7 +15,7 @@ export function annotationToObject(a: Annotation): FabricObject {
   let object: FabricObject;
   if (a.type === 'text') object = new Textbox(a.text, { ...props, fontFamily: FONT, fontSize: a.fontSize, fill: a.color, splitByGrapheme: true, backgroundColor: a.backgroundColor || '' });
   else if (a.type === 'ellipse') object = new ElasticEllipse({ ...props, rx: a.width / 2, ry: a.height / 2, fill: 'transparent', stroke: a.color, strokeWidth: a.strokeWidth ?? 3, strokeUniform: true });
-  else if (a.type === 'brush') object = new Path(brushPath(a.points ?? [[0, 0], [1, 1]]), { ...props, fill: null, stroke: a.color, strokeWidth: a.strokeWidth ?? 3, strokeUniform: true, strokeLineCap: 'round', strokeLineJoin: 'round', perPixelTargetFind: true });
+  else if (a.type === 'brush') object = new InkPath(brushPath(a.points ?? [[0, 0], [1, 1]]), { ...props, fill: null, stroke: a.color, strokeWidth: a.strokeWidth ?? 3, strokeUniform: true, strokeLineCap: 'round', strokeLineJoin: 'round', perPixelTargetFind: true });
   else if (a.type === 'mosaic') { const mosaic = new MosaicRect({ ...props, fill: '#30332e', strokeWidth: 0, objectCaching: false }); mosaic.blockSize = a.blockSize ?? 12; object = mosaic; }
   else if (a.type === 'arrow') object = new ElasticArrow(arrowPath(a.width, a.height, a.strokeWidth ?? 3), { ...props, fill: a.color, stroke: a.color, strokeWidth: 0, perPixelTargetFind: true });
   else {
