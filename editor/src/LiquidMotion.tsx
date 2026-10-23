@@ -162,7 +162,6 @@ export class LiquidMotion {
     this.paint(0, now);
     if (!this.clock.reduced) {
       this.decorate(this.rail.querySelector<HTMLElement>('.liquid-sweep'), [{ opacity: 0, transform: 'translateX(-110%)' }, { opacity: .22, offset: .3 }, { opacity: 0, transform: 'translateX(110%)' }], T.duration.sweep);
-      this.decorate(this.root.querySelector<HTMLElement>('.clay-capture-selection'), [{ boxShadow: '0 0 0 0 var(--clay-selection)' }, { boxShadow: '0 0 0 12px transparent' }], T.duration.pulse);
     }
     this.wake();
   }
@@ -184,7 +183,7 @@ export class LiquidMotion {
     for (const spring of Object.values(this.indicator)) spring.snap(0);
     const indicator = this.rail.querySelector<HTMLElement>('.liquid-active'); if (indicator) indicator.style.opacity = '0';
     this.sizePosition = null; this.sizeX.snap(0); this.sizeY.snap(0); this.selectionJelly.reset();
-    const rim = this.root.querySelector<SVGSVGElement>('.clay-selection-jelly'); if (rim) rim.style.opacity = '0';
+    this.paintSelection();
     const size = this.root.querySelector<HTMLElement>('.clay-selection-size'); if (size) size.style.transform = 'none';
     this.animations.forEach(animation => animation.cancel()); this.animations.clear();
   }
@@ -216,7 +215,28 @@ export class LiquidMotion {
     this.sizePosition = box; this.wake();
   }
   /** 输入为精确选区的 CSS 矩形；不读取变形后的边缘作为新目标。 */
-  selectionSkin(box: MotionRect | null) { this.selectionJelly.update(box, this.clock.reduced); this.wake(); }
+  selectionSkin(box: MotionRect | null) { this.selectionJelly.update(box, this.clock.reduced); this.paintSelection(); this.wake(); }
+  /** 用同一轮廓同步边框、遮罩与手柄；真实矩形只作为截图和手势的坐标模型。 */
+  private paintSelection() {
+    const shape = this.selectionJelly.frame;
+    const visible = this.active && !document.hidden && !this.root.dataset.motionExit && Boolean(shape.outline);
+    const rim = this.root.querySelector<SVGSVGElement>('.clay-selection-jelly');
+    if (rim) { rim.style.opacity = visible ? '1' : '0'; rim.querySelector('.selection-jelly-border')?.setAttribute('d', shape.outline); }
+    const frame = this.root.querySelector<HTMLElement>('.clay-capture-selection');
+    if (frame) {
+      frame.dataset.elasticBorder = String(visible);
+      frame.querySelectorAll<HTMLButtonElement>('[data-selection-handle]').forEach((button, index) => {
+        const offset = visible ? shape.offsets[index] : undefined;
+        button.style.setProperty('--selection-offset-x', (offset?.[0] ?? 0) + 'px');
+        button.style.setProperty('--selection-offset-y', (offset?.[1] ?? 0) + 'px');
+      });
+    }
+    const mask = this.root.querySelector<SVGPathElement>('.clay-selection-mask path'), viewport = mask?.ownerSVGElement;
+    if (mask && viewport) {
+      const outer = 'M0 0H' + viewport.getAttribute('width') + 'V' + viewport.getAttribute('height') + 'H0Z ';
+      mask.setAttribute('d', visible ? outer + shape.outline : mask.getAttribute('data-exact-path') ?? '');
+    }
+  }
   private usable(node: Surface) {
     const r = node.rect;
     return node.el.isConnected && !node.el.matches(':disabled') && !node.el.closest('[inert]') && r.width > 0 && r.height > 0 && r.x >= -1 && r.y >= -1 && r.x + r.width <= this.rr.width + 1 && r.y + r.height <= this.rr.height + 1
@@ -356,13 +376,7 @@ export class LiquidMotion {
     for (const spring of [this.sizeX,this.sizeY]) { if(reduced)spring.snap(0);else spring.step(dt,'neighbor');moving=spring.moving||moving; }
     if(size)size.style.transform='translate('+this.sizeX.x+'px,'+this.sizeY.x+'px)';
     moving = this.selectionJelly.step(dt, reduced) || moving;
-    const rim = this.root.querySelector<SVGSVGElement>('.clay-selection-jelly');
-    if (rim) {
-      const shape = this.selectionJelly.frame;
-      rim.style.opacity = String(shape.energy);
-      rim.querySelector('.selection-jelly-material')?.setAttribute('d', shape.material);
-      rim.querySelectorAll('.selection-jelly-outline').forEach(path => path.setAttribute('d', shape.outline));
-    }
+    this.paintSelection();
     return moving;
   }
   /** 浮卡仅缩放材质，正文单独淡入；快速切换从正在显示的矩形续接。 */
@@ -426,6 +440,7 @@ export class LiquidMotion {
     this.restore();
     const sequence = ++this.exitSequence;
     this.root.dataset.motionExit = kind;
+    this.paintSelection();
     this.root.querySelectorAll('.clay-notice,.clay-status').forEach(el => (el as HTMLElement).style.opacity = '0');
     const canvas = this.root.querySelector<HTMLCanvasElement>('canvas.lower-canvas');
     const frame = canvas ? rect(canvas.getBoundingClientRect()) : null;
@@ -476,6 +491,7 @@ export class LiquidMotion {
     this.root.querySelector<SVGPathElement>('.liquid-panel-bridge path')?.setAttribute('d','');
     this.rail.style.removeProperty('opacity'); this.rail.style.removeProperty('transform');
     this.root.querySelectorAll<HTMLElement>('.clay-canvas-fixed,.clay-canvas-stage,.clay-capture-selection,.clay-selection-mask,.clay-card,.clay-reader,.clay-notice,.clay-status').forEach(el => { el.style.removeProperty('opacity'); el.style.removeProperty('transform'); });
+    this.paintSelection();
   }
   destroy() {
     this.restore(); this.destroyed = true; this.controls.destroy(); this.clock.dispose(); this.resize.disconnect(); this.mutation.disconnect();

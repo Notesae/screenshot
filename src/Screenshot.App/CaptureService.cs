@@ -207,7 +207,7 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
         _motionTimer.Stop();_feedback.Snap();InvalidateFeedback();
     }
     private void CancelSelection() { IsCancelled=true;_selected.TrySetResult(null);Close(); }
-    // 真实镂空、原图和控制点始终按精确矩形画，软边单独形成向外延展的装饰。
+    // 边框、镂空和控制点共用弹性轮廓；冻结图只裁切显示，精确截图矩形不参与变形。
     protected override void OnPaint(PaintEventArgs e)
     {
         var g=e.Graphics;g.DrawImageUnscaled(_frozen,0,0);
@@ -215,17 +215,18 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
         var displayed=_model.Selection??HoverTarget?.Bounds;
         if(displayed is {} r && r.Width>0 && r.Height>0)
         {
-            var box=new Rectangle(r.X-_desktop.X,r.Y-_desktop.Y,r.Width,r.Height);g.DrawImage(_frozen,box,box,GraphicsUnit.Pixel);
+            var box=new Rectangle(r.X-_desktop.X,r.Y-_desktop.Y,r.Width,r.Height);
             g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             var scale=DeviceDpi/96f;
-            DrawSelectionRim(g,box,scale);
-            using var glow=new Pen(Color.FromArgb(48,SoftClayDrawing.Color("accent")),6*scale);g.DrawRectangle(glow,box);
-            using var pen=new Pen(SoftClayDrawing.Color("accent"),(float)SoftClayTheme.Number("size","selectionBorder")*scale);g.DrawRectangle(pen,box);
-            foreach(var x in new[]{box.Left,box.Left+box.Width/2,box.Right})foreach(var y in new[]{box.Top,box.Top+box.Height/2,box.Bottom})
-                if(x!=box.Left+box.Width/2||y!=box.Top+box.Height/2) {var diameter=(float)(SoftClayTheme.Number("size","handle")*_feedback.HandleScale)*scale;
-                    var handle=new RectangleF(x-diameter/2,y-diameter/2,diameter,diameter);
-                    using var fill=new System.Drawing.Drawing2D.LinearGradientBrush(handle,Color.White,Color.FromArgb(215,222,233),90);
-                    g.FillEllipse(fill,handle);g.DrawEllipse(pen,handle);}
+            var handles=DrawSelectionBorder(g,box,scale);
+            using var pen=new Pen(SoftClayDrawing.Color("accent"),(float)SoftClayTheme.Number("size","selectionBorder")*scale);
+            foreach(var point in handles)
+            {
+                var diameter=(float)(SoftClayTheme.Number("size","handle")*_feedback.HandleScale)*scale;
+                var handle=new RectangleF(point.X-diameter/2,point.Y-diameter/2,diameter,diameter);
+                using var fill=new System.Drawing.Drawing2D.LinearGradientBrush(handle,Color.White,Color.FromArgb(215,222,233),90);
+                g.FillEllipse(fill,handle);g.DrawEllipse(pen,handle);
+            }
             // 松手前后尺寸胶囊保持相同内容，避免交接时突然缩短。
             _hintBounds=DrawHint(g,$"{r.Width} × {r.Height} px",box.X,box.Y-38,true);
         }
@@ -237,32 +238,36 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
             g.DrawLine(cross,_pointer.X-8,_pointer.Y,_pointer.X+8,_pointer.Y);g.DrawLine(cross,_pointer.X,_pointer.Y-8,_pointer.X,_pointer.Y+8);
         }
     }
-    /// <summary>只在精确矩形外画胶质软边，冻结像素、遮罩镂空与控制点仍按原矩形绘制。</summary>
-    private void DrawSelectionRim(Graphics graphics, Rectangle box, float scale)
+    /// <summary>唯一可见边框、遮罩开口与手柄共用曲线；只对冻结像素设裁切，不缩放原图。</summary>
+    private PointF[] DrawSelectionBorder(Graphics graphics, Rectangle box, float scale)
     {
-        var rim = _feedback.Rim;
-        if (rim.Energy <= .0001) return;
-        var l = box.Left - (float)rim.Left * scale; var t = box.Top - (float)rim.Top * scale;
-        var r = box.Right + (float)rim.Right * scale; var b = box.Bottom + (float)rim.Bottom * scale;
-        var radius = (float)rim.Radius * scale; var bend = (float)rim.Bend * scale;
+        var shape = _feedback.Border;
+        var l = box.Left + (float)shape.Left * scale; var t = box.Top + (float)shape.Top * scale;
+        var r = box.Right + (float)shape.Right * scale; var b = box.Bottom + (float)shape.Bottom * scale;
+        var radius = (float)shape.Radius * scale;
+        var bendL = (float)shape.BendLeft * scale; var bendT = (float)shape.BendTop * scale;
+        var bendR = (float)shape.BendRight * scale; var bendB = (float)shape.BendBottom * scale;
         var w = r - l; var h = b - t; var c = radius * .45f;
         using var path = new System.Drawing.Drawing2D.GraphicsPath();
-        path.AddBezier(l + radius, t, l + w / 3, t - bend, l + w * 2 / 3, t - bend, r - radius, t);
+        path.AddBezier(l + radius, t, l + w / 3, t + bendT, l + w * 2 / 3, t + bendT, r - radius, t);
         path.AddBezier(r - radius, t, r - c, t, r, t + c, r, t + radius);
-        path.AddBezier(r, t + radius, r + bend, t + h / 3, r + bend, t + h * 2 / 3, r, b - radius);
+        path.AddBezier(r, t + radius, r + bendR, t + h / 3, r + bendR, t + h * 2 / 3, r, b - radius);
         path.AddBezier(r, b - radius, r, b - c, r - c, b, r - radius, b);
-        path.AddBezier(r - radius, b, l + w * 2 / 3, b + bend, l + w / 3, b + bend, l + radius, b);
+        path.AddBezier(r - radius, b, l + w * 2 / 3, b + bendB, l + w / 3, b + bendB, l + radius, b);
         path.AddBezier(l + radius, b, l + c, b, l, b - c, l, b - radius);
-        path.AddBezier(l, b - radius, l - bend, t + h * 2 / 3, l - bend, t + h / 3, l, t + radius);
+        path.AddBezier(l, b - radius, l + bendL, t + h * 2 / 3, l + bendL, t + h / 3, l, t + radius);
         path.AddBezier(l, t + radius, l, t + c, l + c, t, l + radius, t);
         path.CloseFigure();
-        using var material = (System.Drawing.Drawing2D.GraphicsPath)path.Clone();
-        material.AddRectangle(box);
-        var accent = SoftClayDrawing.Color("accent");
-        using var fill = new SolidBrush(Color.FromArgb((int)(24 * rim.Energy), accent));
-        using var glow = new Pen(Color.FromArgb((int)(36 * rim.Energy), accent), 5 * scale);
-        using var edge = new Pen(Color.FromArgb((int)(144 * rim.Energy), accent), 1.2f * scale);
-        graphics.FillPath(fill, material); graphics.DrawPath(glow, path); graphics.DrawPath(edge, path);
+        var state = graphics.Save();
+        graphics.SetClip(path, System.Drawing.Drawing2D.CombineMode.Intersect);
+        graphics.DrawImageUnscaled(_frozen, 0, 0);
+        graphics.Restore(state);
+        using var edge = new Pen(SoftClayDrawing.Color("accent"), (float)SoftClayTheme.Number("size", "selectionBorder") * scale);
+        graphics.DrawPath(edge, path);
+        // 曲线中点与网页一致：角取圆角中点，边取三次曲线中点，控制点不会留在旧矩形上。
+        var k = radius * .125f + c * .375f; var mx = (l + r) / 2; var my = (t + b) / 2;
+        return [new(l + k, t + k), new(mx, t + bendT * .75f), new(r - k, t + k), new(r + bendR * .75f, my),
+            new(r - k, b - k), new(mx, b + bendB * .75f), new(l + k, b - k), new(l + bendL * .75f, my)];
     }
     // 放大镜只读取本次冻结图，最近邻放大显示真实像素；不访问系统指针或再次捕获。
     private void DrawMagnifier(Graphics g)

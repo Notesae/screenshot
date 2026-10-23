@@ -2,13 +2,14 @@ using System;
 
 namespace Screenshot.App;
 
-/// <summary>软边向精确选区外延展的 DIP 数据；半径、鼓起和透明度来自同一份惯性。</summary>
-internal readonly record struct CaptureRim(double Left, double Top, double Right, double Bottom, double Radius, double Bend, double Energy);
+/// <summary>边框本体的有符号 DIP 偏移和各边曲率；不再代表外圈装饰或透明度。</summary>
+internal readonly record struct CaptureBorderFrame(double Left, double Top, double Right, double Bottom, double Radius,
+    double BendLeft, double BendTop, double BendRight, double BendBottom);
 
 /// <summary>首次框选的纯视觉状态：输入为 DIP，绝不持有选区或改写截图坐标。</summary>
 internal sealed class CaptureMotion
 {
-    // 胶囊与控制点沿用既有反馈；四条软边和显现脉冲单独使用柔软的选区弹簧。
+    // 胶囊保留既有反馈，四条边的真实描线与显现呼吸使用同一组弹簧。
     private readonly SoftClayMotion.SpringState _x = new(), _y = new(), _birth = new(1), _pulse = new();
     private readonly SoftClayMotion.SpringState[] _edges = [new(), new(), new(), new()];
     private double _anchorX, _anchorY, _width, _height;
@@ -18,23 +19,28 @@ internal sealed class CaptureMotion
     public double HandleScale => Math.Clamp(_birth.Value, .72, 1.06);
     public bool Moving => _x.Moving || _y.Moving || _birth.Moving || _pulse.Moving || _edges[0].Moving || _edges[1].Moving || _edges[2].Moving || _edges[3].Moving;
 
-    /// <summary>软边始终包住精确矩形；小选区按边长限制惯性和圆角，不让胶边吞掉选区。</summary>
-    public CaptureRim Rim
+    /// <summary>有符号边缘直接移动边框；四边曲率、角和控制点最终使用同一轮廓。</summary>
+    public CaptureBorderFrame Border
     {
         get
         {
             var tokens = SoftClayMotion.SelectionTokens;
+            // 输出也按当前边长钳制，避免缩小过程中残留速度让相对边交叉。
+            var limit = Math.Min(tokens.GetProperty("maxLag").GetDouble(), Math.Min(_width, _height) * .12);
+            var edges = Array.ConvertAll(_edges, edge => Math.Clamp(edge.Value, -limit, limit));
             var maximum = 0d;
-            foreach (var edge in _edges) maximum = Math.Max(maximum, Math.Abs(edge.Value));
+            foreach (var edge in edges) maximum = Math.Max(maximum, Math.Abs(edge));
             var energy = Math.Clamp(maximum / tokens.GetProperty("maxLag").GetDouble() + Math.Abs(_pulse.Value), 0, 1);
-            var radius = Math.Min(tokens.GetProperty("radius").GetDouble(), Math.Min(_width, _height) * .14) * energy;
-            var pad = radius * .4;
-            return new(pad + Math.Max(0, -_edges[0].Value), pad + Math.Max(0, -_edges[1].Value),
-                pad + Math.Max(0, _edges[2].Value), pad + Math.Max(0, _edges[3].Value), radius, tokens.GetProperty("bend").GetDouble() * energy, energy);
+            var breath = _pulse.Value * Math.Min(tokens.GetProperty("bend").GetDouble(), Math.Min(_width, _height) * .12);
+            var left = edges[0] - breath; var top = edges[1] - breath;
+            var right = edges[2] + breath; var bottom = edges[3] + breath;
+            var radius = Math.Min(tokens.GetProperty("radius").GetDouble(), Math.Min(_width + right - left, _height + bottom - top) * .18) * energy;
+            return new(left, top, right, bottom, radius, edges[0] * .35 - breath * .5, edges[1] * .35 - breath * .5,
+                edges[2] * .35 + breath * .5, edges[3] * .35 + breath * .5);
         }
     }
 
-    /// <summary>读数立即改变；只把边界差积入软边，保留既有速度和物理像素选区。</summary>
+    /// <summary>逻辑边界立即改变；前缘跟手、后缘拖长，显示边缘保留原速度。</summary>
     public void Update(double x, double y, bool visible, bool reduced, double width = 0, double height = 0)
     {
         if (!visible) { _visible = false; Snap(); return; }
@@ -54,7 +60,11 @@ internal sealed class CaptureMotion
                 var limit = Math.Min(tokens.GetProperty("maxLag").GetDouble(), Math.Min(width, height) * .12);
                 var delta = new[] { _anchorX - x, _anchorY - y, _anchorX + _width - x - width, _anchorY + _height - y - height };
                 for (var index = 0; index < _edges.Length; index++)
-                    _edges[index].Value = Math.Clamp(_edges[index].Value + delta[index] * tokens.GetProperty("gain").GetDouble(), -limit, limit);
+                {
+                    var trailing = index < 2 ? delta[index] < 0 : delta[index] > 0;
+                    var gain = tokens.GetProperty("gain").GetDouble() * (trailing ? 1 : tokens.GetProperty("leading").GetDouble());
+                    _edges[index].Value = Math.Clamp(_edges[index].Value + delta[index] * gain, -limit, limit);
+                }
             }
         }
         _anchorX = x; _anchorY = y; _width = width; _height = height; _visible = true;
