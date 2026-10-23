@@ -47,6 +47,7 @@ export function AnnotationPalette({canvasRef,selection,tool,disabled=false,onErr
       <div className="annotation-sizes" role="group" aria-label={label+'预设'}>{sizes.map(value=><ControlButton key={value} disabled={disabled} aria-label={`${label} ${value} 像素`} aria-pressed={amount===value} onClick={()=>setAmount(value)}>{stroked?<><span className="annotation-size-line" style={{height:Math.min(value,8)}}/><span>{value}</span></>:<span>{value} px</span>}</ControlButton>)}</div>
     </section>}
     <p className="annotation-instruction">{annotationHints[kind]}</p>
+    {!selection&&<p className="clay-hint">选中工具后可连续绘制。再次点击工具或按 Esc 退出。</p>}
     {(mosaic||kind==='cover')&&<p className="compact-privacy">效果应用于导出图片，项目文件仍保留原图。</p>}
     {selection&&<div className="annotation-inspector-footer"><span>修改即时生效 · 可撤销</span><ControlButton className="clay-danger" aria-label="删除选中标注" disabled={disabled} onClick={()=>canvasRef.current?.remove()}><Trash2 aria-hidden="true"/>删除</ControlButton></div>}
   </div>;

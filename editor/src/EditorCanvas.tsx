@@ -67,10 +67,10 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
   }
 
   // 取消待命或当前草稿，恢复画布命中和选区拖动，不修改已提交的标注。
-  function cancelDrawing(keepElasticity=false){
+  function cancelDrawing(){
     const draft=drawing.current;drawing.current=null;
     feedback.current?.clear();
-    if(!keepElasticity)elasticity.current?.clear();
+    if(draft?.object)elasticity.current?.cancel(draft.object);else elasticity.current?.release();
     if(draft?.object)fabric.current?.remove(draft.object);
     if(draft?.element.hasPointerCapture(draft.pointer))draft.element.releasePointerCapture(draft.pointer);
     tool.current=null;setActiveTool(null);callbacks.current.onDrawingToolChange?.(null);
@@ -84,8 +84,15 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
   function beginDrawing(event:ReactPointerEvent<HTMLDivElement>){
     const canvas=fabric.current,type=tool.current;
     if(!canvas||!loaded.current||!type||event.button!==0||!(event.target instanceof HTMLCanvasElement))return;
+    const selected=canvas.getActiveObject(),start=drawingPoint(event);
+    // 连续绘制仍允许拖当前控制点、编辑当前文字；其余落笔创建下一条标注。
+    if(selected?.findControl(canvas.getViewportPoint(event.nativeEvent),event.pointerType==='touch'))return;
+    if(selected instanceof Textbox&&selected.isEditing&&selected.containsPoint(start))return;
     event.preventDefault();event.stopPropagation();
-    const start=drawingPoint(event),object=type==='text'?null:restore({id:crypto.randomUUID(),type,left:start.x,top:start.y,width:1,height:1,scaleX:1,scaleY:1,angle:0,text:'',...styleFor(type)});
+    if(lastAnnotations.current.length>=100){callbacks.current.onError(new Error('已达到 100 个标注，请删除部分标注后继续绘制。'));return;}
+    if(selected instanceof Textbox&&selected.isEditing)selected.exitEditing();
+    canvas.discardActiveObject();
+    const object=type==='text'?null:restore({id:crypto.randomUUID(),type,left:start.x,top:start.y,width:1,height:1,scaleX:1,scaleY:1,angle:0,text:'',...styleFor(type)});
     feedback.current?.contact(start.x,start.y);
     if(object){object.set({selectable:false,evented:false});canvas.add(object);elasticity.current?.begin(object,start);}
     drawing.current={type,start,object,points:[start],pointer:event.pointerId,element:event.currentTarget};event.currentTarget.setPointerCapture(event.pointerId);
@@ -123,11 +130,12 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
     const draft=drawing.current,canvas=fabric.current;if(!draft||!canvas||event.pointerId!==draft.pointer)return;
     event.preventDefault();event.stopPropagation();moveDrawing(event);const end=drawingPoint(event);
     const valid=draft.type==='text'||(draft.type==='brush'?draft.points.length>=2:draft.type==='arrow'?draft.start.distanceFrom(end)>=2:Math.abs(end.x-draft.start.x)>=2&&Math.abs(end.y-draft.start.y)>=2);
-    if(!valid){elasticity.current?.clear();if(draft.object)canvas.remove(draft.object);drawing.current=null;if(draft.element.hasPointerCapture(draft.pointer))draft.element.releasePointerCapture(draft.pointer);return;}
+    if(!valid){if(draft.object){elasticity.current?.cancel(draft.object);canvas.remove(draft.object);}drawing.current=null;if(draft.element.hasPointerCapture(draft.pointer))draft.element.releasePointerCapture(draft.pointer);return;}
     const object=draft.object??restore({id:crypto.randomUUID(),type:'text',left:end.x,top:end.y,width:Math.max(30,Math.min(240,canvas.width-end.x)),height:40,scaleX:1,scaleY:1,angle:0,text:'文字',...styleFor('text')});
     if(!draft.object)canvas.add(object);
     drawing.current=null;if(draft.element.hasPointerCapture(draft.pointer))draft.element.releasePointerCapture(draft.pointer);
-    cancelDrawing(true);elasticity.current?.release();object.set({selectable:true,evented:true});object.setCoords();canvas.setActiveObject(object);canvas.requestRenderAll();
+    // 松手只提交这一笔，工具继续待命；新一笔不会打断上一笔尚未结束的余振。
+    feedback.current?.clear();elasticity.current?.release();object.set({selectable:true,evented:true});object.setCoords();canvas.setActiveObject(object);canvas.requestRenderAll();
     if(!elasticity.current?.active(object))feedback.current?.pulse(object);
     const objects=canvas.getObjects().filter(item=>item.selectable).map(serialize);lastAnnotations.current=objects;callbacks.current.onAnnotations(objects);
     if(object instanceof Textbox){object.enterEditing();object.selectAll();}
@@ -243,16 +251,17 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
     },
     // 选择工具只进入待绘制状态，不直接插入预设图形。
     add(type) {
-      const canvas=fabric.current;if(!canvas||!loaded.current||lastAnnotations.current.length>=100)return;
+      const canvas=fabric.current;if(!canvas||!loaded.current)return;
       const next=tool.current===type?null:type;cancelDrawing();
       const selected=canvas.getActiveObject();if(selected instanceof Textbox&&selected.isEditing)selected.exitEditing();
       canvas.discardActiveObject();tool.current=next;setActiveTool(next);callbacks.current.onDrawingToolChange?.(next);
       canvas.defaultCursor=next?'crosshair':'default';canvas.hoverCursor=next?'crosshair':'move';canvas.requestRenderAll();
     },
     remove() {
-      if(tool.current||drawing.current){cancelDrawing();return;}
+      if(drawing.current){cancelDrawing();return;}
       const canvas = fabric.current;
       if (!canvas) return;
+      if (!canvas.getActiveObjects().length) return;
       const removedIds = new Set(canvas.getActiveObjects().map(object => serialize(object).id));
       const removed = canvas.getActiveObject();if(removed)feedback.current?.pulse(removed,'remove');
       elasticity.current?.clear();
@@ -273,6 +282,8 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
       return { editing: Boolean(drawing.current)||object instanceof Textbox && object.isEditing, selected: Boolean(object||tool.current||drawing.current) };
     },
     exitSelection() {
+      const selected=fabric.current?.getActiveObject();
+      if(selected instanceof Textbox&&selected.isEditing){selected.exitEditing();return;}
       if(tool.current||drawing.current){cancelDrawing();return;}
       const canvas = fabric.current, object = canvas?.getActiveObject();
       if (object instanceof Textbox && object.isEditing) object.exitEditing();

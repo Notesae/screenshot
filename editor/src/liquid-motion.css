@@ -33,6 +33,7 @@
 /* 材质交接由连续状态控制；逻辑取消选中不能提前恢复一张独立灰皮肤。 */
 [data-motion-button][data-motion-material=true] > .liquid-skin { visibility: hidden; }
 [data-motion-button][aria-expanded=true] > .liquid-skin { background: var(--clay-raised); box-shadow: var(--clay-press); }
+[data-motion-button][data-hover-panel=beauty][aria-pressed=true] > .liquid-skin { background: var(--clay-primary); box-shadow: var(--clay-primary-shadow); }
 [data-motion-button]:focus-visible > .liquid-skin { filter: brightness(1.2); }
 [data-motion-button]:active:enabled > .liquid-skin { box-shadow: var(--clay-press); }
 [data-motion-button]:disabled > .liquid-skin { box-shadow: inset 0 1px 2px #ffffff0d; }

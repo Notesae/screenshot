@@ -19,8 +19,10 @@ type Props={document:ProjectDocument;update:(change:Partial<EditorState>,group?:
 /** 样式、常用参数与管理共用当前文档；所有动作沿用 v2 控件和折叠动效。 */
 export function StyleTools({document:doc,update,comparing,onCompare,onGesture,onError}:Props) {
   const editor=doc.editor,content=contentGeometry(doc.image,editor);
+  // 未启用时只在浮卡中预览候选外观；悬停和调参均不替用户切换美化模式。
+  const previewDoc=useMemo(()=>editor.mode==='beauty'?doc:{...doc,editor:{...editor,mode:'beauty' as const}},[doc]);
   let outputLabel='请减小留白以恢复输出';
-  try{const output=outputSize(doc.image,editor);outputLabel=`输出 ${output.width} × ${output.height} px`;}catch{/* 旧文档超限时仍允许用户修正参数。 */}
+  try{const output=outputSize(doc.image,previewDoc.editor);outputLabel=`${editor.mode==='beauty'?'输出':'启用后'} ${output.width} × ${output.height} px`;}catch{/* 旧文档超限时仍允许用户修正参数。 */}
   const [loaded]=useState(()=>{try{return {items:parsePresets(JSON.parse(localStorage.getItem(KEY)||'[]')),error:''};}catch{return {items:[] as StylePreset[],error:'本机样式暂时无法读取，现有记录未覆盖。'};}});
   const [saved,setSaved]=useState(loaded.items),[showSaved,setShowSaved]=useState(false),[name,setName]=useState('');
   const [selected,setSelected]=useState<string|null>(null),[managed,setManaged]=useState('');
@@ -42,8 +44,8 @@ export function StyleTools({document:doc,update,comparing,onCompare,onGesture,on
   },[showSaved]);
   const builtins=useMemo(()=>fittedBeautyPresets(Math.min(content.width,content.height)),[content.width,content.height]);
   const custom=saved.filter(p=>p.style.mode==='beauty'),legacy=BUILTIN_STYLES.filter(p=>p.style.mode==='beauty');
-  const choices=[...builtins,...custom,...legacy],active=editor.mode==='beauty'?choices.find(p=>BEAUTY_KEYS.every(key=>p.style[key]===editor[key])):undefined;
-  const source=choices.find(p=>p.id===selected),current=editor.mode!=='beauty'?'原样':active?.name??(source?source.name+' · 已调整':'自定义');
+  const choices=[...builtins,...custom,...legacy],active=choices.find(p=>BEAUTY_KEYS.every(key=>p.style[key]===previewDoc.editor[key]));
+  const source=choices.find(p=>p.id===selected),current=(editor.mode!=='beauty'?'待启用 · ':'')+(active?.name??(source?source.name+' · 已调整':'自定义'));
   const managedPreset=custom.find(p=>p.id===managed),visible=showSaved?custom:builtins;
   // 撤销到已知样式时更新来源，修改参数时继续保留「已调整」名称。
   useEffect(()=>{if(active)setSelected(active.id);},[active?.id]);
@@ -55,7 +57,7 @@ export function StyleTools({document:doc,update,comparing,onCompare,onGesture,on
   }
   function apply(preset:StylePreset){if(change(beautyStyle(preset.style)))setSelected(preset.id);}
   // 扩大留白前检查实际输出范围，超限保留原文档与当前可见成品。
-  function change(change:Partial<EditorState>,group?:string){try{outputSize(doc.image,{...editor,...change,mode:'beauty'});update({...change,mode:'beauty'},group);return true;}catch(error){onError(error);return false;}}
+  function change(change:Partial<EditorState>,group?:string){try{outputSize(doc.image,{...editor,...change,mode:'beauty'});update({...change,mode:editor.mode},group);return true;}catch(error){onError(error);return false;}}
   /** 管理操作不修改当前图片，保存内容只包含图片美化白名单。 */
   function manage(action:'save'|'rename'|'replace'|'delete'|'undo') {
     if(action==='save'){
@@ -73,10 +75,11 @@ export function StyleTools({document:doc,update,comparing,onCompare,onGesture,on
   }
   return <section className="clay-style-tools" aria-label="截图美化样式">
     <div className="beauty-heading"><span className="beauty-current">当前：{current}</span><ControlButton className="beauty-quiet" aria-pressed={comparing} disabled={editor.mode!=='beauty'} onClick={onCompare}><Eye aria-hidden="true"/>{comparing?'返回效果':'对比原样'}</ControlButton></div>
-    <BeautyStylePreview document={doc} comparing={comparing}/>
+    {editor.mode!=='beauty'&&<p className="clay-hint">预览下一次美化效果，点击工具栏的美化按钮启用。</p>}
+    <BeautyStylePreview document={previewDoc} comparing={comparing}/>
     <div className="beauty-tabs" role="group" aria-label="样式来源"><ControlButton aria-pressed={!showSaved} onClick={()=>setShowSaved(false)}>内置样式</ControlButton><ControlButton aria-pressed={showSaved} onClick={()=>setShowSaved(true)}>我的样式</ControlButton></div>
     <div className="beauty-presets" ref={list}>{visible.map(p=>
-      <ControlButton key={p.id} className="beauty-preset" aria-label={'应用'+p.name+'样式'} aria-pressed={editor.mode==='beauty'&&active?.id===p.id} onClick={()=>apply(p)}>
+      <ControlButton key={p.id} className="beauty-preset" aria-label={'选择'+p.name+'样式'} aria-pressed={active?.id===p.id} onClick={()=>apply(p)}>
         <span className="beauty-preset-swatch" aria-hidden="true" style={{background:p.style.background}}/>
         <span className="beauty-preset-name">{p.name}<Check aria-hidden="true"/></span>
       </ControlButton>

@@ -2,36 +2,41 @@ import { clamp, MotionSpring, type MotionRect } from './motion';
 
 const axes = ['x', 'y', 'width', 'height'] as const;
 
+/** 剩余时间内从当前 x/v 收束到终点；目标改道时也不重置起始速度。 */
+export function settleMotion(spring: MotionSpring, target: number, elapsed: number, remaining: number) {
+  if (remaining <= elapsed || remaining <= 0) { spring.snap(target); return; }
+  const t = elapsed / remaining, p = t * t * (3 - 2 * t), tangent = t * (1 - t) * (1 - t);
+  const distance = target - spring.x, velocity = spring.v * remaining;
+  spring.x += distance * p + velocity * tangent;
+  spring.v = (distance * 6 * t * (1 - t) + velocity * (1 - 4 * t + 3 * t * t)) / remaining;
+  spring.to = target;
+}
+
 /** 几何各自保留位置/速度；入场中的尺寸变化不再按旧进度直接放大新目标。 */
 export class SurfaceTransition {
   private geometry: Record<keyof MotionRect, MotionSpring>;
-  private progress = new MotionSpring();
+  private opacity: MotionSpring;
+  private shell: MotionSpring;
   private opening = false;
   private closing = false;
   private elapsed = 0;
   private duration = 170;
-  private from!: MotionRect;
-  private fromVelocity!: MotionRect;
-  private fromAlpha = 0;
-  private fromMaterial = 0;
   private returning = false;
-  alpha: number;
-  material: number;
 
   // 主浮卡可单独收紧正文延迟与材质领先量；其它弹层继续使用原有入场节奏。
   constructor(box: MotionRect, alpha = 0, material = 0, private contentDelay = .25, private materialLead = 4) {
     this.geometry = { x: new MotionSpring(box.x), y: new MotionSpring(box.y), width: new MotionSpring(box.width), height: new MotionSpring(box.height) };
-    this.alpha = alpha; this.material = material;
+    this.opacity = new MotionSpring(alpha); this.shell = new MotionSpring(material);
   }
+  get alpha() { return clamp(this.opacity.x); }
+  get material() { return clamp(this.shell.x); }
   get box(): MotionRect { return { x: this.geometry.x.x, y: this.geometry.y.x, width: this.geometry.width.x, height: this.geometry.height.x }; }
   get velocity(): MotionRect { return { x: this.geometry.x.v, y: this.geometry.y.v, width: this.geometry.width.v, height: this.geometry.height.v }; }
-  get moving() { return this.closing || this.opening && (this.progress.moving || axes.some(axis => this.geometry[axis].moving)); }
+  get moving() { return this.closing || this.opening && (this.opacity.moving || this.shell.moving || axes.some(axis => this.geometry[axis].moving)); }
 
-  open(target: MotionRect, newContent = false) {
-    if (!this.opening || newContent) {
-      this.fromAlpha = this.alpha; this.fromMaterial = this.material;
-      this.alpha = this.fromAlpha; this.progress.snap(0); this.progress.to = 1;
-    }
+  open(target: MotionRect, _newContent = false) {
+    // 正文换页由独立层交接；外壳与可见度只改目标，重开时保留收回速度。
+    this.opacity.to = this.shell.to = 1;
     this.opening = true; this.closing = this.returning = false; this.redirect(target);
   }
   redirect(target: MotionRect) { for (const axis of axes) this.geometry[axis].to = target[axis]; }
@@ -43,15 +48,14 @@ export class SurfaceTransition {
   closeTo(target:MotionRect,duration=260){this.startClose(target,duration,true);}
   private startClose(target:MotionRect,duration:number,returning:boolean){
     if (this.closing || !this.opening && this.alpha === 0 && this.material === 0) return;
-    this.from = this.box; this.fromVelocity = this.velocity; this.fromAlpha = this.alpha; this.fromMaterial = this.material;
     this.redirect(target);this.returning=returning;
     this.elapsed = 0; this.duration = Math.max(0, duration); this.opening = false; this.closing = true;
   }
   /** 手动布局或系统归位允许清零速度；普通目标变化只改弹簧目标。 */
   snap(box: MotionRect, open: boolean) {
     for (const axis of axes) this.geometry[axis].snap(box[axis]);
-    this.opening = open; this.closing = false; this.progress.snap(1);
-    this.alpha = this.material = open ? 1 : 0;
+    this.opening = open; this.closing = false;
+    this.opacity.snap(open ? 1 : 0); this.shell.snap(open ? 1 : 0);
   }
   finish() {
     const target = { x: this.geometry.x.to, y: this.geometry.y.to, width: this.geometry.width.to, height: this.geometry.height.to };
@@ -61,27 +65,21 @@ export class SurfaceTransition {
     if (!this.moving) return;
     if (this.opening) {
       for (const axis of axes) this.geometry[axis].step(elapsed, 'panel');
-      this.progress.step(elapsed, 'panel'); const p = clamp(this.progress.x);
-      this.alpha = this.fromAlpha + (1 - this.fromAlpha) * clamp((p - this.contentDelay) / (1 - this.contentDelay));
-      this.material = this.fromMaterial + (1 - this.fromMaterial) * clamp(p * this.materialLead);
+      this.opacity.step(elapsed * (1 - this.contentDelay * .5), 'panel');
+      this.shell.step(elapsed * Math.min(2, this.materialLead), 'panel');
     } else {
-      this.elapsed += clamp(elapsed, 0, 0.05);
-      const t = this.duration ? clamp(this.elapsed * 1000 / this.duration) : 1;
-      const seconds = Math.max(.001, this.duration / 1000), p = t * t * (3 - 2 * t);
-      const tangent = t * (1 - t) * (1 - t), speed = 6 * t * (1 - t) / seconds;
+      const dt = clamp(elapsed, 0, .05), remaining = Math.max(0, this.duration / 1000 - this.elapsed);
       for (const axis of axes) {
-        const spring = this.geometry[axis], distance = spring.to - this.from[axis];
-        // Hermite 起始切线接住当前速度，终点速度为零；有界外伸避免小卡片反折。
-        const limit = Math.max(12, Math.abs(distance) * .6);
-        const velocity = clamp(this.fromVelocity[axis] * seconds, -limit, limit);
-        spring.x = this.from[axis] + distance * p + velocity * tangent;
-        spring.v = distance * speed + velocity * (1 - 4 * t + 3 * t * t) / seconds;
-        if (axis === 'width' || axis === 'height') spring.x = Math.max(1, spring.x);
+        const spring = this.geometry[axis];
+        settleMotion(spring, spring.to, dt, remaining);
+        if ((axis === 'width' || axis === 'height') && spring.x < 1) { spring.x = 1; spring.v = Math.max(0, spring.v); }
       }
-      const fade = this.returning ? clamp(t / .62) : t, content = fade * fade * (3 - 2 * fade);
-      const skin = this.returning ? clamp((t - .12) / .88) : t;
-      this.alpha = this.fromAlpha * (1 - content); this.material = this.fromMaterial * (1 - skin * skin * (3 - 2 * skin));
-      if (t === 1) this.finish();
+      settleMotion(this.opacity, 0, dt, Math.max(0, this.duration / 1000 * (this.returning ? .62 : 1) - this.elapsed));
+      settleMotion(this.shell, 0, dt, remaining);
+      this.elapsed += dt;
+      if (dt >= remaining) this.finish();
     }
+    // 透明度触及物理边界即卸掉越界速度，反复开合不会积累不可见的超调。
+    for (const spring of [this.opacity, this.shell]) if (spring.x < 0 || spring.x > 1) { spring.x = clamp(spring.x); spring.v = 0; }
   }
 }

@@ -390,7 +390,9 @@ export class LiquidMotion {
     body.querySelector('.liquid-rail-light')?.setAttribute('cx',String(this.bodyLight.x));
     body.style.setProperty('--liquid-body-light',String(reduced||this.economy?0:Math.min(1,sum)));
     moving = this.bulge.moving || this.bodyLight.moving || moving;
-    const selected = this.nodes.find(node => node.el.getAttribute('aria-pressed') === 'true' && this.usable(node));
+    const pressed = this.nodes.filter(node => node.el.getAttribute('aria-pressed') === 'true' && this.usable(node));
+    // 美化可以与标注同时启用，移动中的选择材质优先指示当前绘制工具。
+    const selected = pressed.find(node => node.group === 'draw') ?? pressed[0];
     const ind = this.indicator;
     ind.opacity.to = selected ? 1 : 0;
     // 只有首次取得材质时才对齐初始槽位，淡回灰色不能重置位置速度。
