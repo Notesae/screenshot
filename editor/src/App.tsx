@@ -286,6 +286,26 @@ export default function App() {
     });
   }
   function cancelCompletion(){completionCancelled.current=true;presentationMotion()?.restore();setNotice({text:'已取消收起；已经开始的复制请求可能仍会完成。'});}
+  /** 钉图使用当前成品像素；宿主创建成功才收起，迟到或失败恢复导轨，文档和历史保留。 */
+  async function pinImage() {
+    await run('钉到桌面', async () => {
+      if (!native.available) throw new Error('钉到桌面需要在 Windows 桌面应用中使用。');
+      const stamp = { documentId: documentIdRef.current, revision: history.currentRevision(), generation: generation.current, captureId: overlayRef.current?.captureId };
+      const matches = () => stamp.documentId === documentIdRef.current && stamp.revision === history.currentRevision() && stamp.generation === generation.current && stamp.captureId === overlayRef.current?.captureId;
+      let motion: ReturnType<typeof presentationMotion> = null;
+      try {
+        const dataUrl = await canvas.current!.exportPng(1);
+        if (!matches()) return;
+        motion = presentationMotion();
+        if (motion && !await motion.exit('dismiss')) return;
+        if (!matches()) { motion?.restore(); return; }
+        const result = await native.request<{ accepted: boolean; pinned?: boolean }>('image.pin', { ...stamp, dataUrl });
+        if (!result.accepted || !result.pinned) throw new Error('图片未钉到桌面，编辑状态可能已变化，请重试。');
+        if (!matches()) return;
+        generation.current++; setOverlay(null); setNotice(null);
+      } catch (error) { motion?.restore(); throw error; }
+    });
+  }
   // 完成只复制当前 PNG；先确认真实结果和身份，再播放收束，最后由宿主隐藏。
   async function completeEditing() {
     await run('完成截图', async () => {
@@ -509,6 +529,6 @@ export default function App() {
   return <>
     <input hidden ref={imageInput} type="file" accept="image/png,image/jpeg,image/webp" onChange={event=>{void chooseFiles(event.currentTarget.files);event.currentTarget.value='';}}/>
     <input hidden ref={projectInput} type="file" accept=".json" onChange={event=>{void chooseFiles(event.currentTarget.files);event.currentTarget.value='';}}/>
-    <CompactOverlay onTranslateImage={()=>{void translateImage();}} onCancelAi={()=>{void cancelOcr();}} suspended={loadingCapture!==null} onAdjustCapture={adjustCapture} locked={hostLocked} requestedPanel={entryPanel} onOpenImage={()=>{void openImage();}} onOpenProject={()=>{void openProject();}} onPaste={()=>{void nativeImage('image.paste','粘贴图片');}} selection={selection} onSelection={setSelection} renderStatus={canvasStatus} onRenderStatus={setCanvasStatus} skipReady={overlayReady} onFiles={files=>chooseFiles(files,Boolean(overlay))} onCapture={(method,payload)=>{void nativeImage(method,"捕获屏幕",payload);}} key={documentEpoch} document={doc} metadata={activeOverlay} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo} onTransform={changeTransform} textTools={textTools} recoveryPanel={recoveryPanel} captureBackend={captureBackend} onReadyResult={handleReadyResult} canvasRef={canvas} update={update} onComplete={() => { void completeEditing(); }} onCancelComplete={cancelCompletion} onAi={kind => { void ai(kind); }} onPresentation={mode => { void presentation(mode); }} onConfigure={() => { void configureSettings(); }} onSaveProject={() => { void saveProject(); }} onError={errorNotice} busy={busy} aiBusy={aiBusy} settings={settings} providerId={providerId} setProviderId={setProviderId} targetLanguage={targetLanguage} setTargetLanguage={setTargetLanguage} scale={scale} setScale={setScale} notice={notice} clearNotice={() => setNotice(null)}/>
+    <CompactOverlay onTranslateImage={()=>{void translateImage();}} onCancelAi={()=>{void cancelOcr();}} suspended={loadingCapture!==null} onAdjustCapture={adjustCapture} locked={hostLocked} requestedPanel={entryPanel} onOpenImage={()=>{void openImage();}} onOpenProject={()=>{void openProject();}} onPaste={()=>{void nativeImage('image.paste','粘贴图片');}} selection={selection} onSelection={setSelection} renderStatus={canvasStatus} onRenderStatus={setCanvasStatus} skipReady={overlayReady} onFiles={files=>chooseFiles(files,Boolean(overlay))} onCapture={(method,payload)=>{void nativeImage(method,"捕获屏幕",payload);}} key={documentEpoch} document={doc} metadata={activeOverlay} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo} onTransform={changeTransform} textTools={textTools} recoveryPanel={recoveryPanel} captureBackend={captureBackend} onReadyResult={handleReadyResult} canvasRef={canvas} update={update} onComplete={() => { void completeEditing(); }} onCancelComplete={cancelCompletion} onPin={() => { void pinImage(); }} onAi={kind => { void ai(kind); }} onPresentation={mode => { void presentation(mode); }} onConfigure={() => { void configureSettings(); }} onSaveProject={() => { void saveProject(); }} onError={errorNotice} busy={busy} aiBusy={aiBusy} settings={settings} providerId={providerId} setProviderId={setProviderId} targetLanguage={targetLanguage} setTargetLanguage={setTargetLanguage} scale={scale} setScale={setScale} notice={notice} clearNotice={() => setNotice(null)}/>
   </>;
 }

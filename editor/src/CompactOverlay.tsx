@@ -10,7 +10,7 @@ import { OverlayScrollbars } from './OverlayScrollbars';
 import { flushSync } from 'react-dom';
 import { matchesPresentationViewport, readPresentationViewport } from './presentationViewport';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type PointerEvent, type KeyboardEvent } from 'react';
-import { ArrowUpRight, BookOpen, Brush, Check, Circle, Copy, FolderOpen, Frame, GripVertical, Grid2X2, Highlighter, ImagePlus, Languages, MoreHorizontal, RotateCcw, ScanText, Settings2, Sparkles, Square, Trash2, Type, X } from 'lucide-react';
+import { ArrowUpRight, BookOpen, Brush, Check, Circle, Copy, FolderOpen, Frame, GripVertical, Grid2X2, Highlighter, ImagePlus, Languages, MoreHorizontal, Pin, RotateCcw, ScanText, Settings2, Sparkles, Square, Trash2, Type, X } from 'lucide-react';
 import { StyleTools } from './StyleTools';
 import { TextTools, type TextToolsProps } from './TextTools';
 import { CaptureControls } from './CaptureControls';
@@ -55,7 +55,7 @@ type Props = {
   skipReady:boolean;onFiles:(files:FileList|null)=>Promise<void>;onCapture:(method:string,payload?:object)=>void;
   captureBackend:'wgc'|'gdi'|null;
   document:ProjectDocument;metadata:OverlayMetadata|null;canvasRef:RefObject<CanvasHandle|null>;
-  update:(change:Partial<EditorState>,group?:string)=>void;onComplete:()=>void;onCancelComplete:()=>void;
+  update:(change:Partial<EditorState>,group?:string)=>void;onComplete:()=>void;onCancelComplete:()=>void;onPin:()=>void;
   canUndo:boolean;canRedo:boolean;undo:()=>void;redo:()=>void;onTransform:(crop:SourceCrop|null,resize:ContentResize|null)=>void;
   onAi:(kind:'ocr'|'translate')=>void;onPresentation:(mode:'workbench'|'hidden')=>void;
   onTranslateImage:()=>void;onCancelAi:()=>void;
@@ -278,6 +278,7 @@ export function CompactOverlay(props:Props) {
         <HistoryButtons canUndo={props.canUndo} canRedo={props.canRedo} undo={props.undo} redo={props.redo}/>
         {([{kind:'text',label:'文字标注',icon:Type},{kind:'rect',label:'矩形标注',icon:Square},{kind:'ellipse',label:'圆形标注',icon:Circle},{kind:'arrow',label:'箭头标注',icon:ArrowUpRight},{kind:'brush',label:'画笔',icon:Brush},{kind:'highlight',label:'高亮标注',icon:Highlighter},{kind:'mosaic',label:'马赛克',icon:Grid2X2}] as const).map(item=><MotionButton group="draw" key={item.kind} data-annotation-kind={item.kind} data-tooltip={item.label} aria-label={item.label} aria-pressed={drawingTool===item.kind} disabled={!hasContent||props.renderStatus!=='ready'} onClick={event=>{panelOrigin(event.currentTarget);setPanel(null);canvasRef.current?.add(item.kind);}}><item.icon aria-hidden="true"/></MotionButton>)}
         <MotionButton data-motion-action="done" className="clay-primary" aria-label="完成" data-tooltip="完成并复制到剪贴板" disabled={!hasContent||props.renderStatus!=='ready'} onClick={complete}><Check aria-hidden="true"/>完成</MotionButton>
+        <MotionButton aria-label="钉到桌面" data-tooltip="钉到桌面，可拖动、缩放和切换置顶" disabled={!hasContent||props.renderStatus!=='ready'||!!aiBusy} onClick={()=>{setComparison(null);props.onPin();}}><Pin aria-hidden="true"/></MotionButton>
         <MotionButton data-panel-trigger="more" aria-label="更多操作" aria-expanded={panel==='more'} onClick={event=>openPanel('more',event.currentTarget)}><MoreHorizontal aria-hidden="true"/></MotionButton><MotionButton aria-label="收起编辑，保留文档" data-tooltip="收起编辑" onClick={()=>props.onPresentation('hidden')}><X aria-hidden="true"/></MotionButton>
       </div>
       {visiblePanel&&<section id="clay-active-panel" aria-hidden={!panel} inert={!panel} className={'clay-card liquid-panel '+(visiblePanel==='more'?'clay-drawer ':'')+(!panel?'is-closing':'')} role="region" aria-label={title} style={{left:tools.card.x,top:tools.card.y,width:tools.card.width,maxHeight:tools.card.height}}>

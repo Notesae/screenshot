@@ -12,12 +12,13 @@ export function prepareUpdateSnapshot(state: { operation: string; aiBusy: boolea
 
 declare global { interface Window { screenshotPrepareUpdate?: () => ReturnType<typeof prepareUpdateSnapshot> } }
 
-export type LeaveReason = 'replace' | 'close' | 'complete';
+// 钉图单独核对输出身份，收起后保留编辑文档，不冒用复制完成状态。
+export type LeaveReason = 'replace' | 'close' | 'complete' | 'pin';
 type LeaveState = Parameters<typeof prepareUpdateSnapshot>[0] & { projectSaved: boolean };
 /** 离开前仅校验忙状态与内存身份；用户已关闭自动保存，不要求恢复快照。 */
 export function prepareLeaveSnapshot(state: LeaveState, reason: LeaveReason) {
   const allowed = reason === 'replace' ? ['导入图片','读取文件','打开项目','恢复本机记录','捕获屏幕','捕获桌面','选择区域','粘贴图片']
-    : reason === 'complete' ? ['完成截图'] : ['退出编辑'];
+    : reason === 'complete' ? ['完成截图'] : reason === 'pin' ? ['钉到桌面'] : ['退出编辑'];
   if (state.operation && !allowed.includes(state.operation)) return { error: `正在${state.operation}，请稍后再试。` };
   if (state.aiBusy && reason !== 'replace') return { error: '识别或翻译尚未结束，请等待完成或取消后再试。' };
   if (state.editing) return { error: '请先结束画布文字编辑，再继续此操作。' };

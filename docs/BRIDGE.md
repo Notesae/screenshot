@@ -1,5 +1,11 @@
 # Native bridge v1
 
+## 2026-10-23 桌面钉图
+
+新增 `image.pin {dataUrl:string,documentId:string,revision:number,captureId?:string}`，仅可信编辑器可调用，参与原有本地操作互斥。dataUrl 必须为本地 PNG，沿用 64 MiB 解码边界，并限制单边 16000、总计 4000 万像素。宿主在解码后使用 `screenshotPrepareLeave("pin")` 核对文档身份、修订、任务及画布状态，并复核呈现代数和 captureId；拒绝过期或已隐藏的呈现。pin 仅允许“钉到桌面”操作通过离开检查，不写恢复快照。
+
+成功返回 `{accepted:true,pinned:true,presentation:"hidden"}`，宿主创建独立、默认 Topmost 的 WPF 钉图窗口后收起编辑器；失效返回 `{accepted:false}`，解码或创建失败返回现有桥错误。前端保留文档与历史，不调用 image.copy 或 presentation.complete。窗口持有冻结成品位图，拖动、缩放和置顶只改变本地展示，关闭释放资源；无外部图像来源、文件写入、剪贴板访问或服务调用。
+
 ## 2026-10-23 新标注工具字段
 
 无新增宿主桥方法。项目 schemaVersion 保持 2，标注白名单增加 ellipse、brush、mosaic，旧 cover 仍可读取和编辑；矩形仅换图标。ellipse 复用 width/height 与变换字段；brush 的 points 为 2–1024 个局部 [x,y] 数值对，每轴必须在 0–16000，strokeWidth 为 1–48（默认 3）；mosaic 的 blockSize 为 6–64（默认 12）。只读取对应类型支持的字段，不恢复任意 SVG 路径、图片资源、滤镜或 Fabric JSON。
