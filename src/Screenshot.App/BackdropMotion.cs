@@ -15,23 +15,43 @@ internal sealed class BackdropMotion
     private readonly SoftClayMotion.SpringState _x = new(), _y = new(), _lightX = new(), _lightY = new(), _entry = new(1);
     private double _pointerX, _pointerY;
     private int _quiet;
+    // DIP 到物理像素的比例只用于停稳落点，动画中的位置与速度保持连续。
+    private double _pixelScaleX = 1, _pixelScaleY = 1;
+    // 记录无新坐标的累计时间，避免指针短暂停顿就改变跟随目标。
+    private double _pointerIdle;
+    // 每次输入只进行一次像素落点吸附，防止停稳边界来回切换目标。
+    private bool _pixelSettling;
     public bool Held { get; private set; }
     public BackdropFrame Frame => new(_x.Value, _y.Value + (1 - _entry.Value) * Motion.GetProperty("entry").GetProperty("offsetY").GetDouble(), _lightX.Value, _lightY.Value, _entry.Value);
     internal double VelocityX => _x.Velocity;
+    // 暗角可以继续缓移；只有共享图像平面停稳后才允许恢复锐利采样。
+    internal bool TranslationSettled => !_x.Moving && !_y.Moving && !_entry.Moving;
 
-    public void Enter() { _entry.Snap(0); _entry.To = 1; _quiet = 0; }
+    // 切换显示器只重算目标，不重置可见姿态或速度；按下保持期间等松开再接续。
+    internal void SetPixelScale(double x, double y)
+    {
+        if (!double.IsFinite(x) || !double.IsFinite(y) || x <= 0 || y <= 0 || (_pixelScaleX == x && _pixelScaleY == y)) return;
+        _pixelScaleX = x; _pixelScaleY = y;
+        if (!Held) Target();
+    }
+
+    public void Enter() { _entry.Snap(0); _entry.To = 1; _quiet = 0; _pointerIdle = 0; _pixelSettling = false; }
     public void Move(double x, double y)
     {
         if (!double.IsFinite(x) || !double.IsFinite(y)) return;
-        _pointerX = Math.Clamp(x, -1, 1); _pointerY = Math.Clamp(y, -1, 1);
+        x = Math.Clamp(x, -1, 1); y = Math.Clamp(y, -1, 1);
+        // 重复的路由坐标不延迟停稳；新输入仍只换目标，保留原弹簧速度。
+        if (_pointerX == x && _pointerY == y) return;
+        _pointerX = x; _pointerY = y;
         if (!Held) Target();
     }
+    // 恢复原始跟随目标，并让本次输入重新经历连续运动和临近停稳的像素收敛。
     private void Target()
     {
         var desktop = Motion.GetProperty("desktop"); var light = Motion.GetProperty("atmosphere");
         _x.To = _pointerX * desktop.GetProperty("x").GetDouble(); _y.To = _pointerY * desktop.GetProperty("y").GetDouble();
         _lightX.To = _pointerX * light.GetProperty("x").GetDouble(); _lightY.To = _pointerY * light.GetProperty("y").GetDouble();
-        _quiet = 0;
+        _quiet = 0; _pointerIdle = 0; _pixelSettling = false;
     }
     // 按下连入场的可见进度一起冻结，松开从同一姿态接回。
     public void Hold()
@@ -44,18 +64,37 @@ internal sealed class BackdropMotion
     public void Center() { Held = false; _pointerX = _pointerY = 0; _entry.To = 1; Target(); }
     public void Reset()
     {
-        Held = false; _pointerX = _pointerY = 0; _quiet = 0;
+        Held = false; _pointerX = _pointerY = 0; _quiet = 0; _pointerIdle = 0; _pixelSettling = false;
         _x.Snap(0); _y.Snap(0); _lightX.Snap(0); _lightY.Snap(0); _entry.Snap(1);
     }
+    // 保留原逐帧弹簧；输入静止且接近落定后，仅把终点收敛到物理像素网格。
     public bool Step(double elapsed)
     {
         if (!double.IsFinite(elapsed)) { Reset(); return false; }
         if (Held) return false;
-        var moving = _x.Step(elapsed, Motion.GetProperty("desktop"));
-        moving = _y.Step(elapsed, Motion.GetProperty("desktop")) || moving;
+        _pointerIdle += Math.Clamp(elapsed, 0, .05);
+        var desktop = Motion.GetProperty("desktop");
+        var moving = _x.Step(elapsed, desktop);
+        moving = _y.Step(elapsed, desktop) || moving;
         moving = _lightX.Step(elapsed, Motion.GetProperty("atmosphere")) || moving;
         moving = _lightY.Step(elapsed, Motion.GetProperty("atmosphere")) || moving;
         moving = _entry.Step(elapsed, Motion.GetProperty("entry")) || moving;
+        // 80ms 无新坐标、剩余距离不超过半个物理像素且速度低于 2px/s 才微调终点。
+        // 不对当前帧取整，也不清速度；新输入会直接取消本次吸附并连续反向。
+        if (!_pixelSettling && _pointerIdle >= .08 && !_entry.Moving
+            && Math.Abs(_x.To - _x.Value) * _pixelScaleX <= .5 && Math.Abs(_y.To - _y.Value) * _pixelScaleY <= .5
+            && Math.Abs(_x.Velocity) * _pixelScaleX <= 2 && Math.Abs(_y.Velocity) * _pixelScaleY <= 2)
+        {
+            _pixelSettling = true;
+            // 幅度边界也落在像素网格内，避免 125% DPI 下向外取整超过原有位移上限。
+            var maxX = Math.Floor(desktop.GetProperty("x").GetDouble() * _pixelScaleX);
+            var maxY = Math.Floor(desktop.GetProperty("y").GetDouble() * _pixelScaleY);
+            _x.To = Math.Clamp(Math.Round(_x.To * _pixelScaleX, MidpointRounding.AwayFromZero), -maxX, maxX) / _pixelScaleX;
+            _y.To = Math.Clamp(Math.Round(_y.To * _pixelScaleY, MidpointRounding.AwayFromZero), -maxY, maxY) / _pixelScaleY;
+            moving = _x.Moving || _y.Moving || moving;
+        }
+        // 极小位移可能先达到原弹簧阈值；完成像素落点处理前不能提前休眠。
+        moving = moving || !_pixelSettling;
         _quiet = moving ? 0 : _quiet + 1;
         return _quiet < Motion.GetProperty("sleepFrames").GetInt32();
     }

@@ -45,8 +45,8 @@ public sealed class FrozenBackdropSurface : Grid
     public FrozenBackdropSurface()
     {
         IsHitTestVisible = false; ClipToBounds = true; _advance = Advance;
-        // 双线性采样保留亚像素位移；最近邻会把微动变成逐像素台阶。
-        RenderOptions.SetBitmapScalingMode(this, BitmapScalingMode.LowQuality);
+        // 初始与静止画面使用锐利采样；连续微移时才切为双线性，避免逐像素台阶。
+        RenderOptions.SetBitmapScalingMode(this, BitmapScalingMode.NearestNeighbor);
         var padding = BackdropMotion.Padding;
         _plane.Margin = new Thickness(-padding); _plane.RenderTransform = _shift;
         foreach (var size in new[] { new GridLength(padding), new GridLength(1, GridUnitType.Star), new GridLength(padding) })
@@ -81,9 +81,18 @@ public sealed class FrozenBackdropSurface : Grid
         SizeChanged += (_, _) => StopAndReset();
     }
 
+    // 混合 DPI 下重新计算落点；不在显示器切换或按下保持期间瞬移当前画面。
+    protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
+    {
+        base.OnDpiChanged(oldDpi, newDpi);
+        _motion.SetPixelScale(newDpi.DpiScaleX, newDpi.DpiScaleY); Wake();
+    }
+
     // 就绪门之前不位移、不加暗角，首次交接仍使用原始像素对齐。
     internal void SetPolicy(bool ready, bool allowed, bool reduced, bool holding = false)
     {
+        var dpi = VisualTreeHelper.GetDpi(this);
+        _motion.SetPixelScale(dpi.DpiScaleX, dpi.DpiScaleY);
         _ready = ready && Source is not null; _allowed = allowed; _reduced = reduced;
         if (!_ready || reduced) { StopAndReset(); return; }
         _interactionHeld = holding;
@@ -131,9 +140,16 @@ public sealed class FrozenBackdropSurface : Grid
         if (_holding) return false;
         var moving = _motion.Step(elapsed); ApplyFrame(_motion.Frame); _animating = moving; return moving;
     }
+    // 同一帧更新共享位移、采样和露边遮罩，不触发布局或复制冻结图。
     internal void ApplyFrame(BackdropFrame frame)
     {
         _shift.X = frame.X; _shift.Y = frame.Y;
+        // 停稳且两轴都对齐物理像素后才恢复最近邻；运动途中经过整数位置不切采样。
+        var dpi = VisualTreeHelper.GetDpi(this);
+        var pixelX = frame.X * dpi.DpiScaleX; var pixelY = frame.Y * dpi.DpiScaleY;
+        var sampling = _motion.TranslationSettled && Math.Abs(pixelX - Math.Round(pixelX)) < .000001
+            && Math.Abs(pixelY - Math.Round(pixelY)) < .000001 ? BitmapScalingMode.NearestNeighbor : BitmapScalingMode.LowQuality;
+        if (RenderOptions.GetBitmapScalingMode(this) != sampling) RenderOptions.SetBitmapScalingMode(this, sampling);
         _lightShift.X = frame.LightX; _lightShift.Y = frame.LightY;
         _atmosphere.Opacity = _ready && (_entered || _reduced) && Source is not null ? frame.Entry : 0;
         var w = ActualWidth; var h = ActualHeight;

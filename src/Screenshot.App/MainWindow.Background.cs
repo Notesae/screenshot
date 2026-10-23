@@ -2,7 +2,9 @@ using System;
 using System.ComponentModel;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace Screenshot.App;
 
@@ -15,7 +17,11 @@ public partial class MainWindow
     private void InitializeBackdropMotion()
     {
         Editor.RenderTransform = FrozenBackdrop.MotionTransform;
-        System.Windows.Media.RenderOptions.SetBitmapScalingMode(Editor, System.Windows.Media.BitmapScalingMode.LowQuality);
+        // 与底图同步切换运动/停稳采样；停稳后截图、文字和工具一起恢复锐利显示。
+        Editor.SetBinding(RenderOptions.BitmapScalingModeProperty, new Binding
+        {
+            Source = FrozenBackdrop, Path = new PropertyPath(RenderOptions.BitmapScalingModeProperty), Mode = BindingMode.OneWay
+        });
         AddHandler(PreviewMouseMoveEvent, new MouseEventHandler((_, e) =>
         {
             if (e.StylusDevice is null) FrozenBackdrop.Move(e.GetPosition(FrozenBackdrop));
