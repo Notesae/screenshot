@@ -547,7 +547,7 @@ export class LiquidMotion {
 }
 
 /** 动效控制器随外壳卸载，宿主验帧完成后才启用；关闭版本由 React effect 清理保护。 */
-export function useLiquidMotion(root: RefObject<HTMLDivElement | null>, rail: RefObject<HTMLDivElement | null>, presented: boolean, panel: string | null, visiblePanel: string | null, source: RefObject<HTMLButtonElement | null>, position: { x: number; y: number; width: number }, railPosition: {x:number;y:number}, selection: MotionRect | null, capture: MotionRect | null, onClosed: () => void) {
+export function useLiquidMotion(root: RefObject<HTMLDivElement | null>, rail: RefObject<HTMLDivElement | null>, presented: boolean, panel: string | null, visiblePanel: string | null, source: RefObject<HTMLButtonElement | null>, position: { x: number; y: number; width: number; height: number }, railPosition: {x:number;y:number}, selection: MotionRect | null, capture: MotionRect | null, onClosed: () => void) {
   const controller = useRef<LiquidMotion | null>(null);
   useLayoutEffect(() => {
     if (!root.current || !rail.current) return;
@@ -561,9 +561,9 @@ export function useLiquidMotion(root: RefObject<HTMLDivElement | null>, rail: Re
   useLayoutEffect(() => {
     if(!presented&&panel)return;
     const element = root.current?.querySelector<HTMLElement>('.clay-card');
-    if (!element || !controller.current || panel && panel !== visiblePanel) return;
+    if (!element || !controller.current) return;
     let cancelled = false;
     void controller.current.panel(element, source.current, Boolean(panel), visiblePanel ?? '').then(completed => { if (completed && !cancelled && !panel) onClosed(); });
     return () => { cancelled = true; controller.current?.clock.cancel('panel'); };
-  }, [panel, visiblePanel, source.current, position.x, position.y, position.width, presented]);
+  }, [panel, visiblePanel, source.current, position.x, position.y, position.width, position.height, presented]);
 }

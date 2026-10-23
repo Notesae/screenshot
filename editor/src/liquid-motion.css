@@ -49,6 +49,7 @@
 .clay-editor .liquid-panel { background: transparent; box-shadow: none; overflow: visible; animation: none !important; }
 .liquid-panel-skin { position: absolute; inset: 0; z-index: 0; border-radius: inherit; background: var(--clay-card-face); box-shadow: var(--clay-elevation); transform-origin: top left; pointer-events: none; }
 .liquid-panel-content { position: relative; z-index: 1; display: flex; flex-direction: column; min-height: 0; border-radius: inherit; overflow: hidden; }
+.liquid-panel-page { display: flex; flex-direction: column; min-height: 0; border-radius: inherit; }
 .clay-editor .liquid-panel.is-closing { animation: none; }
 .clay-editor .liquid-image-copy { position: fixed; z-index: 4; pointer-events: none; transform-origin: center; }
 .clay-editor[data-motion-exit] :where(.clay-chrome,.clay-capture-layer,.clay-reader) { pointer-events: none !important; }

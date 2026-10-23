@@ -6,6 +6,7 @@ import { MotionButton, presentationMotion, useLiquidMotion } from './LiquidMotio
 import { TranslationTools } from './TranslationTools';
 import { ToolGlyph } from './ToolGlyph';
 import { annotationNames } from './annotationAppearance';
+import { usePanelPage } from './usePanelPage';
 import { RailBody } from './RailBody';
 import { Select } from './Select';
 import { TooltipLayer } from './TooltipLayer';
@@ -47,7 +48,8 @@ function usePanelHeight(content:RefObject<HTMLDivElement|null>,panel:Panel|null,
     const changes=new MutationObserver(observe);changes.observe(body,{childList:true,subtree:true,characterData:true});
     observe();return()=>{resize.disconnect();changes.disconnect();};
   },[content,panel,width,maximum]);
-  return measured?.panel===panel&&measured.width===width?measured.height:maximum;
+  // 切换先沿用当前高度，布局效应实测后再重定向，避免短暂跳到最大高度。
+  return measured?.height??maximum;
 }
 
 type Props = {
@@ -91,9 +93,6 @@ export function CompactOverlay(props:Props) {
   const retainedNotice=useRef(props.notice),notice=props.notice??retainedNotice.current;
   useLayoutEffect(()=>{if(props.notice)retainedNotice.current=props.notice;},[props.notice]);
   useEffect(()=>setReading(false),[doc.image,editor.imageTranslation,editor.mode]);
-  // 浮卡关闭由可打断时间线确认，旧回调不得移除新打开的内容。
-  const [visiblePanel,setVisiblePanel]=useState<Panel|null>(panel);
-  useLayoutEffect(()=>{if(panel)setVisiblePanel(panel);},[panel]);
   // 表现层只持有 DOM，不写入截图、历史或项目。
   const rootRef=useRef<HTMLDivElement>(null);
   // 拖动只预览工具避让，松手才请求裁剪，避免逐帧传输截图。
@@ -108,8 +107,11 @@ export function CompactOverlay(props:Props) {
   // 取消待命或删除后保留最后一张属性卡直到退场结束，期间立即禁止编辑。
   const retainedProperty=useRef<{selection:CanvasSelection|null;tool:AnnotationKind|null}>({selection:null,tool:null});
   if(props.selection||drawingTool)retainedProperty.current={selection:props.selection,tool:drawingTool};
-  const propertySelection=props.selection??(!drawingTool?retainedProperty.current.selection:null);
-  const propertyTool=drawingTool??(!props.selection?retainedProperty.current.tool:null);
+  const requestedSelection=props.selection??(!drawingTool?retainedProperty.current.selection:null);
+  const requestedTool=drawingTool??(!props.selection?retainedProperty.current.tool:null);
+  const pageKey=panel==='properties'?panel+':'+(requestedSelection?.type??requestedTool??''):panel;
+  const {shown,switching,page,closed}=usePanelPage(panel?{key:pageKey!,panel,selection:requestedSelection,tool:requestedTool}:null,rootRef);
+  const visiblePanel=shown?.panel??null,propertySelection=shown?.selection??null,propertyTool=shown?.tool??null;
   useLayoutEffect(()=>{if(panel==='properties'&&!props.selection&&!drawingTool)setPanel(null);},[panel,props.selection,drawingTool]);
   const [paintedImage,setPaintedImage]=useState<ProjectDocument["image"]>(null);
   const [viewport,setViewport]=useState(readPresentationViewport);
@@ -140,7 +142,7 @@ export function CompactOverlay(props:Props) {
   // 胶边使用真实物理选区换算后的矩形，独立于美化留白和画布显示尺寸。
   const captureArea=selectionPreview??metadata?.selection;
   const captureRim=metadata&&captureArea&&!metadata.contentScale?{x:(captureArea.x-metadata.desktopBounds.x)*viewport.width/metadata.desktopBounds.width,y:(captureArea.y-metadata.desktopBounds.y)*viewport.height/metadata.desktopBounds.height,width:captureArea.width*viewport.width/metadata.desktopBounds.width,height:captureArea.height*viewport.height/metadata.desktopBounds.height}:null;
-  useLiquidMotion(rootRef,railRef,chromeVisible&&!props.suspended,panel,visiblePanel,trigger,tools.card,tools.rail,mapped?.frame??null,captureRim,()=>setVisiblePanel(null));
+  useLiquidMotion(rootRef,railRef,chromeVisible&&!props.suspended,panel,visiblePanel,trigger,tools.card,tools.rail,mapped?.frame??null,captureRim,closed);
   const automaticReader=editor.imageTranslation&&editor.mode!=='reflow'?translationReaderPlacement(screen,mapped?.frame??null,tools.rail):null;
   // 手动移动/缩放后固定窗口矩形；允许用户移到截图旁边，不因工具避让或重开而跳回。
   const reader=automaticReader?{box:readerBounds??automaticReader.box,full:automaticReader.full&&!readerBounds}:null;
@@ -294,12 +296,12 @@ export function CompactOverlay(props:Props) {
         <MotionButton data-panel-trigger="more" aria-label="更多操作" aria-expanded={panel==='more'} onClick={event=>openPanel('more',event.currentTarget)}><MoreHorizontal aria-hidden="true"/></MotionButton><MotionButton aria-label="收起编辑，保留文档" data-tooltip="收起编辑" onClick={()=>props.onPresentation('hidden')}><X aria-hidden="true"/></MotionButton>
       </div>
       {visiblePanel&&<section id="clay-active-panel" data-panel={visiblePanel} aria-hidden={!panel} inert={!panel} className={'clay-card liquid-panel '+(visiblePanel==='more'?'clay-drawer ':'')+(!panel?'is-closing':'')} role="region" aria-label={title} style={{left:tools.card.x,top:tools.card.y,width:tools.card.width,maxHeight:tools.card.height}}>
-        <span className="liquid-panel-skin" aria-hidden="true"/><div className="liquid-panel-content">
+        <span className="liquid-panel-skin" aria-hidden="true"/><div className="liquid-panel-content"><div ref={page} className="liquid-panel-page" inert={switching}>
         <header className="clay-card-heading" tabIndex={0} aria-label={'移动'+title+'，方向键微调'} onPointerDown={event=>beginDrag('card',event)} onPointerMove={moveDrag} onPointerUp={endDrag} onLostPointerCapture={endDrag} onKeyDown={event=>{if(event.target===event.currentTarget)moveByKey('card',event);}}><span className="clay-panel-mark" aria-hidden="true">{visiblePanel==='properties'&&propertyKind?<ToolGlyph kind={propertyKind}/>:visiblePanel==='beauty'?<Sparkles/>:visiblePanel==='text'?<ScanText/>:visiblePanel==='recovery'?<RotateCcw/>:<MoreHorizontal/>}</span><div className="clay-panel-heading-copy"><h2>{title}</h2><p>{panelCaption}</p></div><ControlButton aria-label="关闭浮卡" onClick={closePanel}><X aria-hidden="true"/></ControlButton></header>
         <div className="clay-card-content" ref={cardContent}>
           {visiblePanel==='beauty'&&doc.image&&editor.mode!=='reflow'&&<StyleTools document={doc} update={update} comparing={comparing} onCompare={()=>{canvasRef.current?.exitSelection();setComparison(comparing?null:doc);}} onGesture={beautyGesture} onError={props.onError}/>}
           {visiblePanel==='text'&&<TextTools {...props.textTools} compact/>}
-          {visiblePanel==='properties'&&<AnnotationPalette selection={propertySelection} tool={propertyTool} disabled={props.renderStatus!=='ready'||!props.selection&&!drawingTool} canvasRef={canvasRef} onError={props.onError}/>}
+          {visiblePanel==='properties'&&<AnnotationPalette selection={propertySelection} tool={propertyTool} disabled={switching||!panel||props.renderStatus!=='ready'||!props.selection&&!drawingTool} canvasRef={canvasRef} onError={props.onError}/>}
           {visiblePanel==='recovery'&&props.recoveryPanel}
           {visiblePanel==='more'&&<>
             <section className="clay-section"><h3>截图与文件</h3><div className="clay-action-grid"><ControlButton onClick={()=>props.onCapture('capture.region')}>重新框选</ControlButton><ControlButton onClick={props.onOpenImage}><ImagePlus aria-hidden="true"/>打开图片</ControlButton><ControlButton onClick={props.onOpenProject}><FolderOpen aria-hidden="true"/>打开项目</ControlButton><ControlButton onClick={props.onPaste}>粘贴图片</ControlButton></div></section>
@@ -312,7 +314,7 @@ export function CompactOverlay(props:Props) {
             <div className="clay-action-grid"><ControlButton onClick={()=>{setPanel(null);props.onConfigure();}}><Settings2 aria-hidden="true"/>设置</ControlButton><ControlButton onClick={()=>setPositions({})}><RotateCcw aria-hidden="true"/>重置工具位置</ControlButton></div>
           </>}
         </div>
-        </div>
+        </div></div>
       </section>}
     </fieldset>
     {readerMounted&&reader&&editor.imageTranslation&&<ImageTranslationReader rootRef={readerRoot} open={reading} data={editor.imageTranslation} box={reader.box} screen={screen} full={reader.full} onClose={closeReader} onBoundsChange={setReaderBounds} onReset={()=>setReaderBounds(null)}/>}

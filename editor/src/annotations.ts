@@ -1,8 +1,9 @@
-import { Control, Ellipse, FabricObject, Path, Point, Rect, Textbox, controlsUtils, util } from 'fabric';
+import { Control, FabricObject, Path, Point, Rect, Textbox, controlsUtils, util } from 'fabric';
 import { FONT } from './render';
 import type { Annotation, AnnotationKind } from './document';
 import { MosaicRect } from './MosaicRect';
 import { arrowPath, brushPath, hasStroke } from './annotationAppearance';
+import { ElasticArrow, ElasticEllipse, ElasticRect } from './AnnotationElasticity';
 // 画笔几何只放在受控元数据中，序列化时不读取 Fabric 的任意路径指令。
 const kinds = new WeakMap<FabricObject, { type: AnnotationKind; id: string; points?: [number, number][]; strokeWidth?: number }>();
 // 属性修改共用入口；线宽用于几何笔触，块大小仅用于马赛克。
@@ -12,11 +13,14 @@ export function annotationToObject(a: Annotation): FabricObject {
   const props = { originX: 'left' as const, originY: 'top' as const, left: a.left, top: a.top, width: a.width, height: a.height, scaleX: a.scaleX, scaleY: a.scaleY, angle: a.angle, cornerColor: '#b4432c', borderColor: '#b4432c', transparentCorners: false, lockScalingFlip: true };
   let object: FabricObject;
   if (a.type === 'text') object = new Textbox(a.text, { ...props, fontFamily: FONT, fontSize: a.fontSize, fill: a.color, splitByGrapheme: true, backgroundColor: a.backgroundColor || '' });
-  else if (a.type === 'ellipse') object = new Ellipse({ ...props, rx: a.width / 2, ry: a.height / 2, fill: 'transparent', stroke: a.color, strokeWidth: a.strokeWidth ?? 3, strokeUniform: true });
+  else if (a.type === 'ellipse') object = new ElasticEllipse({ ...props, rx: a.width / 2, ry: a.height / 2, fill: 'transparent', stroke: a.color, strokeWidth: a.strokeWidth ?? 3, strokeUniform: true });
   else if (a.type === 'brush') object = new Path(brushPath(a.points ?? [[0, 0], [1, 1]]), { ...props, fill: null, stroke: a.color, strokeWidth: a.strokeWidth ?? 3, strokeUniform: true, strokeLineCap: 'round', strokeLineJoin: 'round', perPixelTargetFind: true });
   else if (a.type === 'mosaic') { const mosaic = new MosaicRect({ ...props, fill: '#30332e', strokeWidth: 0, objectCaching: false }); mosaic.blockSize = a.blockSize ?? 12; object = mosaic; }
-  else if (a.type === 'arrow') object = new Path(arrowPath(a.width, a.height, a.strokeWidth ?? 3), { ...props, fill: a.color, stroke: a.color, strokeWidth: 0, perPixelTargetFind: true });
-  else object = new Rect({ ...props, rx: a.type === 'rect' || a.type === 'highlight' ? Math.min(6, a.width / 8, a.height / 8) : 0, ry: a.type === 'rect' || a.type === 'highlight' ? Math.min(6, a.width / 8, a.height / 8) : 0, fill: a.type === 'rect' ? 'transparent' : a.color, stroke: a.type === 'rect' ? a.color : undefined, strokeWidth: a.type === 'rect' ? a.strokeWidth ?? 3 : 0, strokeUniform: true, strokeLineJoin: 'round', opacity: a.type === 'highlight' ? .3 : 1 });
+  else if (a.type === 'arrow') object = new ElasticArrow(arrowPath(a.width, a.height, a.strokeWidth ?? 3), { ...props, fill: a.color, stroke: a.color, strokeWidth: 0, perPixelTargetFind: true });
+  else {
+    const Shape = a.type === 'rect' || a.type === 'highlight' ? ElasticRect : Rect;
+    object = new Shape({ ...props, rx: a.type === 'rect' || a.type === 'highlight' ? Math.min(6, a.width / 8, a.height / 8) : 0, ry: a.type === 'rect' || a.type === 'highlight' ? Math.min(6, a.width / 8, a.height / 8) : 0, fill: a.type === 'rect' ? 'transparent' : a.color, stroke: a.type === 'rect' ? a.color : undefined, strokeWidth: a.type === 'rect' ? a.strokeWidth ?? 3 : 0, strokeUniform: true, strokeLineJoin: 'round', opacity: a.type === 'highlight' ? .3 : 1 });
+  }
   object.set({cornerColor:'#f5f5f7',cornerStrokeColor:'#3b82f6',borderColor:'#3b82f6',cornerStyle:'circle',cornerSize:12});
   if(a.type==='arrow'){
     object.hasBorders=false;

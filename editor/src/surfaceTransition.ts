@@ -11,6 +11,7 @@ export class SurfaceTransition {
   private elapsed = 0;
   private duration = 170;
   private from!: MotionRect;
+  private fromVelocity!: MotionRect;
   private fromAlpha = 0;
   private fromMaterial = 0;
   private returning = false;
@@ -28,7 +29,7 @@ export class SurfaceTransition {
 
   open(target: MotionRect, newContent = false) {
     if (!this.opening || newContent) {
-      this.fromAlpha = newContent ? 0 : this.alpha; this.fromMaterial = this.material;
+      this.fromAlpha = this.alpha; this.fromMaterial = this.material;
       this.alpha = this.fromAlpha; this.progress.snap(0); this.progress.to = 1;
     }
     this.opening = true; this.closing = this.returning = false; this.redirect(target);
@@ -39,10 +40,10 @@ export class SurfaceTransition {
     this.startClose({ ...box, x: box.x + clamp(directionX, -1, 1) * 6, y: box.y + clamp(directionY, -1, 1) * 6, width: box.width * .98, height: box.height * .97 },duration,false);
   }
   /** 主浮卡回收到对应按钮；正文提前淡出，避免缩小时挤压文字。 */
-  closeTo(target:MotionRect,duration=170){this.startClose(target,duration,true);}
+  closeTo(target:MotionRect,duration=260){this.startClose(target,duration,true);}
   private startClose(target:MotionRect,duration:number,returning:boolean){
     if (this.closing || !this.opening && this.alpha === 0 && this.material === 0) return;
-    this.from = this.box; this.fromAlpha = this.alpha; this.fromMaterial = this.material;
+    this.from = this.box; this.fromVelocity = this.velocity; this.fromAlpha = this.alpha; this.fromMaterial = this.material;
     this.redirect(target);this.returning=returning;
     this.elapsed = 0; this.duration = Math.max(0, duration); this.opening = false; this.closing = true;
   }
@@ -65,13 +66,21 @@ export class SurfaceTransition {
       this.material = this.fromMaterial + (1 - this.fromMaterial) * clamp(p * this.materialLead);
     } else {
       this.elapsed += clamp(elapsed, 0, 0.05);
-      const t = this.duration ? clamp(this.elapsed * 1000 / this.duration) : 1, p = 1 - Math.pow(1 - t, 3);
-      const speed = t < 1 ? 3000 * Math.pow(1 - t, 2) / this.duration : 0;
+      const t = this.duration ? clamp(this.elapsed * 1000 / this.duration) : 1;
+      const seconds = Math.max(.001, this.duration / 1000), p = t * t * (3 - 2 * t);
+      const tangent = t * (1 - t) * (1 - t), speed = 6 * t * (1 - t) / seconds;
       for (const axis of axes) {
         const spring = this.geometry[axis], distance = spring.to - this.from[axis];
-        spring.x = this.from[axis] + distance * p; spring.v = distance * speed;
+        // Hermite 起始切线接住当前速度，终点速度为零；有界外伸避免小卡片反折。
+        const limit = Math.max(12, Math.abs(distance) * .6);
+        const velocity = clamp(this.fromVelocity[axis] * seconds, -limit, limit);
+        spring.x = this.from[axis] + distance * p + velocity * tangent;
+        spring.v = distance * speed + velocity * (1 - 4 * t + 3 * t * t) / seconds;
+        if (axis === 'width' || axis === 'height') spring.x = Math.max(1, spring.x);
       }
-      this.alpha = this.fromAlpha * (1 - (this.returning?clamp(p*2):p)); this.material = this.fromMaterial * (1 - p);
+      const fade = this.returning ? clamp(t / .62) : t, content = fade * fade * (3 - 2 * fade);
+      const skin = this.returning ? clamp((t - .12) / .88) : t;
+      this.alpha = this.fromAlpha * (1 - content); this.material = this.fromMaterial * (1 - skin * skin * (3 - 2 * skin));
       if (t === 1) this.finish();
     }
   }
