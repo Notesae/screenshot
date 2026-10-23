@@ -1,5 +1,11 @@
 # Native bridge v1
 
+## 2026-10-23 关闭取消与推理超时
+
+无新增桥方法。`screenshotPrepareLeave("close")` 与 replace 一样允许 AI 忙状态通过，仍保留其它本地操作、文字编辑与画布就绪保护；成功准备离开时同步作废网页任务序号，调用已有 `ai.cancel {taskId}`，关闭不等待取消回执。网页收起按钮在退场动效前也执行此取消，分块任务不得继续，迟到结果与错误提示无效。complete、pin、更新继续拒绝 AI 忙状态。
+
+`ai.test` 与原生设置草稿探测使用固定输入、64 个输出 token 上限及 30 秒期限；普通推理仍为 90 秒。原生设置只显示脱敏阶段和耗时。网页既有 120 秒兜底到期时对对应推理 taskId 发送 ai.cancel，避免无人等待的推理继续占用门控。协议仍不向网页传密钥；用户未点击时不探测、不重试、不上传截图。
+
 ## 2026-10-23 桌面钉图
 
 新增 `image.pin {dataUrl:string,documentId:string,revision:number,captureId?:string}`，仅可信编辑器可调用，参与原有本地操作互斥。dataUrl 必须为本地 PNG，沿用 64 MiB 解码边界，并限制单边 16000、总计 4000 万像素。宿主在解码后使用 `screenshotPrepareLeave("pin")` 核对文档身份、修订、任务及画布状态，并复核呈现代数和 captureId；拒绝过期或已隐藏的呈现。pin 仅允许“钉到桌面”操作通过离开检查，不写恢复快照。

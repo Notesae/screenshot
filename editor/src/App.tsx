@@ -55,10 +55,10 @@ export default function App() {
   const actions = useRef<(action:string,text?:string,error?:boolean)=>void>(()=>{});
   // 成功提示按长度留出阅读时间，错误保持到用户关闭；旧计时器不能清除较新的提示。
   useEffect(() => {
-    if (!notice || notice.error) return;
+    if (!notice || notice.error || aiBusy) return;
     const timer = setTimeout(() => setNotice(current => current === notice ? null : current), Math.min(12000, Math.max(6000, notice.text.length * 60)));
     return () => clearTimeout(timer);
-  }, [notice]);
+  }, [notice, aiBusy]);
   const [settings, setSettings] = useState<Settings>({ providers: [] });
   const [providerId, setProviderId] = useState('');
   const [targetLanguage, setTargetLanguage] = useState('简体中文');
@@ -86,8 +86,8 @@ export default function App() {
       const snapshot = prepareLeaveSnapshot({ operation:operationRef.current, aiBusy:Boolean(aiBusy), editing:canvas.current?.interactionState().editing || false, loading:Boolean(doc.image) && canvasStatus !== 'ready', documentId, revision:history.currentRevision(), document:history.current(), projectSaved:savedProject.current?.id===documentId && savedProject.current.revision===history.currentRevision() }, reason);
       if (!('error' in snapshot)) {
         hostLock.current=true;setHostLocked(true);
-        // 替换意图先使旧 AI 身份失效，捕获等待期间的迟到结果不能成为未保护的新修改。
-        if(reason==='replace'&&aiTaskId.current){const taskId=aiTaskId.current;aiSequence.current++;aiTaskId.current=null;setAiBusy('');void native.request('ai.cancel',{taskId}).catch(()=>{});}
+        // 关闭和替换先使旧任务失效，再通知宿主取消；迟到结果不能回写文档或提示。
+        if(reason==='replace'||reason==='close')void stopAi().catch(()=>{});
       }
       return snapshot;
     };
@@ -434,7 +434,7 @@ export default function App() {
         if(failed.length){setNotice({text:`${failed.length} / ${completed.length} 块翻译失败，成功块已保留。可仅重试失败块。`,error:true});return;}
         result={text:translationText({...data,chunks:completed})};
       } else result=await native.request<unknown>(local?'ocr.local':'ai.ocr',{taskId,...(local?{}:{providerId,providerRevision}),imageDataUrl:input!.dataUrl});
-      if (!matches()) { setNotice({ text: '内容已切换或修改，已忽略之前的识别或翻译结果。' }); return; }
+      if (!matches()) { if(sequence===aiSequence.current)setNotice({ text: '内容已切换或修改，已忽略之前的识别或翻译结果。' }); return; }
       if (local) {
         const ocr = parseOcr(result, { crop: snapshot.editor.crop, resize: snapshot.editor.resize });
         if (ocr.imageWidth !== input!.width || ocr.imageHeight !== input!.height) throw new Error('识别坐标与输入尺寸不符。');
@@ -450,9 +450,15 @@ export default function App() {
     } catch (error) { if (sequence === aiSequence.current) errorNotice(error); }
     finally { if (sequence===aiSequence.current) {aiTaskId.current=null;setAiBusy('');} }
   }
+  // 同步作废前端身份；关闭无需等取消回执，分块任务也不能继续发送下一块。
+  function stopAi() {
+    const taskId=aiTaskId.current;aiTaskId.current=null;aiSequence.current++;setAiBusy('');
+    return taskId?native.request('ai.cancel',{taskId}):Promise.resolve();
+  }
   async function cancelOcr() {
-    const taskId=aiTaskId.current; aiTaskId.current=null; aiSequence.current++; setAiBusy('');
-    try { if(taskId) await native.request('ai.cancel',{taskId}); setNotice({ text: '已取消此任务，现有校对内容保持不变。' }); } catch (error) { errorNotice(error); }
+    const cancellation=stopAi(),sequence=aiSequence.current;
+    setNotice({ text: '已取消此任务，现有校对内容保持不变。' });
+    try { await cancellation; } catch(error) { if(sequence===aiSequence.current)errorNotice(error); }
   }
   // 所有入口共用一张设置浮卡，关闭后同步服务和截图方式，避免沿用旧状态。
   async function configureSettings(section:'capture'|'services'='capture') {
@@ -478,6 +484,7 @@ export default function App() {
     await run(mode === 'workbench' ? '打开轻量编辑器' : '退出编辑', async () => {
       const revision = generation.current;
       const captureId = overlayRef.current?.captureId;
+      if(mode==='hidden')void stopAi().catch(()=>{});
       // 收起仅改变呈现；失败时恢复原位现场，文档与历史始终保留。
       const motion=presentationMotion();
       if(mode==='hidden'&&motion&&!await motion.exit('dismiss'))return;

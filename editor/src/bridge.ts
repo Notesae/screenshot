@@ -21,6 +21,10 @@ export class NativeBridge {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
+        // 前端兜底超时也终止宿主任务，避免丢掉回执后仍占用下一次翻译的门控。
+        if (['ai.ocr','ai.translate','ai.translateImage','ai.test','ocr.local'].includes(method) && 'taskId' in payload && typeof payload.taskId === 'string') {
+          try { this.send?.({ id: `cancel-${id}`, method: 'ai.cancel', payload: { taskId: payload.taskId } }); } catch { /* 原请求仍以超时结束。 */ }
+        }
         reject(new Error('操作超时，请检查服务或桌面应用后重试。'));
       }, this.timeoutMs);
       this.pending.set(id, { resolve: value => resolve(value as T), reject, timer });

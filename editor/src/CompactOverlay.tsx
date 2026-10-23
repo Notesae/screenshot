@@ -3,6 +3,7 @@ import { MotionDetails } from './MotionDetails';
 import { useSurfaceMotion } from './SurfaceMotion';
 import { useBackdropMotion } from './BackdropMotion';
 import { MotionButton, presentationMotion, useLiquidMotion } from './LiquidMotion';
+import { TranslationCancel } from './TranslationCancel';
 import { RailBody } from './RailBody';
 import { Select } from './Select';
 import { TooltipLayer } from './TooltipLayer';
@@ -271,8 +272,8 @@ export function CompactOverlay(props:Props) {
         <div className="clay-image-tools" role="group" aria-label="图片工具">
           <MotionButton group="image" data-tooltip="美化图片" aria-label="美化图片" aria-expanded={panel==='beauty'} aria-controls={panel==='beauty'?'clay-active-panel':undefined} disabled={!doc.image||editor.mode==='reflow'} onClick={event=>openPanel('beauty',event.currentTarget)}><ImageAppearanceIcon/></MotionButton>
           <MotionButton group="image" data-tooltip="提取文字（OCR）" aria-label="提取文字" aria-expanded={panel==='text'} aria-controls={panel==='text'?'clay-active-panel':undefined} disabled={!hasContent} onClick={event=>openPanel('text',event.currentTarget)}><ScanText aria-hidden="true"/></MotionButton>
-          <MotionButton group="image" data-tooltip="翻译图片：将选区外语替换为中文" aria-label="翻译图片为中文" aria-busy={aiBusy==='翻译图片'} disabled={!doc.image||editor.mode==='reflow'||!!aiBusy||props.renderStatus!=='ready'} onClick={()=>{setPanel(null);canvasRef.current?.exitSelection();props.onTranslateImage();}}><Languages aria-hidden="true"/></MotionButton>
-          {aiBusy==='翻译图片'&&<MotionButton group="image" data-tooltip="取消图片翻译" aria-label="取消图片翻译" onClick={props.onCancelAi}><X aria-hidden="true"/></MotionButton>}
+          <span className="clay-translation-tools"><MotionButton group="image" data-tooltip="翻译图片：将选区外语替换为中文" aria-label="翻译图片为中文" aria-busy={aiBusy==='翻译图片'} disabled={!doc.image||editor.mode==='reflow'||!!aiBusy||props.renderStatus!=='ready'} onClick={()=>{setPanel(null);canvasRef.current?.exitSelection();props.onTranslateImage();}}><Languages aria-hidden="true"/></MotionButton>
+          <TranslationCancel open={aiBusy==='翻译图片'} onCancel={props.onCancelAi}/></span>
         </div>
         {editor.imageTranslation?.blocks.length&&editor.mode!=='reflow'?<MotionButton ref={readerTrigger} data-tooltip="放大阅读完整译文，不改变截图排版" aria-label="阅读完整译文" aria-expanded={reading} disabled={!!aiBusy||props.renderStatus!=='ready'} onClick={()=>{setPanel(null);canvasRef.current?.exitSelection();setReading(value=>!value);}}><BookOpen aria-hidden="true"/>阅读译文</MotionButton>:null}
         <HistoryButtons canUndo={props.canUndo} canRedo={props.canRedo} undo={props.undo} redo={props.redo}/>

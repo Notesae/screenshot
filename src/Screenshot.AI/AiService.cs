@@ -1,5 +1,5 @@
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 
 namespace Screenshot.AI;
@@ -106,20 +106,39 @@ public sealed partial class AiService : IAiTextService, IDisposable
     }, token);
 
     // 组装两种聊天协议，限制响应体积并只提取文字；错误不回传服务商原文。
-    private async Task<AiTextResult> SendAsync(StoredProvider provider, object messages, CancellationToken token)
+    private async Task<AiTextResult> SendAsync(StoredProvider provider, object messages, CancellationToken token, int? outputLimit = null, IProgress<string>? progress = null)
     {
         var endpoint = provider.Kind == "ollama" ? provider.BaseUrl.TrimEnd('/') + "/api/chat" : provider.BaseUrl.TrimEnd('/') + "/chat/completions";
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
         if (!string.IsNullOrEmpty(provider.ProtectedApiKey))
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", AiSettingsStore.Unprotect(provider.ProtectedApiKey));
-        request.Content = JsonContent.Create(new { model = provider.Model, messages, stream = false });
+        var body = new Dictionary<string, object> { ["model"] = provider.Model, ["messages"] = messages, ["stream"] = false };
+        if (outputLimit is { } limit)
+        {
+            if (provider.Kind == "ollama") body["options"] = new { num_predict = limit };
+            else body["max_tokens"] = limit;
+        }
+        // 固定 UTF-8 请求体长度，兼容不完整支持 HTTP/1.1 分块上传的 API 网关。
+        // 不重试、不跟随重定向，也不改变系统代理或证书校验。
+        request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        progress?.Report("正在连接服务并等待响应");
         using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
         if (!response.IsSuccessStatusCode)
         {
             var status=(int)response.StatusCode;
             var code=status switch {401 or 403=>"provider_authentication_failed",429=>"provider_rate_limited",400 or 404 or 422=>"provider_request_invalid",>=500=>"provider_unavailable",_=>"provider_http_error"};
-            throw new AiProviderException(code,$"服务商返回 HTTP {status}。"+(status==429?"请求被限流，请稍后手动重试失败部分。":"请检查服务地址、模型、认证及服务状态。"));
+            var hint = status switch {
+                401 => "密钥未通过认证，请检查当前服务的 API 密钥。",
+                403 => "服务拒绝访问，请检查账户及模型使用权限。",
+                404 => "未找到接口或模型，请检查服务地址和完整模型名称。",
+                429 => "请求被限流，请稍后手动重试失败部分。",
+                >=500 => "服务暂不可用或上游响应超时，请稍后手动重试。",
+                _ => "请检查服务地址、模型、认证及服务状态。"
+            };
+            throw new AiProviderException(code,$"服务商返回 HTTP {status}。"+hint);
         }
+        progress?.Report("服务已响应，正在接收结果");
         if (response.Content.Headers.ContentLength > 2 * 1024 * 1024)
             throw new AiProviderException("invalid_provider_response", "服务商响应过大，无法读取。");
         await using var stream = await response.Content.ReadAsStreamAsync(token);
@@ -149,13 +168,24 @@ public sealed partial class AiService : IAiTextService, IDisposable
     }
 
     // 统一超时、主动取消和连接异常，避免暴露底层地址或连接诊断。
-    private static async Task<AiTextResult> ExecuteAsync(Func<CancellationToken, Task<AiTextResult>> action, CancellationToken token)
+    private static async Task<AiTextResult> ExecuteAsync(Func<CancellationToken, Task<AiTextResult>> action, CancellationToken token, TimeSpan? limit = null)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-        timeout.CancelAfter(RequestTimeout);
+        var duration = limit ?? RequestTimeout;
+        timeout.CancelAfter(duration);
         try { token.ThrowIfCancellationRequested(); return await action(timeout.Token); }
-        catch (OperationCanceledException) { throw new AiProviderException(token.IsCancellationRequested ? "cancelled" : "provider_timeout", token.IsCancellationRequested ? "操作已取消。" : "服务商请求超时，请稍后重试或使用更快的模型。"); }
-        catch (HttpRequestException) { throw new AiProviderException("provider_connection_failed", "无法连接服务商，请检查地址、网络、证书及本地服务是否启动。"); }
+        catch (OperationCanceledException) { throw new AiProviderException(token.IsCancellationRequested ? "cancelled" : "provider_timeout", token.IsCancellationRequested ? "操作已取消。" : $"等待 {duration.TotalSeconds:0} 秒仍未收到完整结果；可能是网络连接、服务排队或生成较慢，请稍后手动重试。"); }
+        catch (HttpRequestException error)
+        {
+            var hint = error.HttpRequestError switch {
+                HttpRequestError.NameResolutionError => "无法解析服务域名，请检查地址与 DNS。",
+                HttpRequestError.SecureConnectionError => "无法建立安全连接，请检查系统时间、证书及代理设置。",
+                HttpRequestError.ProxyTunnelError => "代理连接失败，请检查系统代理及代理认证。",
+                HttpRequestError.ResponseEnded => "服务提前中断响应，请稍后手动重试。",
+                _ => "无法连接服务商，请检查网络、系统代理及服务是否可用。"
+            };
+            throw new AiProviderException("provider_connection_failed", hint);
+        }
     }
 
     private static PublicSettings Public(StoredSettings settings) => new(settings.Providers.Select(p => new PublicProvider(p.Id, p.Name, p.Kind, p.Model, p.BaseUrl, !string.IsNullOrEmpty(p.ProtectedApiKey),ProviderRevision(p))).ToArray(), settings.DefaultProviderId);
