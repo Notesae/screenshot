@@ -1,0 +1,6 @@
+standalone.html
+design-review.html
+previews/
+tests/result-*.json
+__pycache__/
+*.zip

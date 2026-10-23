@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="clay">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Screenshot · 液态共生 2</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<div id="app">
+<header class="topbar"><a class="brand" href="#" aria-label="Screenshot 首页"><span class="brand-icon">S<span></span></span><strong>Screenshot<small>液态共生 / 02</small></strong></a><div class="top-actions"><span class="prototype-tag">独立交互原型</span><button class="plain" id="themeToggle" aria-label="切换材质">深暖灰</button><button class="plain" id="labToggle" aria-expanded="false">设计台</button><button class="new-capture" id="newCapture"><span>＋</span> 新建截图</button></div></header>
+<section class="intro"><div><p class="eyebrow">SOFT CLAY · LIQUID SYMBIOSIS</p><h1>靠近，就有回应。</h1></div><div class="intro-note">整体有张力，个体有感知。<br><span>移动、按压、手绘，直接体验这层柔软的界面。</span></div></section>
+<nav class="scenes" aria-label="体验场景"><button data-scene="capture" class="on">01 <span>截图与标注</span></button><button data-scene="beauty">02 <span>美化</span></button><button data-scene="ocr">03 <span>识别与翻译</span></button><button data-scene="reader">04 <span>阅读</span></button><button data-scene="settings">05 <span>设置</span></button><button data-scene="components">06 <span>组件与状态</span></button><button id="replay" class="replay">↻ 重播入场</button></nav>
+<main id="stage" tabindex="-1" aria-label="合成截图编辑舞台">
+<div id="desktop" aria-hidden="true"><div class="wallpaper-orb orb-a"></div><div class="wallpaper-orb orb-b"></div><div class="mock-window"><header><i></i><i></i><i></i><span>studio / field-notes / collected-moments</span></header><div class="mock-sidebar"><strong>FIELD<br>NOTES.</strong><span>日常片段</span><span>灵感收藏</span><span>所有笔记</span><small>少一些打扰<br>多一些感受</small></div><div id="sourcePreview"></div></div></div>
+<div id="shade"></div><div id="capture" tabindex="0" aria-label="截图选区，方向键移动，Shift 调整尺寸"><div id="captureContent"><canvas id="preview" width="1000" height="600"></canvas><svg id="marks" viewBox="0 0 1000 600" preserveAspectRatio="none"></svg></div><div id="rim" aria-hidden="true"></div><span id="sizeTag"></span><div id="handles"></div></div>
+<svg id="effects" class="effects" aria-hidden="true"><defs><linearGradient id="bridgePaint" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--raisedTop)"/><stop offset="1" stop-color="var(--raisedBottom)"/></linearGradient></defs><g id="panelBridge"></g></svg>
+<div id="pulse" aria-hidden="true"></div>
+<div id="rail" role="toolbar" aria-label="截图编辑工具"><div id="railBody" aria-hidden="true"></div><div id="railGlint" aria-hidden="true"></div><button id="grip" class="grip" aria-label="移动工具轨" title="拖动工具轨">⠿</button><div id="toolScroll"><div id="tools"></div></div><div id="fixedTools"></div><svg id="railFluid" aria-hidden="true"><path id="liquidBridge" fill="url(#bridgePaint)"/></svg><div id="activeBlob" aria-hidden="true"></div></div>
+<section id="panel" class="floating clay" hidden aria-label="属性面板"><div class="floating-body"></div></section>
+<section id="reader" class="floating clay reader" hidden aria-label="译文阅读"></section>
+<div id="morph" class="clay morph" hidden aria-hidden="true"></div>
+<div id="task" class="task clay" hidden role="status" aria-live="polite"></div>
+<div id="hiddenState" hidden><div class="rest-orb">✓</div><h2>把这一刻，留在手边。</h2><p id="restMessage">演示完成。没有写入系统剪贴板。</p><button class="primary" id="restart">再截一张</button><button class="secondary" id="resume">恢复编辑</button></div>
+<div class="stage-status"><span><i></i><span id="phase">编辑就绪</span></span><span>合成内容 · 不读取真实屏幕</span></div>
+<button id="trayButton" class="tray-button" aria-label="打开模拟托盘菜单">S<span>托盘</span></button>
+<div id="tooltip" role="tooltip" hidden></div><div id="textEditor" hidden></div><div id="toast" class="toast clay" hidden role="status" aria-live="polite"></div>
+</main>
+<footer class="footnote"><span>移动鼠标感受牵引 · 拖动绘制 · Esc 逐层返回</span><button class="plain" id="exportPng">导出当前 PNG</button><span class="footer-state" id="modeLabel">完整动效 · 暖泥材质</span></footer>
+</div>
+<aside id="lab" class="lab clay" hidden aria-label="设计调试台"><header><div><span class="eyebrow">LIVE CONTROLS</span><h2>调试动效，不打断体验。</h2></div><button class="close" id="labClose" aria-label="关闭设计台">×</button></header><div class="lab-body"><label class="switch">减少动态<input id="reduced" type="checkbox"><span></span></label><p class="help" id="systemReduce">系统偏好优先；开启后停止正在运行的装饰动画。</p><label class="switch">低开销模式<input id="economy" type="checkbox"><span></span></label><label class="switch">显示稳定命中区<input id="hitboxes" type="checkbox"><span></span></label><label class="range-label">感知强度 <output id="intensityValue">100%</output><input id="intensity" type="range" min="0" max="150" value="100"></label><label class="range-label">感知距离 <output id="radiusValue">110 px</output><input id="radius" type="range" min="50" max="180" value="110"></label><label class="field">任务结果<select id="outcome"><option value="success">成功</option><option value="slow">慢任务</option><option value="failure">失败 · 保留现场</option><option value="empty">空结果</option><option value="partial">部分失败</option><option value="stale">过期结果</option></select></label><div class="lab-buttons"><button class="secondary" id="testComplete">测试完成流程</button><button class="secondary" id="testCancel">演示取消收束</button></div><details><summary>运行信息</summary><pre id="metrics"></pre><ol id="events"></ol></details><p class="help">OCR、翻译、服务及更新是可取消的本地模拟；文件导入、绘图、撤销及 PNG 导出可实际操作。</p></div></aside>
+<div id="popover" class="popover clay" hidden></div><div id="modalRoot" hidden></div><input id="imageFile" type="file" accept="image/png,image/jpeg,image/webp" hidden><input id="projectFile" type="file" accept=".json,.liquid.json" hidden>
+<script id="tokenData" type="application/json">__TOKENS__</script><script src="engine.js"></script><script src="app.js"></script>
+</body></html>
