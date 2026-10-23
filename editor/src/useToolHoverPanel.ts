@@ -24,7 +24,9 @@ export function useToolHoverPanel(root: RefObject<HTMLElement | null>, options: 
       clearTimeout(opening); candidate = null; clearTimeout(closing);
       closing = setTimeout(() => {
         // 按住滑杆或正在键盘输入时不自动收回；下一次在画布按下会主动关闭。
-        if (pressed || editingField()) return;
+        // 重绘或禁用控件也会移交焦点；指针仍在工具/浮卡内时不把它误当作移出。
+        const hovered=node.querySelector('[data-hover-panel]:hover,.clay-card:not(.is-closing):hover,.clay-scrollbar:hover')||document.querySelector('.clay-color-popover:not([inert]):hover,.clay-select-menu:not([inert]):hover');
+        if (pressed || editingField() || hovered) return;
         latest.current.close();
       }, 260);
     };
