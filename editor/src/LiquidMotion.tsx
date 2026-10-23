@@ -103,6 +103,8 @@ export class LiquidMotion {
     };
     listen(root, 'pointermove', ((event: PointerEvent) => {
       if (!this.active || document.hidden) return;
+      // 布局交接可能重新派发同坐标事件；没有真实移动时不重新唤醒刚收束的牵引场。
+      if(!this.pointer.inside&&Math.hypot(event.clientX-this.pointer.x,event.clientY-this.pointer.y)<.75)return;
       this.pointer = { x: event.clientX, y: event.clientY, inside: event.pointerType === 'mouse' && !(event.target as Element).closest('.clay-card,.clay-reader,.clay-select-menu,.clay-color-popover') };
       this.wake();
     }) as EventListener);
@@ -112,7 +114,7 @@ export class LiquidMotion {
       const node = this.nodes.find(n => n.el === button);
       if (!this.active || document.hidden || !node || !this.usable(node)) return;
       this.pressed = node; node.press.to = 1;
-      node.x.to = node.x.x; node.y.to = node.y.x; node.x.v = node.y.v = 0;
+      node.x.to = node.x.x; node.y.to = node.y.x;
       const index = this.nodes.indexOf(node);
       for (const offset of [-1, 1]) {
         const neighbor = this.nodes[index + offset];
@@ -157,6 +159,7 @@ export class LiquidMotion {
     updateReduced();
   }
   invalidate(){this.dirty=true;this.wake();}
+  get toolsTransitioning(){return this.toolModes.pending||this.toolModes.moving;}
   /** 整体搬动后丢弃旧轨道的屏幕坐标与局部余振，下一帧直接测量新落点。 */
   rebaseRail(){
     this.toolModes.reset();this.pointer.inside=false;this.contact=null;this.nearest=null;
@@ -381,9 +384,10 @@ export class LiquidMotion {
       node.glyph.style.transform = 'translate(' + (x * T.field.iconRatio + entryX) + 'px,' + (y * T.field.iconRatio + entryY + p * 1.2) + 'px)';
       const mode=this.toolModes.pose(node.el);
       if(mode){
-        const width=mode.width*(1+mode.strain),ratio=width/Math.max(1,node.rect.width);
-        node.skin.style.transform=`translate(${mode.x+(width-node.rect.width)/2}px,${mode.y}px) `+node.skin.style.transform+` scale(${ratio},${1/(1+mode.strain)})`;
-        node.glyph.style.transform=`translate(${mode.x}px,${mode.y}px) `+node.glyph.style.transform;
+        const ratio=mode.width/Math.max(1,node.rect.width);
+        // 布局仍以左缘对齐，落位后的回弹以自身中心受力；图文随同一竖向余振移动。
+        node.skin.style.transform=`translate(${mode.x+(mode.width-node.rect.width)/2}px,${mode.y+mode.lift}px) `+node.skin.style.transform+` scale(${ratio*(1+mode.strain)},${1/(1+mode.strain)})`;
+        node.glyph.style.transform=`translate(${mode.x}px,${mode.y+mode.lift}px) `+node.glyph.style.transform;
       }
       node.skin.style.opacity = String(toss.skin); node.glyph.style.opacity = String(toss.content);
       // 受压侧略变平、外侧鼓起；图文只跟随平移，始终不参与软体挤压。
