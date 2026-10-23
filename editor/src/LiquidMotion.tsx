@@ -6,6 +6,7 @@ import { paintPanel } from './PanelSkin';
 import { SelectionJelly, type SelectionGrip } from './SelectionJelly';
 import { RailToss, railOutline, railWarp } from './RailToss';
 import { ToolStateMotion } from './ToolStateMotion';
+import { RailIconMotion } from './RailIconMotion';
 
 /** 固定语义槽位承接输入，材质与图文各自变形，避免按钮追着光标改变命中区。 */
 export function MotionButton({ children, group = 'end', ...props }: ComponentPropsWithRef<'button'> & { group?: string }) {
@@ -22,6 +23,8 @@ const rect = (box: DOMRect): MotionRect => ({ x: box.left, y: box.top, width: bo
 /** v2 的局部表现控制器：共享帧循环、稳定命中、软体邻接和可中断退场。 */
 export class LiquidMotion {
   private toolModes:ToolStateMotion;
+  private icons:RailIconMotion;
+  private reconciling=false;
   readonly clock = new MotionClock();
   private nodes: Surface[] = [];
   private dirty = true;
@@ -82,9 +85,10 @@ export class LiquidMotion {
     root.dataset.motionHidden = String(document.hidden); this.clock.setSuspended(true);
     this.clock.onIdle = () => { root.dataset.motionState = 'sleep'; };
     this.toolModes=new ToolStateMotion(rail,this.clock);
+    this.icons=new RailIconMotion(rail,this.clock,()=>!this.active||document.hidden||this.toolsTransitioning||this.entrance.moving||Boolean(this.root.dataset.motionDragging),owner=>this.toolModes.pose(owner)?.iconForce??0);
     this.clock.listen((dt, time) => this.paint(dt, time));
     this.controls = new ControlFeedback(root, this.clock);
-    const invalidate = () => { this.dirty = true; this.wake(); };
+    const invalidate = () => this.invalidate();
     this.resize = new ResizeObserver(entries => {
       // 同一布局帧内补偿材质比例，内容展开时不能先按新尺寸拉伸一帧再追赶。
       if (this.panelElement && !this.panelElement.classList.contains('is-closing') && entries.some(entry => entry.target === this.panelElement)) {
@@ -158,11 +162,19 @@ export class LiquidMotion {
     this.cleanup.push(() => this.reduced.removeEventListener('change', updateReduced));
     updateReduced();
   }
-  invalidate(){this.dirty=true;this.wake();}
+  /** React 居中与 ResizeObserver 可能晚于本帧 RAF；显示前重算补偿，不能等下一帧。 */
+  invalidate(){
+    this.dirty=true;
+    if(this.active&&!document.hidden&&!this.reconciling){
+      this.reconciling=true;
+      try{this.paint(0,performance.now());}finally{this.reconciling=false;}
+    }
+    this.wake();
+  }
   get toolsTransitioning(){return this.toolModes.pending||this.toolModes.moving;}
   /** 整体搬动后丢弃旧轨道的屏幕坐标与局部余振，下一帧直接测量新落点。 */
   rebaseRail(){
-    this.toolModes.reset();this.pointer.inside=false;this.contact=null;this.nearest=null;
+    this.toolModes.reset();this.icons.reset();this.pointer.inside=false;this.contact=null;this.nearest=null;
     for(const node of this.nodes)for(const spring of [node.x,node.y,node.attention,node.contact])spring.snap(0);
     this.invalidate();
   }
@@ -193,6 +205,7 @@ export class LiquidMotion {
   /** 旧会话的迎向、按压、接触压力和尺寸惯性不能带到下一次揭示。 */
   private resetField() {
     this.toolModes.reset();
+    this.icons.reset();
     this.pointer.inside = false; this.pressed = this.nearest = null; this.contact = null;
     this.indicatorSource = null;
     for (const node of this.nodes) {
@@ -244,6 +257,7 @@ export class LiquidMotion {
       return node;
     });
     this.toolModes.layout(this.rr,[...this.nodes.map(node=>({element:node.el as HTMLElement,box:node.rect})),...(this.grip?[{element:this.grip.element,box:this.grip.rect}]:[])]);
+    this.icons.sync();
     if (this.panelElement?.isConnected) {
       this.panelLayout = { actual: rect(this.panelElement.getBoundingClientRect()), anchor: this.panelSource?.isConnected ? rect(this.panelSource.getBoundingClientRect()) : null };
     }
@@ -357,7 +371,7 @@ export class LiquidMotion {
     this.nearest = near ?? null;
     this.followContact(time, near);
     // 牵引目标仍随时间变化，整段接触结束前不能因某一帧恰好静止而提前休眠。
-    let moving = this.toolModes.moving || this.entrance.moving || Boolean(this.contact), sum = 0, center = 0;
+    let moving = this.icons.step(dt) || this.toolModes.moving || this.entrance.moving || Boolean(this.contact), sum = 0, center = 0;
     for (const [index, node] of this.nodes.entries()) {
       let attention = 0, dx = 0, dy = 0;
       if (near && this.usable(node)) {
@@ -576,7 +590,7 @@ export class LiquidMotion {
     this.paintSelection();
   }
   destroy() {
-    this.restore(); this.destroyed = true; this.controls.destroy(); this.toolModes.destroy(); this.clock.dispose(); this.resize.disconnect(); this.mutation.disconnect();
+    this.restore(); this.destroyed = true; this.controls.destroy(); this.icons.destroy(); this.toolModes.destroy(); this.clock.dispose(); this.resize.disconnect(); this.mutation.disconnect();
     this.cleanup.forEach(clean => clean());
   }
 }

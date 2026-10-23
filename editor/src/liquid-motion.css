@@ -17,6 +17,7 @@
 .liquid-skin::after, .liquid-active::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(40px circle at var(--liquid-light-x,50%) var(--liquid-light-y,25%), #fff, transparent); opacity: var(--liquid-light,0); }
 .liquid-glyph { position: relative; z-index: 2; display: inline-flex; align-items: center; justify-content: center; gap: 8px; pointer-events: none; }
 .clay-editor .liquid-glyph > svg { width: var(--clay-size-icon); height: var(--clay-size-icon); }
+.clay-editor .liquid-glyph svg { overflow: visible; }
 .clay-editor .clay-image-tools .liquid-glyph > svg { width: 21px; height: 21px; }
 /* 两个按钮共享一张软体外壳完成拉扯、断开与余振，结束后交回原控件皮肤。 */
 .clay-translation-tools { position: relative; display: inline-flex; align-items: center; flex: none; isolation: isolate; --split-source-shift: 0px; --split-alpha: 1; --split-offset: 0px; }

@@ -73,12 +73,12 @@ export function TranslationTools(props: Props) {
         </filter>
       </defs><path ref={outline} fill={`url(#${id})`} filter={`url(#${id}-clay)`}/>
     </svg>
-    <MotionButton group="image" data-tooltip="翻译图片：将选区外语替换为中文" aria-label="翻译图片为中文" aria-busy={props.translating} disabled={props.translateDisabled} onClick={props.onTranslate}>
+    <MotionButton group="image" data-icon-motion="translate" data-tooltip="翻译图片：将选区外语替换为中文" aria-label="翻译图片为中文" aria-busy={props.translating} disabled={props.translateDisabled} onClick={props.onTranslate}>
       <span className="clay-translation-source-glyph"><Languages aria-hidden="true"/></span>
     </MotionButton>
     {shown && <span ref={slot} className="clay-translation-split-slot" inert={!active} aria-hidden={!active}>
       <span className="clay-translation-split-face">
-        <MotionButton group="image" ref={shown === 'read' ? props.readerTrigger : undefined}
+        <MotionButton group="image" data-icon-motion={shown} ref={shown === 'read' ? props.readerTrigger : undefined}
           disabled={!active || shown === 'read' && props.readDisabled} aria-label={shown === 'cancel' ? '取消图片翻译' : '阅读完整译文'}
           data-tooltip={shown === 'cancel' ? '取消图片翻译' : '阅读译文：放大查看完整译文'}
           aria-expanded={shown === 'read' ? props.reading : undefined} onClick={shown === 'cancel' ? props.onCancel : props.onRead}>

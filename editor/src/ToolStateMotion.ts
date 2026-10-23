@@ -52,7 +52,8 @@ export class ToolStateMotion {
     const s=this.states.get(element),body=this.body;
     if(!s||!body)return null;
     return {x:s.x.x-s.box.x+body.x,y:s.y.x-s.box.y+body.y,width:s.width.x,height:s.height.x,
-      strain:clamp(s.recoil.x/100,-.1,.1),lift:-s.recoil.x*.12};
+      strain:clamp(s.recoil.x/100,-.1,.1),lift:-s.recoil.x*.12,
+      iconForce:clamp(s.width.v/440+(s.draw.v-s.edit.v)/30+s.recoil.x/12,-1,1)};
   }
   step(dt:number){
     if(this.frame)for(const axis of axes){const spring=this.frame[axis];if(this.clock.reduced)spring.snap(spring.to);else spring.step(dt,'toolLayout');}

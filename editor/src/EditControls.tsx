@@ -5,7 +5,7 @@ import { Redo2, Undo2 } from 'lucide-react';
 import { contentGeometry, type ContentResize, type ProjectDocument, type SourceCrop } from './document';
 
 export function HistoryButtons({ canUndo, canRedo, undo, redo }: { canUndo: boolean; canRedo: boolean; undo: () => void; redo: () => void }) {
-  return <><MotionButton group="history" data-tooltip="撤销 Ctrl+Z" aria-label="撤销" disabled={!canUndo} onClick={undo}><Undo2/></MotionButton><MotionButton group="history" data-tooltip="重做 Ctrl+Y" aria-label="重做" disabled={!canRedo} onClick={redo}><Redo2/></MotionButton></>;
+  return <><MotionButton group="history" data-icon-motion="undo" data-tooltip="撤销 Ctrl+Z" aria-label="撤销" disabled={!canUndo} onClick={undo}><Undo2/></MotionButton><MotionButton group="history" data-icon-motion="redo" data-tooltip="重做 Ctrl+Y" aria-label="重做" disabled={!canRedo} onClick={redo}><Redo2/></MotionButton></>;
 }
 export { AnnotationPalette } from './AnnotationPalette';
 

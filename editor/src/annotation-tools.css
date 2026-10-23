@@ -1,6 +1,5 @@
-/* 图标描画与真实标注反馈共用调度器；没有循环动画，也不改动内容的几何。 */
+/* 图标部件与真实标注反馈共用调度器；没有循环动画，也不改动内容的几何。 */
 .clay-editor svg.annotation-tool-glyph { width: 21px; height: 21px; overflow: visible; }
-.annotation-tool-ink path { stroke-dasharray: 1; stroke-dashoffset: calc(1 - var(--tool-draw,1)); }
 /* 蓝色凸面表示下一笔，凹面控制点表示正在调整；状态文案不依赖颜色识别。 */
 .clay-editor .clay-rail button[data-tool-state] { width: 75px; padding-inline: 9px; flex: none; color: var(--clay-ink); }
 .clay-editor .clay-rail button[data-tool-state=idle] { width: 39px; }
@@ -62,4 +61,4 @@
 .annotation-empty { padding-block: 12px; }
 .annotation-empty p { margin: 0 0 4px; }
 .annotation-empty span { font-size: 12px; color: var(--clay-muted); }
-@media (prefers-reduced-motion: reduce) { .annotation-feedback { visibility: hidden; } .annotation-tool-glyph { transform: none !important; } .annotation-tool-ink path { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) { .annotation-feedback { visibility: hidden; } .annotation-tool-glyph { transform: none !important; } }
