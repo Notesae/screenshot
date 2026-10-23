@@ -237,18 +237,28 @@
       <Grid>
         <ToggleButton x:Name="Toggle" Focusable="False" IsChecked="{Binding IsDropDownOpen,Mode=TwoWay,RelativeSource={RelativeSource TemplatedParent}}">
           <ToggleButton.Template><ControlTemplate TargetType="ToggleButton">
+            <!-- 固定输入槽位；底板承接形变，文字与箭头共享不缩放的图文层。 -->
             <Grid Background="Transparent">
-              <local:SoftClaySurface x:Name="Face" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayWell}" BorderThickness="0" Material="Inset"/>
-              <Grid x:Name="Glyph" IsHitTestVisible="False"><Path x:Name="Arrow" Data="M 0,0 L 4,4 L 8,0" Stroke="{DynamicResource ClayMuted}" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0"/></Grid>
+              <local:SoftClaySurface x:Name="Face" IsHitTestVisible="False" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayWell}" BorderThickness="0" Material="Inset">
+                <Border x:Name="Focus" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayFocusFill}" Visibility="Collapsed"/>
+              </local:SoftClaySurface>
+              <Grid x:Name="Glyph" IsHitTestVisible="False">
+                <ContentPresenter Margin="12,9,36,9" VerticalAlignment="Center"
+                                  Content="{Binding SelectionBoxItem,RelativeSource={RelativeSource AncestorType={x:Type ComboBox}}}"
+                                  ContentTemplate="{Binding SelectionBoxItemTemplate,RelativeSource={RelativeSource AncestorType={x:Type ComboBox}}}"
+                                  ContentTemplateSelector="{Binding ItemTemplateSelector,RelativeSource={RelativeSource AncestorType={x:Type ComboBox}}}"
+                                  ContentStringFormat="{Binding SelectionBoxItemStringFormat,RelativeSource={RelativeSource AncestorType={x:Type ComboBox}}}"/>
+                <Path x:Name="Arrow" Data="M 0,0 L 4,4 L 8,0" Stroke="{DynamicResource ClayMuted}" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0"/>
+              </Grid>
             </Grid>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayWellActive}"/></Trigger>
               <Trigger Property="IsChecked" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayWellActive}"/></Trigger>
+              <!-- 焦点底色随材质运动，不能用固定外层覆盖出矩形边缘。 -->
+              <DataTrigger Binding="{Binding IsKeyboardFocusWithin,RelativeSource={RelativeSource AncestorType={x:Type ComboBox}}}" Value="True"><Setter TargetName="Focus" Property="Visibility" Value="Visible"/></DataTrigger>
             </ControlTemplate.Triggers>
           </ControlTemplate></ToggleButton.Template>
         </ToggleButton>
-        <ContentPresenter Margin="12,9,36,9" Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}" ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}" VerticalAlignment="Center" IsHitTestVisible="False"/>
-        <Border x:Name="Focus" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayFocusFill}" BorderThickness="0" Visibility="Collapsed" IsHitTestVisible="False"/>
         <Popup x:Name="PART_Popup" Placement="Bottom" VerticalOffset="4" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False">
           <local:SoftClayPopupSurface Margin="12" Padding="4" MinWidth="{Binding ActualWidth,RelativeSource={RelativeSource TemplatedParent}}">
             <ScrollViewer MaxHeight="{TemplateBinding MaxDropDownHeight}" CanContentScroll="True" HorizontalScrollBarVisibility="Disabled"><ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/></ScrollViewer>
@@ -256,7 +266,6 @@
         </Popup>
       </Grid>
       <ControlTemplate.Triggers>
-        <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Focus" Property="Visibility" Value="Visible"/></Trigger>
         <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="{DynamicResource ClayDisabledOpacity}"/></Trigger>
       </ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>

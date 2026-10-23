@@ -218,12 +218,14 @@ internal static class SoftClayMotion
         private readonly ScaleTransform _scale = new(1, 1);
         private readonly TranslateTransform _glyphShift = new();
         private readonly RotateTransform _arrowTurn = new();
+        // 长下拉字段常贴近滚动边缘，材质只在自己的固定槽位内形变。
+        private readonly bool _isComboTrigger;
         public bool Pressed;
 
         // 命中网格不参与变换；材质与图文分别挂接到模板零件。
         public SurfaceState(ButtonBase owner, FrameworkElement face, FrameworkElement? glyph, FrameworkElement? arrow)
         {
-            Owner = owner;
+            Owner = owner; _isComboTrigger = owner.TemplatedParent is ComboBox;
             if (face != null)
             {
                 face.RenderTransformOrigin = new Point(.5, .5);
@@ -238,12 +240,24 @@ internal static class SoftClayMotion
             }
         }
 
+        // 下拉底板的缩放与平移合并限幅，保证圆角不会越出槽位被 ScrollViewer 剪平。
         public void Paint()
         {
-            Shift.X = X.Value; Shift.Y = Y.Value;
-            _scale.ScaleX = ScaleX.Value; _scale.ScaleY = ScaleY.Value;
+            var x = X.Value; var y = Y.Value;
+            var scaleX = ScaleX.Value; var scaleY = ScaleY.Value; var pressDepth = 0d;
+            if (_isComboTrigger)
+            {
+                var width = Math.Max(1, Owner.ActualWidth); var height = Math.Max(1, Owner.ActualHeight);
+                x = Math.Clamp(x, -width / 2, width / 2); y = Math.Clamp(y, -height / 2, height / 2);
+                // 以中心缩放后再平移，任一侧的可见边界都不得越过原输入区域。
+                scaleX = Math.Clamp(Math.Min(scaleX, 1 - 2 * Math.Abs(x) / width), 0, 1);
+                scaleY = Math.Clamp(Math.Min(scaleY, 1 - 2 * Math.Abs(y) / height), 0, 1);
+                // 与网页下拉相同，按下只让图文轻沉，不缩放选中文字或改变点击范围。
+                pressDepth = Math.Clamp((1 - ScaleY.Value) / (1 - Motion.GetProperty("press").GetProperty("y").GetDouble()), 0, 1) * 1.2;
+            }
+            Shift.X = x; Shift.Y = y; _scale.ScaleX = scaleX; _scale.ScaleY = scaleY;
             var ratio = Motion.GetProperty("field").GetProperty("iconRatio").GetDouble();
-            _glyphShift.X = X.Value * ratio; _glyphShift.Y = Y.Value * ratio;
+            _glyphShift.X = x * ratio; _glyphShift.Y = y * ratio + pressDepth;
             _arrowTurn.Angle = Chevron.Value * 180;
         }
 
