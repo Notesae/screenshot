@@ -157,7 +157,7 @@ internal sealed class RegionOverlay : Form, ICaptureHandoff
         base.OnMouseUp(e);if(e.Button!=MouseButtons.Left||!_model.Dragging)return;
         _pointer=e.Location;_model.Update(e.X+_desktop.X,e.Y+_desktop.Y);_model.End();
         if(_startedEmpty&&Math.Abs(e.X-_down.X)<=3&&Math.Abs(e.Y-_down.Y)<=3&&_snapEnabled){var target=CaptureTargets.AtPoint(_snapTargets,e.X+_desktop.X,e.Y+_desktop.Y,_allowed,_snapClient);if(target is not null){_feedback.Snap();_model.Set(target.Bounds);}}
-        Capture=false;if(_model.HasArea)FinishSelection();else {UpdateFeedback();Invalidate();}
+        Capture=false;if(_model.HasArea)FinishSelection();else {_feedback.Snap();UpdateFeedback();Invalidate();}
     }
     protected override void OnKeyDown(KeyEventArgs e)
     {
