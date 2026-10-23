@@ -34,6 +34,8 @@ export class LiquidMotion {
   private bodyLight = new MotionSpring();
   private railRadius = 0;
   private indicator = { x: new MotionSpring(), y: new MotionSpring(), width: new MotionSpring(), opacity: new MotionSpring() };
+  // 逻辑取消后继续持有材质来源，直到颜色与按压都收敛再交还普通皮肤。
+  private indicatorSource: Surface | null = null;
   private panelRect: MotionRect | null = null;
   private panelOpacity = 0;
   private panelMaterial = 0;
@@ -164,9 +166,11 @@ export class LiquidMotion {
   /** 旧会话的迎向、按压和尺寸惯性不能带到下一次揭示，也不能留下液桥。 */
   private resetField() {
     this.pointer.inside = false; this.pressed = this.nearest = null; this.bridge = null; this.bridgeLast = -Infinity;
+    this.indicatorSource = null;
     for (const node of this.nodes) {
       for (const spring of [node.x, node.y, node.attention, node.press]) spring.snap(0);
       node.birth.snap(1); node.faceX = node.faceY = 0;
+      delete node.el.dataset.motionMaterial;
       node.skin.style.transform = node.glyph.style.transform = 'none';
       node.skin.style.opacity = node.glyph.style.opacity = '1';
       node.skin.style.borderRadius = node.radius + 'px'; node.skin.style.setProperty('--liquid-light', '0');
@@ -277,21 +281,30 @@ export class LiquidMotion {
     const selected = this.nodes.find(node => node.el.getAttribute('aria-pressed') === 'true' && this.usable(node));
     const ind = this.indicator;
     ind.opacity.to = selected ? 1 : 0;
-    if (selected) {
-      // 迁移弹簧只追固定槽位，迎向与按压直接复用本帧材质，避免再次滞后或重复位移。
-      ind.x.to = selected.rect.x; ind.y.to = selected.rect.y; ind.width.to = selected.rect.width;
-      if (!ind.opacity.x || reduced) { ind.x.snap(ind.x.to); ind.y.snap(ind.y.to); ind.width.snap(ind.width.to); }
+    // 只有首次取得材质时才对齐初始槽位，淡回灰色不能重置位置速度。
+    const previousSource = this.indicatorSource;
+    if (selected) this.indicatorSource = selected;
+    else if (this.indicatorSource && !this.usable(this.indicatorSource)) this.indicatorSource = null;
+    let source = this.indicatorSource;
+    if (source) {
+      // 迁移只追固定槽位；取消选中仍沿用最后来源的完整按压、迎向与入场姿态。
+      ind.x.to = source.rect.x; ind.y.to = source.rect.y; ind.width.to = source.rect.width;
+      if (!previousSource || reduced) { ind.x.snap(ind.x.to); ind.y.snap(ind.y.to); ind.width.snap(ind.width.to); }
     }
     for (const spring of Object.values(ind)) { if (reduced) spring.snap(spring.to); else spring.step(dt, 'indicator'); moving = spring.moving || moving; }
+    // 颜色、迁移和按压都落定才交回普通皮肤，避免旧轮廓仍在退场就提前换面。
+    if (!selected && source && !ind.opacity.moving && ind.opacity.x === 0 && !ind.x.moving && !ind.y.moving && !ind.width.moving && !source.press.moving && this.pressed !== source) this.indicatorSource = source = null;
+    for (const node of this.nodes) node.el.dataset.motionMaterial = String(node === source);
     const blob = this.rail.querySelector<HTMLElement>('.liquid-active')!;
-    const skin = selected?.skin;
-    // 蓝面、凹陷阴影和追光共享同一轮廓；文字仍走独立图文层，不随材质缩放。
-    blob.dataset.motionPressed = String(Boolean(selected && this.pressed === selected));
+    const skin = source?.skin;
     Object.assign(blob.style, {
-      width: ind.width.x + 'px', height: (selected?.rect.height ?? 36) + 'px',
-      opacity: String(ind.opacity.x * Number(skin?.style.opacity ?? 1)), borderRadius: skin?.style.borderRadius ?? '',
+      width: ind.width.x + 'px', height: (source?.rect.height ?? 36) + 'px',
+      opacity: source ? skin?.style.opacity || '1' : '0', borderRadius: skin?.style.borderRadius ?? '',
       transform: 'translate(' + ind.x.x + 'px,' + ind.y.x + 'px) ' + (skin?.style.transform ?? '') + ' scale(' + (1 + Math.min(.24, Math.abs(ind.x.v) / 1800)) + ',' + (1 - Math.min(.13, Math.abs(ind.x.v) / 3300)) + ')'
     });
+    // 同一连续进度只改变涂层与阴影权重，不再按 pointerup 或 aria-pressed 瞬间换面。
+    blob.style.setProperty('--liquid-selection', String(clamp(ind.opacity.x)));
+    blob.style.setProperty('--liquid-press', String(reduced ? Number(Boolean(source && this.pressed === source)) : clamp(source?.press.x ?? 0)));
     for (const name of ['--liquid-light', '--liquid-light-x', '--liquid-light-y']) blob.style.setProperty(name, skin?.style.getPropertyValue(name) || '0');
     const path = this.rail.querySelector<SVGPathElement>('.liquid-bridge path')!;
     if (this.bridge && !reduced && !this.economy && this.usable(this.bridge.a) && this.usable(this.bridge.b)) {
