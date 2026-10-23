@@ -189,7 +189,7 @@ export class LiquidMotion {
       node.skin.style.opacity = node.glyph.style.opacity = '1';
       node.skin.style.borderRadius = node.radius + 'px'; node.skin.style.setProperty('--liquid-light', '0');
     }
-    this.entrance.finish(); this.rail.style.removeProperty('overflow');
+    this.entrance.finish();
     if (this.grip) { this.grip.icon.style.transform = 'none'; this.grip.icon.style.opacity = '1'; }
     this.bulge.snap(0); this.bodyLight.snap(this.rr.width / 2);
     const body = this.rail.querySelector<HTMLElement>('.liquid-rail-body');
@@ -213,7 +213,8 @@ export class LiquidMotion {
       const box = grip.getBoundingClientRect();
       this.grip = { icon, rect: { x: box.x - this.rr.x, y: box.y - this.rr.y, width: box.width, height: box.height } };
     } else this.grip = null;
-    this.railRadius = parseFloat(getComputedStyle(this.rail).borderTopLeftRadius) || 0;
+    const railStyle = getComputedStyle(this.rail);
+    this.railRadius = parseFloat(railStyle.borderTopLeftRadius) || 0;
     const outline = this.rail.querySelector<SVGPathElement>('.liquid-rail-outline');
     if (outline !== this.outline) { this.outline = outline; this.outlinePath = ''; }
     this.rail.querySelector('.liquid-rail-contour')?.setAttribute('viewBox', '0 0 ' + this.rr.width + ' ' + this.rr.height);
@@ -231,6 +232,12 @@ export class LiquidMotion {
     if (this.panelElement?.isConnected) {
       this.panelLayout = { actual: rect(this.panelElement.getBoundingClientRect()), anchor: this.panelSource?.isConnected ? rect(this.panelSource.getBoundingClientRect()) : null };
     }
+    // 只按固定按钮槽位判断真实溢出；阴影、软边和入场缩放不能让滚动容器反复开关。
+    // 加回滚动偏移，避免滚到末尾后误以为内容已经装下；一像素容差吸收布局舍入。
+    const { scrollLeft, scrollTop, clientWidth, clientHeight } = this.rail;
+    const paddingRight = parseFloat(railStyle.paddingRight) || 0, paddingBottom = parseFloat(railStyle.paddingBottom) || 0;
+    const overflow = this.nodes.some(({ rect: r }) => r.width > 0 && r.height > 0 && (r.x + scrollLeft < -1 || r.y + scrollTop < -1 || r.x + scrollLeft + r.width + paddingRight > clientWidth + 1 || r.y + scrollTop + r.height + paddingBottom > clientHeight + 1));
+    this.rail.dataset.motionScroll = String(overflow);
     this.dirty = false;
   }
   selection(box: MotionRect | null) {
@@ -309,9 +316,6 @@ export class LiquidMotion {
     if (this.root.dataset.motionDragging) this.entrance.finish();
     this.entrance.step(dt, reduced);
     const toss = this.entrance.frame, shear = Math.tan(toss.shear * Math.PI / 180);
-    // 抛出时允许软体越过最终槽位；结束后恢复原有横向裁切与纵向滚动策略。
-    const overflow = this.entrance.moving ? 'visible' : '';
-    if (this.rail.style.overflow !== overflow) this.rail.style.overflow = overflow;
     const reacting = !this.entrance.moving && !reduced && pointer.inside && !this.pressed && this.fine.matches && !this.root.inert && !this.root.dataset.motionDragging;
     const radius = T.field.radius;
     const distance = (node: Surface) => Math.hypot(pointer.x - this.rr.x - node.rect.x - node.rect.width / 2, pointer.y - this.rr.y - node.rect.y - node.rect.height / 2);
