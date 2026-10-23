@@ -4,10 +4,12 @@ import { useSurfaceMotion } from './SurfaceMotion';
 import { motionTokens } from './motion';
 import { motionSuspended, observeMotionScope } from './motionScope';
 
-/** 统一鼠标与键盘提示；关闭立即解除说明关系，材质保留到退场结束。 */
+/** 统一鼠标与键盘提示；移开时保留退场，激活控件时立即撤去提示。 */
 export function TooltipLayer() {
   const anchor = useRef<HTMLSpanElement>(null), popup = useRef<HTMLDivElement>(null), id = useId();
   const [target, setTarget] = useState<HTMLElement | null>(null), [position, setPosition] = useState({ left: 0, top: 0 });
+  // 激活操作不保留退场节点，避免提示收回按钮时遮住按压和面板展开。
+  const [dismissed, setDismissed] = useState(false);
   // 只为退场保留最后一条提示，不继续追踪已离开的按钮。
   const retained = useRef<HTMLElement | null>(null), shown = target ?? retained.current;
   const mounted = useSurfaceMotion(!!target, popup, shown, position.left + ':' + position.top);
@@ -19,14 +21,20 @@ export function TooltipLayer() {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let keyboard = false; // 键盘焦点提示不被无关表面的 pointerout 清除。
     const clear = () => { clearTimeout(timer); keyboard = false; setTarget(null); };
+    // 捕获阶段先隐藏像素；即使按钮停止冒泡或本次点击触发焦点变化，也不闪回旧提示。
+    const dismiss = () => {
+      if (popup.current) popup.current.hidden = true;
+      retained.current = null; setDismissed(true); clear();
+    };
     const show = (event: Event) => {
       const element = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-tooltip]') : null;
       if (!element || !root.contains(element)) return;
+      if (event.type === 'focusin' && !element.matches(':focus-visible')) return;
       if (motionSuspended(root) || element.matches(':disabled') || element.closest('[inert]')) { clear(); return; }
       keyboard = event.type === 'focusin';
       clearTimeout(timer); timer = setTimeout(() => {
         if (motionSuspended(root) || !element.isConnected || element.matches(':disabled') || element.closest('[inert]')) clear();
-        else setTarget(element);
+        else { setDismissed(false); setTarget(element); }
       }, event.type === 'focusin' ? 0 : motionTokens.duration.tooltip);
     };
     const leave = (event: Event) => {
@@ -35,10 +43,10 @@ export function TooltipLayer() {
       clear();
     };
     root.addEventListener('pointerover', show); root.addEventListener('focusin', show);
-    root.addEventListener('pointerout', leave); root.addEventListener('focusout', leave); root.addEventListener('pointerdown', clear); root.addEventListener('keydown', clear);
+    root.addEventListener('pointerout', leave); root.addEventListener('focusout', leave); root.addEventListener('pointerdown', dismiss, true); root.addEventListener('keydown', dismiss, true);
     window.addEventListener('resize', clear); window.addEventListener('scroll', clear, true);
     const stopScope = observeMotionScope(root, suspended => { if (suspended) clear(); });
-    return () => { stopScope(); clearTimeout(timer); root.removeEventListener('pointerover', show); root.removeEventListener('focusin', show); root.removeEventListener('pointerout', leave); root.removeEventListener('focusout', leave); root.removeEventListener('pointerdown', clear); root.removeEventListener('keydown', clear); window.removeEventListener('resize', clear); window.removeEventListener('scroll', clear, true); };
+    return () => { stopScope(); clearTimeout(timer); root.removeEventListener('pointerover', show); root.removeEventListener('focusin', show); root.removeEventListener('pointerout', leave); root.removeEventListener('focusout', leave); root.removeEventListener('pointerdown', dismiss, true); root.removeEventListener('keydown', dismiss, true); window.removeEventListener('resize', clear); window.removeEventListener('scroll', clear, true); };
   }, []);
   useLayoutEffect(() => {
     if (!target || !popup.current) return;
@@ -51,5 +59,5 @@ export function TooltipLayer() {
     target.setAttribute('aria-describedby', [original, id].filter(Boolean).join(' '));
     return () => { if (original) target.setAttribute('aria-describedby', original); else target.removeAttribute('aria-describedby'); };
   }, [target, id]);
-  return <><span ref={anchor} hidden/>{mounted && shown && createPortal(<div ref={popup} id={id} role="tooltip" aria-hidden={!target} className="clay-tooltip" style={position}><div className="liquid-surface-skin" aria-hidden="true"/><div className="liquid-surface-content">{shown.dataset.tooltip}</div></div>, anchor.current?.parentElement ?? document.body)}</>;
+  return <><span ref={anchor} hidden/>{!dismissed && mounted && shown && createPortal(<div ref={popup} id={id} role="tooltip" aria-hidden={!target} className="clay-tooltip" style={position}><div className="liquid-surface-skin" aria-hidden="true"/><div className="liquid-surface-content">{shown.dataset.tooltip}</div></div>, anchor.current?.parentElement ?? document.body)}</>;
 }

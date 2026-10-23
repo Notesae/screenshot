@@ -1,5 +1,7 @@
 /* v2 只接管表现层；所有布局、颜色、圆角和物理截图映射仍由生产 token 决定。 */
 .clay-editor .liquid-rail { isolation: isolate; background: transparent; box-shadow: none; animation: none !important; }
+/* 按钮按可用宽度换行；入场形变的横向溢出不应产生可交互的滚动条，纵向仍供窄屏使用。 */
+.clay-editor .liquid-rail { overflow-x: hidden; overflow-y: auto; }
 /* 裁切仅随真实内容溢出改变；入场与落定共用规则，避免结束那一帧切掉外围阴影。 */
 .clay-editor .liquid-rail:not([data-motion-scroll=true]) { overflow: visible; }
 .clay-editor .liquid-rail[data-motion-scroll=true] { overflow-x: hidden; overflow-y: auto; }
