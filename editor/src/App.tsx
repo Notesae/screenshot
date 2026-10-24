@@ -15,6 +15,7 @@ import type { CanvasHandle, CanvasRenderStatus, CanvasSelection } from './Editor
 import { overlayForImportedImage, parseCapture, type CaptureEnvelope, type OverlayMetadata, type PixelRect } from './overlay';
 import { CompactOverlay } from './CompactOverlay';
 import { preloadEditorCanvas } from './editorRuntime';
+import { reportCaptureProgress } from './captureProgress';
 import { groupImageTextLines, ocrImageRegions, parseImageTranslation, prepareImageTranslation, shouldTranslateImageText } from './imageTranslation';
 import { useEditorHistory } from './useEditorHistory';
 import { annotationKeyAction, historyKeyAction } from './keyboard';
@@ -143,10 +144,12 @@ export default function App() {
     const sourceOverlay = overlayRef.current;
     if(retainOverlay&&(!sourceOverlay||!overlayReadyRef.current))throw new Error('原位编辑尚未就绪，请稍后导入。');
     const capture = parseCapture(value);
+    reportCaptureProgress(capture.overlay?.captureId,'received');
     if(capture.overlay?.captureId&&expiredCaptures.current.has(capture.overlay.captureId)&&!timedOutCaptures.current.has(capture.overlay.captureId))return;
     if (capture.overlay) {pendingCapture.current = { captureId: capture.overlay.captureId, revision };flushSync(()=>setLoadingCapture(revision));}
     try {
       const [image] = await Promise.all([normalizeImage(capture.image), preloadEditorCanvas()]);
+      reportCaptureProgress(capture.overlay?.captureId,'decoded');
       if (revision !== generation.current) return;
       if(capture.overlay?.captureId&&expiredCaptures.current.has(capture.overlay.captureId)&&!timedOutCaptures.current.has(capture.overlay.captureId))return;
       if (native.available && !capture.overlay) await native.request('document.preserve');
@@ -163,7 +166,9 @@ export default function App() {
       if (pendingCapture.current?.revision === revision) pendingCapture.current = null;
       if(capture.overlay)captureGeometry.current.set(image,capture.overlay);
       flushSync(()=>{setOverlayReady(false);setOverlay(expired ? null : capture.overlay); setDoc({ schemaVersion: 2, image, editor: defaultEditor() }); setDocumentEpoch(value => value + 1);setLoadingCapture(null);setNotice(expired ? (timedOutCaptures.current.has(capture.overlay!.captureId!) ? { text: '选区编辑已超时，截图已保留在轻量编辑器。', error: true } : null) : capture.overlay ? null : { text: `已载入 ${image.name}` });});
-    } finally {setLoadingCapture(current=>current===revision?null:current);if(pendingCapture.current?.revision===revision)pendingCapture.current=null;}
+      reportCaptureProgress(capture.overlay?.captureId,'document_committed');
+    } catch(error) { reportCaptureProgress(capture.overlay?.captureId,'image_error'); throw error; }
+    finally {setLoadingCapture(current=>current===revision?null:current);if(pendingCapture.current?.revision===revision)pendingCapture.current=null;}
   }
   // 一次调整作为可撤销的文档修改；宿主不重新捕获，不改身份，不丢校对文字和标注。
   async function adjustCapture(area:PixelRect):Promise<boolean> {

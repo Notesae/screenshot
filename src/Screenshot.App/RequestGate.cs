@@ -17,7 +17,7 @@ internal sealed class RequestGate
         lease = null;
         // 恢复存储有自己的事务队列；取消和状态查询必须绕过等待中的推理请求。
         if (method is "app.info" or "app.updateReady" or "settings.read" or "presentation.ready" or "presentation.painted" or "presentation.workbench" or "presentation.editor" or "presentation.background"
-            or "hotkey.read" or "ai.cancel" or "ai.usage" or "ocr.status" or "ocr.cancel" or "capture.settings" or "capture.configure"
+            or "presentation.progress" or "hotkey.read" or "ai.cancel" or "ai.usage" or "ocr.status" or "ocr.cancel" or "capture.settings" or "capture.configure"
             or "recovery.usage" or "recovery.deleteMany" or "recovery.save" or "recovery.list" or "recovery.load" or "recovery.delete") return true;
         var ai = method is "ai.ocr" or "ai.translate" or "ai.translateImage" or "ai.test" or "ocr.local";
         lock (_sync)

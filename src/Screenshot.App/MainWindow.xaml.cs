@@ -142,7 +142,7 @@ public partial class MainWindow : Window
                 // 新网页拥有新的消息序列；加载失败时也不能沿用旧页的运动许可。
                 FrozenBackdrop.Suspend(); _backdropGate.Reset(_presentation.Overlay?.CaptureId);
             };
-            core.ProcessFailed += (_, _) => { _checkpoint.Reset(); FrozenBackdrop.Suspend(); _backdropGate.Reset(_presentation.Overlay?.CaptureId); };
+            core.ProcessFailed += (_, args) => { if(_presentation.PendingCaptureId is not null)_captureDiagnostics?.Fail("webview_process_failed",new{kind=args.ProcessFailedKind.ToString()}); _checkpoint.Reset(); FrozenBackdrop.Suspend(); _backdropGate.Reset(_presentation.Overlay?.CaptureId); };
             core.FrameNavigationStarting += (_, args) => args.Cancel = true;
             core.NewWindowRequested += (_, args) => args.Handled = true;
             core.PermissionRequested += (_, args) => args.State = CoreWebView2PermissionState.Deny;
@@ -209,7 +209,7 @@ public partial class MainWindow : Window
     private async Task<CaptureEnvelope?> CaptureAsync(CaptureRequest request)
     {
         var trace=new CaptureDiagnostics();_captureDiagnostics=trace;
-        try{await CheckEditorAsync("replace");trace.Mark("editor_checked");}catch{trace.Mark("editor_check_failed");trace.Flush();throw;}
+        try{await CheckEditorAsync("replace");trace.Mark("editor_checked");}catch(Exception error){trace.Fail("editor_check_failed",new{errorType=error.GetType().Name});throw;}
         InvalidateCompletion();
         var wasVisible = IsVisible;
         var previousWindowState = WindowState;
@@ -234,12 +234,14 @@ public partial class MainWindow : Window
                 if(!_presentation.CompleteCapture(frame))return null;
                 _backdropGate.Reset(frame.CaptureId);
                 _captureHandoff.Take(frame);transferred=true;completed=true;
-                trace.CaptureId=frame.CaptureId;trace.Mark("image_delivered");trace.Flush();
-                _=WaitForOverlayReadyAsync(frame.CaptureId);
+                trace.CaptureId=frame.CaptureId;trace.Mark("image_delivered",details:new{desktop=frame.DesktopBounds,selection=frame.Selection,encodedChars=frame.Image.DataUrl.Length});trace.Flush();
+                _=WaitForOverlayReadyAsync(frame.CaptureId,trace);
                 return frame.ToEnvelope();
             }
             finally{if(!transferred)frame.Handoff?.Dispose();}
         }
+        catch(OperationCanceledException) { throw; }
+        catch(Exception error) { trace.Fail("capture_failed",new{errorType=error.GetType().Name});throw; }
         finally
         {
             if (!completed)
@@ -323,11 +325,14 @@ public partial class MainWindow : Window
             if(_presentation.TryDismiss(captureId))DismissPresentation();
             return new{presentation=_presentation.Mode.ToString().ToLowerInvariant(),accepted=false,awaitingPaint=false};
         }
-        var accepted=_presentation.TryPrepare(captureId);
-        if(accepted&&_presentation.Overlay is {} overlay)
+        // 回执丢失或前端重新确认时允许重复查询当前捕获，不能再次隐藏已通过的画面。
+        if(IsCaptureReady(captureId))return new{presentation="overlay",accepted=true,awaitingPaint=false,captureId};
+        var prepared=_presentation.IsPrepared(captureId);
+        var accepted=prepared||_presentation.TryPrepare(captureId);
+        if(accepted&&!prepared&&_presentation.Overlay is {} overlay)
         {
             _composedCaptureId=null;
-            if(_captureDiagnostics?.CaptureId==captureId)_captureDiagnostics.Mark("host_ready");
+            if(_captureDiagnostics?.CaptureId==captureId)_captureDiagnostics.Mark("host_ready",details:new{expected=ReadOverlayViewport()});
             ShowActivated=false;Opacity=_captureHandoff.HasVisual(captureId)?1:0;
             var owner=new WindowInteropHelper(this).Handle;_captureHandoff.KeepAbove(captureId,owner);
             Show();ApplyOverlayBounds(overlay.DesktopBounds);UpdateLayout();_captureHandoff.KeepAbove(captureId,owner);
@@ -337,18 +342,23 @@ public partial class MainWindow : Window
     // 模板 PART_image 是 WebView2 的公开契约；只订阅其缓冲区变化，不读取桌面像素或私有字段。
     private async Task UpdateCaptureVisualAsync(string captureId)
     {
-        if(_captureDiagnostics?.CaptureId==captureId)_captureDiagnostics.Mark("frame_probe_started");
+        var trace=_captureDiagnostics?.CaptureId==captureId?_captureDiagnostics:null;
+        trace?.Mark("frame_probe_started");
         Editor.ApplyTemplate();
         if(Editor.Template.FindName("PART_image",Editor) is not System.Windows.Controls.Image image)throw new InvalidOperationException("编辑器合成画面尚未就绪。");
         var overlay=_presentation.Overlay??throw new InvalidOperationException("截图已失效。");
         var probe=new CaptureFrameProbe(_presentation.FrozenBackdrop!,overlay.DesktopBounds,overlay.Selection,ReadOverlayViewport().Scale,SoftClayTheme.Color("mask").A);
         async Task Invalidate()
         {
+            if(!_presentation.IsPrepared(captureId))throw new OperationCanceledException();
+            trace?.Mark("frame_script_requested");
             var result=await Editor.CoreWebView2.ExecuteScriptAsync("window.screenshotPresentCapture?.("+JsonSerializer.Serialize(captureId)+")");
+            if(!_presentation.IsPrepared(captureId))throw new OperationCanceledException();
             if(result!="true")throw new InvalidOperationException("截图呈现已失效。");
+            trace?.Mark("frame_script_confirmed");
         }
-        try{await CompositionFrameWaiter.WaitAsync(image,Invalidate,_lifetime.Token,probe.Accept);if(_captureDiagnostics?.CaptureId==captureId)_captureDiagnostics.Mark("frame_validated");}
-        finally{if(_captureDiagnostics?.CaptureId==captureId){_captureDiagnostics.Mark("frame_probe_"+probe.LastResult,probe.RejectedFrames);_captureDiagnostics.Flush();}}
+        try{await CompositionFrameWaiter.WaitAsync(image,Invalidate,_lifetime.Token,probe.Accept);trace?.Mark("frame_validated");}
+        finally{trace?.Mark("frame_probe_"+probe.LastResult,probe.RejectedFrames,new{mismatch=probe.LastMismatch});trace?.Flush();}
     }
     // 获取 Win32 的当前 DPI，而非仍在异步追赶的 Chromium/WPF 缩放快照。
     private PresentationViewport ReadOverlayViewport()
@@ -367,8 +377,11 @@ public partial class MainWindow : Window
             &&Math.Abs(Editor.ActualHeight*dpi.DpiScaleY-expected.Height*expected.Scale)<=2;
     }
     // 几何匹配后提交已排队的 WPF 渲染，再次核对；旧视口只要求重试，不放行或作废截图。
-    private async Task<object> PaintedPresentationAsync(string captureId,PresentationViewport viewport)
+    private async Task<object> PaintedPresentationCoreAsync(string captureId,PresentationViewport viewport)
     {
+        if(!viewport.Matches(viewport))throw new InvalidOperationException("选区视口无效。");
+        if(IsCaptureReady(captureId))return new{presentation="overlay",accepted=true,awaitingPaint=false,captureId};
+        var trace=_captureDiagnostics?.CaptureId==captureId?_captureDiagnostics:null;
         var accepted=false;PresentationViewport? expected=null;
         if(_presentation.IsPrepared(captureId)&&!_captureHandoff.IsCancelled(captureId))
         {
@@ -381,7 +394,7 @@ public partial class MainWindow : Window
                     try{await UpdateCaptureVisualAsync(captureId);if(_presentation.IsPrepared(captureId))_composedCaptureId=captureId;}
                     catch(TimeoutException)
                     {
-                        if(_captureDiagnostics?.CaptureId==captureId){_captureDiagnostics.Mark("frame_timeout");_captureDiagnostics.Flush();}
+                        trace?.Fail("frame_timeout");
                         // 单次验帧超时保留当前原生遮罩，允许重试；不能在这里突变成整屏无遮罩工作台。
                     }
                 }
@@ -389,8 +402,8 @@ public partial class MainWindow : Window
                 if(_composedCaptureId==captureId&&_presentation.IsPrepared(captureId)&&!_captureHandoff.IsCancelled(captureId))
                 {
                     // 当前帧已通过检查，只等已排队的渲染，不额外等待整个界面进入空闲状态。
-                    await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.Render,_lifetime.Token);
-                    await Task.Run(()=>Marshal.ThrowExceptionForHR(DwmFlush()),_lifetime.Token);
+                    await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.Render,_lifetime.Token).Task.WaitAsync(TimeSpan.FromSeconds(2),_lifetime.Token);
+                    await Task.Run(()=>Marshal.ThrowExceptionForHR(DwmFlush()),_lifetime.Token).WaitAsync(TimeSpan.FromSeconds(2),_lifetime.Token);
                     expected=ReadOverlayViewport();
                     if(_composedCaptureId==captureId&&OverlayViewportMatches(viewport,expected)&&!_captureHandoff.IsCancelled(captureId)&&_presentation.TryAcceptPainted(captureId))
                     {
@@ -400,21 +413,24 @@ public partial class MainWindow : Window
                     }
                 }
             }
+            else trace?.Mark("viewport_rejected",details:new{actual=viewport,expected,wpfWidth=Editor.ActualWidth,wpfHeight=Editor.ActualHeight,wpfScale=VisualTreeHelper.GetDpi(Editor).DpiScaleX});
         }
         if(_captureHandoff.IsCancelled(captureId)&&_presentation.TryDismiss(captureId))DismissPresentation();
         var awaitingPaint=!accepted&&_presentation.IsPrepared(captureId);
         return new{presentation=_presentation.Mode.ToString().ToLowerInvariant(),accepted,awaitingPaint,viewport=expected,captureId=_presentation.Overlay?.CaptureId};
     }
     // 前端解码或布局失败时不永久隐藏应用；计时器只能回收自己等待的 captureId。
-    private async Task WaitForOverlayReadyAsync(string captureId)
+    private async Task WaitForOverlayReadyAsync(string captureId,CaptureDiagnostics trace)
     {
         try
         {
             await Task.Delay(TimeSpan.FromSeconds(15), _lifetime.Token);
             while (!_lifetime.IsCancellationRequested && _presentation.PendingCaptureId == captureId)
             {
+                var prepared=_presentation.IsPrepared(captureId);
                 if (_presentation.TryExpireReady(captureId))
                 {
+                    trace.Fail("overlay_ready_timeout",new{prepared,editorReady=_ready});
                     ShowWorkbench();
                     Status.Text = "选区编辑器未能及时就绪，已保留图片。可重试截图或继续编辑。";
                     Post(new { @event = "presentation.changed", payload = new { presentation = "workbench", reason = "overlay_timeout", timedOutCaptureId = captureId } });
@@ -481,7 +497,7 @@ public partial class MainWindow : Window
         _terms.RequireAccepted();
         switch (method)
         {
-            case "app.info": return new { version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "unknown", platform = "windows", presentation = _presentation.Mode.ToString().ToLowerInvariant(), capture = new { backend = _captureBackend, colorMode = "sdr", supportsHdr = false, availableBackends = new[] { "wgc", "gdi" }, targets = new[] { "desktop", "monitor", "window" }, availability = "checked-on-capture" }, capabilities = new[] { "image.open", "image.paste", "capture.adjust", "capture.screen", "capture.region", "capture.current", "capture.monitors", "capture.settings", "capture.configure", "hotkey.read", "hotkey.configure", "image.save", "image.copy", "image.pin", "text.copy", "project.open", "project.save", "ai.ocr", "ai.translate", "ai.translateImage", "ocr.local", "ocr.cancel", "ocr.status", "ai.cancel", "ai.usage", "ai.test", "recovery.list", "recovery.load", "recovery.delete", "recovery.usage", "recovery.deleteMany", "presentation.workbench", "presentation.editor", "presentation.dismiss", "presentation.ready", "presentation.background", "presentation.complete", "document.preserve", "app.terms" } };
+            case "app.info": return new { version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "unknown", platform = "windows", presentation = _presentation.Mode.ToString().ToLowerInvariant(), capture = new { backend = _captureBackend, colorMode = "sdr", supportsHdr = false, availableBackends = new[] { "wgc", "gdi" }, targets = new[] { "desktop", "monitor", "window" }, availability = "checked-on-capture" }, capabilities = new[] { "image.open", "image.paste", "capture.adjust", "capture.screen", "capture.region", "capture.current", "capture.monitors", "capture.settings", "capture.configure", "hotkey.read", "hotkey.configure", "image.save", "image.copy", "image.pin", "text.copy", "project.open", "project.save", "ai.ocr", "ai.translate", "ai.translateImage", "ocr.local", "ocr.cancel", "ocr.status", "ai.cancel", "ai.usage", "ai.test", "recovery.list", "recovery.load", "recovery.delete", "recovery.usage", "recovery.deleteMany", "presentation.workbench", "presentation.editor", "presentation.dismiss", "presentation.ready", "presentation.progress", "presentation.background", "presentation.complete", "document.preserve", "app.terms" } };
             case "document.preserve": await CheckEditorAsync("replace"); return new { checkedState = true, saved = false };
             case "image.open": await CheckEditorAsync("replace"); return NativeImages.Open(this);
             case "image.paste": await CheckEditorAsync("replace"); return NativeImages.Paste();
@@ -539,6 +555,7 @@ public partial class MainWindow : Window
                 if (dismissed) { if (wasWorkbench) RememberWorkbenchPlacement(); DismissPresentation(); }
                 return new { presentation = _presentation.Mode.ToString().ToLowerInvariant(), accepted = dismissed, captureId = _presentation.Overlay?.CaptureId };
             case "presentation.ready": return ReadyPresentation(RequiredString(payload, "captureId"));
+            case "presentation.progress": return RecordCaptureProgress(payload);
             case "presentation.background": return UpdateBackdropMotion(payload);
             case "presentation.painted":
                 var viewport=payload.GetProperty("viewport");

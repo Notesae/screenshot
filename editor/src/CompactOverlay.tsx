@@ -24,7 +24,8 @@ import { CaptureControls } from './CaptureControls';
 import type { CanvasHandle, CanvasRenderStatus, CanvasSelection } from './EditorCanvas';
 import { preloadEditorCanvas } from './editorRuntime';
 import { outputSize, type AnnotationKind, type ContentResize, type SourceCrop, type EditorState, type ProjectDocument } from './document';
-import { native, type Settings, type PresentationResult } from './bridge';
+import { native, NativeError, type Settings, type PresentationResult } from './bridge';
+import { reportCaptureProgress } from './captureProgress';
 import { overlayLayout, type OverlayMetadata } from './overlay';
 import { overlayKeyAction } from './keyboard';
 import { AnnotationPalette, HistoryButtons, TransformPanel } from './EditControls';
@@ -122,7 +123,7 @@ export function CompactOverlay(props:Props) {
   const renderedViewport=useRef(viewport);renderedViewport.current=viewport;
   // 首次渲染必须给选区映射有效尺寸，随后由内容实测替换；CSS 仍按内容收缩。
   const [railSize,setRailSize]=useState({width:1,height:52}),[canvasReady,setCanvasReady]=useState(false);
-  const trigger=useRef<HTMLButtonElement|null>(null),railRef=useRef<HTMLDivElement>(null),readySent=useRef(false),composing=useRef(false);
+  const trigger=useRef<HTMLButtonElement|null>(null),railRef=useRef<HTMLDivElement>(null),composing=useRef(false);
   const [,refreshPanelOrigin]=useState(0);
   const drag=useRef<{kind:'rail'|'card';pointer:number;start:Point;origin:Point}|null>(null);
   const cardContent=useRef<HTMLDivElement>(null);
@@ -134,6 +135,8 @@ export function CompactOverlay(props:Props) {
   const padding=editor.mode==='beauty'?editor.padding:0;
   const previewOutput=selectionPreview&&editor.mode!=='reflow'?{width:selectionPreview.width+padding*2,height:selectionPreview.height+padding*2}:output;
   const adjusting=busy==='调整截图选区',canvasSettled=props.renderStatus==='ready'&&paintedImage===doc.image;
+  const readiness=useRef({ready:canvasReady,settled:canvasSettled});readiness.current={ready:canvasReady,settled:canvasSettled};
+  const readinessWake=useRef<(()=>void)|null>(null);
   const mapped=metadata?overlayLayout(selectionPreview?{...metadata,selection:selectionPreview}:metadata,viewport,previewOutput,editor.mode==='beauty'?editor.padding:0,{...railSize,statusHeight:0},selectionPreview||editor.mode==='reflow'?undefined:editor.crop||(editor.resize?{x:0,y:0}:undefined)):null;
   const screen=mapped?.screen??{x:0,y:0,...viewport};
   const panelWidth=visiblePanel==='text'?420:visiblePanel==='properties'?340:380;
@@ -217,35 +220,59 @@ export function CompactOverlay(props:Props) {
     window.screenshotPresentCapture=id=>{if(id!==metadata?.captureId)return false;flushSync(()=>setPreparing(true));return true;};
     return()=>{delete window.screenshotPresentCapture;};
   },[metadata?.captureId]);
+  // 一次捕获使用一条持续确认链；画布/DPI 更新只唤醒等待，不取消回执后把流程锁死。
   useEffect(()=>{
-    if(props.skipReady||!canvasReady||!canvasSettled||readySent.current||!metadata?.captureId)return;
-    let cancelled=false;const id=metadata.captureId;
-    // 先在原生遮挡后展示 WebView；视口与工具布局连续稳定且宿主核对通过才交接。
-    const timer=setTimeout(()=>{readySent.current=true;void (async()=>{
-      let result=await native.request<PresentationResult>('presentation.ready',{captureId:id});
-      if(cancelled)return;
-      if(result.accepted!==false&&result.awaitingPaint){
-        if(!result.hostFrameGate)flushSync(()=>setPreparing(true));
-        const deadline=performance.now()+12000;let previous='';
-        // 等待宿主目标视口与实际 DOM 一致，而不是把任意两帧误当作 DPI 已稳定。
-        while(result.awaitingPaint){
-          // 宿主在原生选区下方显示时动画帧可能被延后；定时器只推进几何核对，真正揭示仍由原生验帧决定。
-          await new Promise<void>(resolve=>{
-            let finished=false;
-            const done=()=>{if(finished)return;finished=true;clearTimeout(timer);cancelAnimationFrame(frame);resolve();};
-            const timer=setTimeout(done,32),frame=requestAnimationFrame(done);
-          });if(cancelled)return;
-          if(performance.now()>deadline)throw new Error('截图布局未能及时稳定，请重新截图。');
-          const actual=readPresentationViewport(),rail=railRef.current;
-          const signature=JSON.stringify([actual,rail?.offsetLeft,rail?.offsetTop,rail?.offsetWidth,rail?.offsetHeight]);
-          if(!matchesPresentationViewport(actual,result.viewport)||!matchesPresentationViewport(actual,renderedViewport.current)||signature!==previous){previous=signature;continue;}
-          result=await native.request<PresentationResult>('presentation.painted',{captureId:id,viewport:actual});previous='';
+    const id=metadata?.captureId;if(props.skipReady||!id)return;
+    let cancelled=false,cancelWait:(()=>void)|null=null;
+    let deadline=performance.now()+15000,layoutStarted=false;
+    const step=()=>new Promise<void>(resolve=>{
+      let finished=false;
+      const done=()=>{if(finished)return;finished=true;clearTimeout(timer);cancelAnimationFrame(frame);if(readinessWake.current===done)readinessWake.current=null;cancelWait=null;resolve();};
+      const timer=setTimeout(done,32),frame=requestAnimationFrame(done);cancelWait=done;readinessWake.current=done;
+    });
+    const request=(method:string,payload:object,timeout:number)=>native.request<PresentationResult>(method,payload,timeout);
+    void(async()=>{
+      let result:PresentationResult|null=null,previous='',reportedCanvas=false,reportedViewport=false,reportedTimeout=false,preparing=false;
+      while(!cancelled){
+        if(result&&!result.awaitingPaint){
+          if(result.accepted!==false){setChromeVisible(true);reportCaptureProgress(id,'ready_confirmed');}
+          else reportCaptureProgress(id,'ready_error');
+          latest.current.props.onReadyResult(id,result);return;
         }
+        // 只由宿主的 15 秒保护裁定回退；本地超时保留重查，避免宿主刚放行时前端丢弃迟到成功。
+        if(performance.now()>deadline&&!reportedTimeout){reportedTimeout=true;reportCaptureProgress(id,'layout_timeout',readPresentationViewport());result=null;previous='';}
+        if(!readiness.current.ready||!readiness.current.settled){previous='';await step();continue;}
+        if(!reportedCanvas){reportedCanvas=true;reportCaptureProgress(id,'canvas_ready',readPresentationViewport());}
+        if(!result){
+          try{result=await request('presentation.ready',{captureId:id},3000);}
+          catch(error){if(cancelled)return;if(error instanceof NativeError&&error.code==='bridge_timeout'){reportCaptureProgress(id,'bridge_retry');await step();continue;}throw error;}
+          if(cancelled)return;
+          if(!result.awaitingPaint)continue;
+          // 沿用宿主就绪后的 12 秒布局窗口，初始大图绘制仍由原生 15 秒保护负责。
+          if(!layoutStarted){deadline=Math.min(deadline,performance.now()+12000);layoutStarted=true;}
+        }
+        if(!preparing){if(!result.hostFrameGate)flushSync(()=>setPreparing(true));preparing=true;}
+        await step();if(cancelled)return;
+        if(!readiness.current.ready||!readiness.current.settled){previous='';continue;}
+        const actual=readPresentationViewport(),rail=railRef.current;
+        const signature=JSON.stringify([actual,rail?.offsetLeft,rail?.offsetTop,rail?.offsetWidth,rail?.offsetHeight]);
+        if(!matchesPresentationViewport(actual,result.viewport)||!matchesPresentationViewport(actual,renderedViewport.current)||signature!==previous){
+          if(!reportedViewport){reportedViewport=true;reportCaptureProgress(id,'viewport_wait',actual);}
+          previous=signature;continue;
+        }
+        try{result=await request('presentation.painted',{captureId:id,viewport:actual},5000);}
+        catch(error){if(cancelled)return;if(error instanceof NativeError&&error.code==='bridge_timeout'){reportCaptureProgress(id,'bridge_retry',actual);result=null;}else throw error;}
+        previous='';
       }
-      if(!cancelled){if(result.accepted!==false)setChromeVisible(true);props.onReadyResult(id,result);}
-    })().catch(props.onError);},0);
-    return()=>{cancelled=true;clearTimeout(timer);};
-  },[canvasReady,canvasSettled,metadata?.captureId,props.skipReady]);
+    })().catch(error=>{
+      if(cancelled)return;
+      reportCaptureProgress(id,error instanceof NativeError&&error.code==='layout_timeout'?'layout_timeout':'ready_error',readPresentationViewport());
+      latest.current.props.onError(error);
+    });
+    return()=>{cancelled=true;cancelWait?.();};
+  },[metadata?.captureId,props.skipReady]);
+  // 隐藏 HWND 可能限速定时器；画布就绪时直接唤醒，不额外等待后台动画帧。
+  useEffect(()=>{readinessWake.current?.();},[canvasReady,canvasSettled]);
   useEffect(()=>{
     const start=()=>{composing.current=true;},end=()=>{composing.current=false;};
     const keydown=(event:globalThis.KeyboardEvent)=>{
@@ -284,7 +311,7 @@ export function CompactOverlay(props:Props) {
   return <div ref={rootRef} data-editor-root className={'clay-editor '+(metadata?'is-overlay':'is-neutral')+(chromeVisible?' is-presented':' is-awaiting')+(preparing?' is-preparing':'')+(props.suspended?' is-suspended':'')+(fullReading?' is-reading':'')} inert={props.locked} onKeyDownCapture={event=>{const target=event.target;if(event.key==='Escape'&&!event.nativeEvent.isComposing&&!composing.current&&target instanceof HTMLElement&&target.matches('input,textarea,select')&&!target.closest('.clay-color-popover')){event.preventDefault();event.stopPropagation();target.blur();}}} onDragOver={event=>{if(Array.from(event.dataTransfer.types).includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();void props.onFiles(event.dataTransfer.files);}}>
     <CaptureSelection viewport={viewport} metadata={metadata} disabled={!!busy||!!aiBusy||props.locked||comparing||!canvasSettled} settled={canvasSettled&&!busy} onAdjust={props.onAdjustCapture} onPreview={previewSelection} onDragging={active=>{selectionDragging.current=active;if(active)beginSelectionFollow();}} hitAnnotation={event=>canvasRef.current?.hasAnnotationAt(event)??false} onBegin={()=>canvasRef.current?.exitSelection()} onBlankClick={()=>canvasRef.current?.exitSelection(true)}>
     <div className={metadata?'clay-canvas-fixed':'clay-canvas-stage'} inert={!!busy} style={mapped?{visibility:selectionPreview?'hidden':undefined,left:mapped.frame.x,top:mapped.frame.y,width:mapped.frame.width,height:mapped.frame.height}:undefined}>
-      {hasContent?<Suspense fallback={null}><EditorCanvas ref={canvasRef} compareRaw={comparing} onCompareError={error=>{setComparison(null);props.onError(error);}} showViewControls={visiblePanel!=='recovery'} document={doc} onDrawingToolChange={setDrawingTool} onSelection={props.onSelection} onRenderStatus={props.onRenderStatus} fixedDisplayScale={mapped?.scale} onReady={()=>{setCanvasReady(true);setPaintedImage(doc.image);}} onAnnotations={(annotations,group)=>update({annotations},group)} onError={props.onError}/></Suspense>:<div className="clay-launcher"><Frame size={32} aria-hidden="true"/><h1>截图，接着编辑。</h1><p>从托盘或快捷键开始，也可以打开本机文件。</p><ControlButton className="clay-primary" disabled={!!busy} onClick={()=>props.onCapture('capture.region')}>区域截图</ControlButton><ControlButton disabled={!!busy} onClick={props.onOpenImage}>打开图片</ControlButton><ControlButton disabled={!!busy} onClick={props.onOpenProject}>打开项目</ControlButton></div>}
+      {hasContent?<Suspense fallback={null}><EditorCanvas ref={canvasRef} compareRaw={comparing} onCompareError={error=>{setComparison(null);props.onError(error);}} showViewControls={visiblePanel!=='recovery'} document={doc} onDrawingToolChange={setDrawingTool} onSelection={props.onSelection} onRenderStatus={props.onRenderStatus} fixedDisplayScale={mapped?.scale} onReady={()=>{setCanvasReady(true);setPaintedImage(doc.image);}} onAnnotations={(annotations,group)=>update({annotations},group)} onError={error=>{reportCaptureProgress(metadata?.captureId,'canvas_error');props.onError(error);}}/></Suspense>:<div className="clay-launcher"><Frame size={32} aria-hidden="true"/><h1>截图，接着编辑。</h1><p>从托盘或快捷键开始，也可以打开本机文件。</p><ControlButton className="clay-primary" disabled={!!busy} onClick={()=>props.onCapture('capture.region')}>区域截图</ControlButton><ControlButton disabled={!!busy} onClick={props.onOpenImage}>打开图片</ControlButton><ControlButton disabled={!!busy} onClick={props.onOpenProject}>打开项目</ControlButton></div>}
     </div>
     </CaptureSelection>
     <svg className="liquid-panel-bridge" aria-hidden="true"><path/></svg>

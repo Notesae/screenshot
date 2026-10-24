@@ -40,7 +40,11 @@ internal static class CompositionFrameWaiter
         // 定时器只在有验帧谓词时启动，仍须通过相同样本检查，不能将时间流逝当作画面就绪。
         var retry=new DispatcherTimer(DispatcherPriority.Loaded,image.Dispatcher){Interval=TimeSpan.FromMilliseconds(32)};
         retry.Tick+=Changed;
-        try{await invalidate();invalidated=true;if(acceptFrame is not null){Changed(null,EventArgs.Empty);retry.Start();}await frame.Task.WaitAsync(TimeSpan.FromSeconds(2),token);}
+        // 脚本回执与像素确认共享同一截止时间，不能在进入验帧计时前无限等待网页。
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(2));
+        try{await invalidate().WaitAsync(deadline.Token);invalidated=true;if(acceptFrame is not null){Changed(null,EventArgs.Empty);retry.Start();}await frame.Task.WaitAsync(deadline.Token);}
+        catch(OperationCanceledException) when(!token.IsCancellationRequested && deadline.IsCancellationRequested){throw new TimeoutException("选区合成帧确认超时。");}
         finally{finished=true;retry.Stop();retry.Tick-=Changed;descriptor.RemoveValueChanged(image,SourceChanged);if(observed is {IsFrozen:false})observed.Changed-=Changed;}
     }
 }

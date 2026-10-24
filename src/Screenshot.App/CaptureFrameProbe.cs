@@ -13,6 +13,8 @@ internal sealed class CaptureFrameProbe
     private readonly List<(int X,int Y,byte Alpha)> _samples=new();
     public int RejectedFrames { get; private set; }
     public string LastResult { get; private set; }="none";
+    // 只保留不匹配样本的坐标和 alpha 差异，不保存 RGB 或截图内容。
+    public object? LastMismatch { get; private set; }
     public CaptureFrameProbe(BitmapSource frozen,PixelRect desktop,PixelRect selection,double scale,byte maskAlpha)
     {
         _width=desktop.Width;_height=desktop.Height;
@@ -35,6 +37,7 @@ internal sealed class CaptureFrameProbe
     // 将所有采样点合成一行再统一读回，避免为每个像素分别创建整张合成位图。
     public bool Accept(ImageSource source)
     {
+        LastMismatch = null;
         if(_samples.Count==0||!double.IsFinite(source.Width)||!double.IsFinite(source.Height)||source.Width<=0||source.Height<=0){LastResult="empty";RejectedFrames++;return false;}
         var visual=new DrawingVisual();RenderOptions.SetBitmapScalingMode(visual,BitmapScalingMode.NearestNeighbor);
         using(var drawing=visual.RenderOpen())for(var i=0;i<_samples.Count;i++)
@@ -44,7 +47,7 @@ internal sealed class CaptureFrameProbe
         }
         var bitmap=new RenderTargetBitmap(_samples.Count,1,96,96,PixelFormats.Pbgra32);bitmap.Render(visual);
         var pixels=new byte[_samples.Count*4];bitmap.CopyPixels(pixels,pixels.Length,0);
-        for(var i=0;i<_samples.Count;i++)if(Math.Abs(pixels[i*4+3]-_samples[i].Alpha)>3){LastResult=pixels[i*4+3]==0?"transparent":pixels[i*4+3]==255?"opaque":"mismatch";RejectedFrames++;return false;}
+        for(var i=0;i<_samples.Count;i++)if(Math.Abs(pixels[i*4+3]-_samples[i].Alpha)>3){LastResult=pixels[i*4+3]==0?"transparent":pixels[i*4+3]==255?"opaque":"mismatch";LastMismatch=new{index=i,x=_samples[i].X,y=_samples[i].Y,expectedAlpha=_samples[i].Alpha,actualAlpha=pixels[i*4+3]};RejectedFrames++;return false;}
         LastResult="ready";
         return true;
     }

@@ -15,7 +15,7 @@ export class NativeBridge {
   constructor(private send?: Send, private timeoutMs = 120000) {}
   get available() { return Boolean(this.send); }
   // 先登记等待项再发送，避免宿主立即回复时丢失关联。
-  request<T = unknown>(method: string, payload: object = {}): Promise<T> {
+  request<T = unknown>(method: string, payload: object = {}, timeoutMs = this.timeoutMs): Promise<T> {
     if (!this.send) return Promise.reject(new Error('此功能需要在 Windows 桌面应用中使用。'));
     const id = `editor-${Date.now()}-${++this.sequence}`;
     return new Promise<T>((resolve, reject) => {
@@ -25,8 +25,8 @@ export class NativeBridge {
         if (['ai.ocr','ai.translate','ai.translateImage','ai.test','ocr.local'].includes(method) && 'taskId' in payload && typeof payload.taskId === 'string') {
           try { this.send?.({ id: `cancel-${id}`, method: 'ai.cancel', payload: { taskId: payload.taskId } }); } catch { /* 原请求仍以超时结束。 */ }
         }
-        reject(new Error('操作超时，请检查服务或桌面应用后重试。'));
-      }, this.timeoutMs);
+        reject(new NativeError('操作超时，请检查服务或桌面应用后重试。', 'bridge_timeout'));
+      }, timeoutMs);
       this.pending.set(id, { resolve: value => resolve(value as T), reject, timer });
       try { this.send!({ id, method, payload }); }
       catch (error) { clearTimeout(timer); this.pending.delete(id); reject(error); }
