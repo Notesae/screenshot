@@ -16,8 +16,9 @@ public sealed partial class AiService
     private async Task<AiTextResult> CachedAsync(StoredProvider provider,string operation,string input,Func<Task<AiTextResult>> work,CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        var identity=JsonSerializer.Serialize(new[]{provider.Id,provider.Kind,provider.BaseUrl,provider.Model,provider.ProtectedApiKey,operation,input});
-        var key=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)));
+        // JSON 身份字节保持不变，省去整份 UTF-16 中间串。
+        var identity=JsonSerializer.SerializeToUtf8Bytes(new[]{provider.Id,provider.Kind,provider.BaseUrl,provider.Model,provider.ProtectedApiKey,operation,input});
+        var key=Convert.ToHexString(SHA256.HashData(identity));
         lock(_cacheSync)
         {
             var node=_cache.First;

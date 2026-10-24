@@ -4,6 +4,7 @@ import { contentGeometry, outputSize, type ProjectDocument } from './document';
 import { parseImage, MAX_IMAGE_BYTES } from './document';
 import type { LoadedImage } from './bridge';
 import { drawImageTranslations } from './imageTranslationLayout';
+import { canvasToPngDataUrl } from './png';
 
 export const FONT = '"Microsoft YaHei", "PingFang SC", sans-serif';
 // 只缓存最近一张解码结果，复用校验与首次画布渲染；不按撤销历史积累整图像素。
@@ -90,10 +91,12 @@ export async function normalizeImage(value: LoadedImage): Promise<LoadedImage> {
   if (decoded.naturalWidth !== image.width || decoded.naturalHeight !== image.height) throw new Error('图片尺寸与项目记录不符。');
   if (image.dataUrl.startsWith('data:image/png;base64,')) return image;
   const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
-  canvas.getContext('2d')!.drawImage(decoded, 0, 0);
-  const dataUrl = canvas.toDataURL('image/png');
-  if (dataUrl.length > MAX_IMAGE_BYTES * 1.4) throw new Error('规范化后的 PNG 超过 24 MB，请选择较小图片。');
-  return parseImage({ ...image, dataUrl });
+  try {
+    canvas.getContext('2d')!.drawImage(decoded, 0, 0);
+    const dataUrl = await canvasToPngDataUrl(canvas);
+    if (dataUrl.length > MAX_IMAGE_BYTES * 1.4) throw new Error('规范化后的 PNG 超过 24 MB，请选择较小图片。');
+    return parseImage({ ...image, dataUrl });
+  } finally { canvas.width = canvas.height = 0; }
 }
 
 /** OCR 只用当前内容，马赛克与旧遮盖区域统一实色封闭；装饰与其他标注不参与，原图留在本地。 */
@@ -105,12 +108,17 @@ export async function imageForProcessing(doc: ProjectDocument): Promise<LoadedIm
   // 在原始分辨率遮住信息后才进行任何重采样，避免缩放先把敏感像素混入边缘。
   const editor = { ...doc.editor, mode: 'raw' as const, resize: null, annotations: [], imageTranslation:null };
   const source = await renderBase({ ...doc, editor });
-  const ctx = source.getContext('2d')!;
-  for (const mask of masks) { ctx.fillStyle = mask.color; ctx.fillRect(mask.x, mask.y, mask.width, mask.height); }
   let canvas = source;
-  if (doc.editor.resize) {
-    canvas = document.createElement('canvas'); canvas.width = geometry.width; canvas.height = geometry.height;
-    canvas.getContext('2d')!.drawImage(source, 0, 0, canvas.width, canvas.height);
+  try {
+    const ctx = source.getContext('2d')!;
+    for (const mask of masks) { ctx.fillStyle = mask.color; ctx.fillRect(mask.x, mask.y, mask.width, mask.height); }
+    if (doc.editor.resize) {
+      canvas = document.createElement('canvas'); canvas.width = geometry.width; canvas.height = geometry.height;
+      canvas.getContext('2d')!.drawImage(source, 0, 0, canvas.width, canvas.height);
+    }
+    return { dataUrl: await canvasToPngDataUrl(canvas), name: doc.image.name, width: canvas.width, height: canvas.height };
+  } finally {
+    if (canvas !== source) canvas.width = canvas.height = 0;
+    source.width = source.height = 0;
   }
-  return { dataUrl: canvas.toDataURL('image/png'), name: doc.image.name, width: canvas.width, height: canvas.height };
 }

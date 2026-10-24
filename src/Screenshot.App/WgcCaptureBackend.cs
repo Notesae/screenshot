@@ -37,8 +37,12 @@ public sealed class WgcCaptureBackend : ICaptureBackend
             // PNG 编码不占原生 UI 线程；原生选区在等待期间仍显示冻结画面并可取消。
             var image=await Task.Run(()=>
             {
-                var pixels=request.Region?CapturePixelGeometry.Crop(acquired.Selected,new(selected.X-acquired.Selection.X,selected.Y-acquired.Selection.Y,selected.Width,selected.Height)):acquired.Selected;
-                return NativeImages.FromBitmap(ToBitmapSource(pixels),request.Target.Kind==CaptureTargetKind.Window?"窗口截图.png":request.Region?"区域截图.png":"屏幕截图.png");
+                // 桌面/显示器复用冻结底图；窗口保留独立取帧，不能换成遮挡后的桌面像素。
+                var bounds = request.Target.Kind == CaptureTargetKind.Window ? acquired.Selection : acquired.DesktopBounds;
+                BitmapSource source = request.Target.Kind == CaptureTargetKind.Window ? ToBitmapSource(acquired.Selected) : backdrop;
+                CapturePixelGeometry.ValidateContained(bounds, selected);
+                if (selected != bounds) source = new CroppedBitmap(source, new System.Windows.Int32Rect(selected.X-bounds.X, selected.Y-bounds.Y, selected.Width, selected.Height));
+                return NativeImages.FromBitmap(source,request.Target.Kind==CaptureTargetKind.Window?"窗口截图.png":request.Region?"区域截图.png":"屏幕截图.png");
             },token);
             token.ThrowIfCancellationRequested();if(overlay?.IsCancelled==true)return null;
             CaptureDiagnostics.Current.Value?.Mark("image_encoded");

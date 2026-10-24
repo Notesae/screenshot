@@ -11,6 +11,7 @@ import { renderBeautyContent } from './beautyPreview';
 import { annotationStyle } from './annotationAppearance';
 import { AnnotationMotion } from './AnnotationMotion';
 import { AnnotationElasticity } from './AnnotationElasticity';
+import { canvasToPngDataUrl } from './png';
 
 // 属性浮卡只接收可编辑的样式，不复制画笔轨迹或马赛克采样图。
 export type CanvasSelection = Pick<Annotation, 'id' | 'type' | 'color' | 'fontSize' | 'strokeWidth' | 'blockSize'>;
@@ -241,13 +242,16 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
       // 重排文字在目标倍率重新绘制，避免仅放大预览底图；标注仍由同一 Fabric 对象内核合成。
       const size = outputSize(doc.image, doc.editor, scale), base = await renderBase(doc, scale);
       // 无标注时底图已经是目标像素，直接编码，避免额外Fabric画布及一次整图复制。
-      if(!doc.editor.annotations.length){try{return base.toDataURL('image/png');}finally{base.width=0;base.height=0;}}
+      if(!doc.editor.annotations.length){try{return await canvasToPngDataUrl(base);}finally{base.width=0;base.height=0;}}
       const output = new StaticCanvas(undefined, { width:size.width, height:size.height, enableRetinaScaling:false });
+      let raster: HTMLCanvasElement | null = null;
       try {
         output.add(new FabricImage(base, { originX:'left',originY:'top',scaleX:1/scale,scaleY:1/scale }));
         for (const annotation of doc.editor.annotations) output.add(restore(annotation));
-        return output.toDataURL({ format:'png',multiplier:scale,enableRetinaScaling:false });
-      } finally { await output.dispose();base.width=0;base.height=0; }
+        // 复用 Fabric 原有光栅化入口，只将私有快照的 PNG 编码改为异步。
+        raster = output.toCanvasElement(scale);
+        return await canvasToPngDataUrl(raster);
+      } finally { if(raster)raster.width=raster.height=0;await output.dispose();base.width=0;base.height=0; }
     },
     // 选择工具只进入待绘制状态，不直接插入预设图形。
     add(type) {

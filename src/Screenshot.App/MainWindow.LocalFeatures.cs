@@ -40,8 +40,8 @@ public partial class MainWindow
                 cancellation.Token.ThrowIfCancellationRequested();
                 if (!dataUrl.StartsWith(prefix, StringComparison.Ordinal) || dataUrl.Length > 20 * 1024 * 1024 * 4L / 3 + 64)
                     throw new LocalOcrException("invalid_image", "本地 OCR 仅接受最大 20 MB 的 PNG 图片。");
-                try { return Convert.FromBase64String(dataUrl[prefix.Length..]); }
-                catch (FormatException) { throw new LocalOcrException("invalid_image", "PNG 图片编码无效。"); }
+                try { return NativeImages.ReadPngBytes(dataUrl, 20 * 1024 * 1024); }
+                catch (Exception error) when (error is FormatException or InvalidOperationException) { throw new LocalOcrException("invalid_image", "PNG 图片编码或文件头无效，或超过 20 MB。"); }
             }, cancellation.Token);
             return await _localOcr.RecognizeAsync(png, cancellation.Token);
         }

@@ -22,6 +22,8 @@ try {
     if($NativeRuntime -eq 'Source'){& node (Join-Path $PSScriptRoot 'verify-native-runtime.cjs');if($LASTEXITCODE){throw 'Native provenance verification failed.'}}
     & dotnet publish src/Screenshot.App/Screenshot.App.csproj -c Release -r win-x64 --self-contained true "-p:ScreenshotRuntimeVersion=$RuntimeVersion" "-p:ScreenshotNativeRuntime=$NativeRuntime" --maxcpucount:1 --artifacts-path (Join-Path $taskRoot ('artifacts/publish-build-'+$NativeRuntime.ToLowerInvariant())) -o $payload
     if ($LASTEXITCODE) { throw 'Windows publish failed.' }
+    & node (Join-Path $PSScriptRoot 'compact-package.cjs') $payload
+    if ($LASTEXITCODE) { throw 'Portable evidence compression failed.' }
     & node (Join-Path $PSScriptRoot 'release-audit.cjs') $payload
     if ($LASTEXITCODE) { throw 'Portable package audit failed.' }
     & (Join-Path $PSScriptRoot 'build-launcher.ps1') -Output (Join-Path $Output 'Screenshot.exe')

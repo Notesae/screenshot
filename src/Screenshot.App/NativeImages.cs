@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Text;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
@@ -11,6 +12,7 @@ public sealed record LoadedImage(string DataUrl, string Name, int Width, int Hei
 // 负责原生图片和项目文件的读写、剪贴板交换以及跨桥数据校验。
 public static class NativeImages
 {
+    private const string PngPrefix = "data:image/png;base64,";
     // 通过用户选择导入图片，将解码后的首帧转换为受限 PNG 快照。
     public static LoadedImage? Open(Window owner)
     {
@@ -34,18 +36,27 @@ public static class NativeImages
         encoder.Frames.Add(BitmapFrame.Create(bitmap));
         encoder.Save(stream);
         if (stream.Length > BridgePolicy.MaxDocumentBytes) throw new InvalidOperationException("图片数据过大。");
-        return new("data:image/png;base64," + Convert.ToBase64String(stream.ToArray()), name, bitmap.PixelWidth, bitmap.PixelHeight);
+        // PNG 已在流中，直接读取有效区，避免再复制一份完整数组。
+        return new(PngPrefix + Convert.ToBase64String(stream.GetBuffer(), 0, checked((int)stream.Length)), name, bitmap.PixelWidth, bitmap.PixelHeight);
     }
     // 仅解码有正确签名的 PNG data URL，拒绝外链和超大数据。
     public static BitmapSource DecodePng(string dataUrl)
     {
-        const string prefix = "data:image/png;base64,";
-        if (!dataUrl.StartsWith(prefix, StringComparison.Ordinal) || dataUrl.Length > BridgePolicy.MaxDocumentBytes * 4L / 3 + 64)
-            throw new InvalidOperationException("仅支持有效的本地 PNG 图片，最大 64 MB。");
-        var bytes = Convert.FromBase64String(dataUrl[prefix.Length..]);
-        if (bytes.Length < 8 || !bytes.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 })) throw new InvalidOperationException("PNG 文件头无效。");
-        using var stream = new MemoryStream(bytes);
+        using var stream = new MemoryStream(ReadPngBytes(dataUrl), writable: false);
         return ReadBitmap(stream);
+    }
+    // 无分配校验取得精确长度，再从原字符串的区间解码，保留 PNG 和体积边界。
+    internal static byte[] ReadPngBytes(string dataUrl, int maxBytes = BridgePolicy.MaxDocumentBytes)
+    {
+        if (!dataUrl.StartsWith(PngPrefix, StringComparison.Ordinal) || dataUrl.Length > maxBytes * 4L / 3 + 64)
+            throw new InvalidOperationException("仅支持有效的本地 PNG 图片，最大 64 MB。");
+        var encoded = dataUrl.AsSpan(PngPrefix.Length);
+        if (!Base64.IsValid(encoded, out var length)) throw new FormatException("PNG 图片编码无效。");
+        if (length > maxBytes) throw new InvalidOperationException("图片数据过大。");
+        var bytes = new byte[length];
+        if (!Convert.TryFromBase64Chars(encoded, bytes, out var written) || written != length) throw new FormatException("PNG 图片编码无效。");
+        if (bytes.Length < 8 || !bytes.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 })) throw new InvalidOperationException("PNG 文件头无效。");
+        return bytes;
     }
     // 完整加载并冻结图片，使调用方关闭源文件后仍可安全使用像素。
     private static BitmapSource ReadBitmap(Stream stream)
@@ -61,15 +72,15 @@ public static class NativeImages
         if (source.PixelWidth <= 0 || source.PixelHeight <= 0 || source.PixelWidth > 32768 || source.PixelHeight > 32768 || (long)source.PixelWidth * source.PixelHeight > 100_000_000)
             throw new InvalidOperationException("图片尺寸超过限制（最多一亿像素）。");
     }
-    // 用户确认保存位置后重新编码 PNG；取消操作返回 saved:false。
+    // 完整解码校验后保存现有 PNG，不重复编码；取消操作仍不创建文件。
     public static object Save(Window owner, string dataUrl, string? suggestedName)
     {
-        var bitmap = DecodePng(dataUrl);
+        var png = ReadPngBytes(dataUrl);
+        using (var input = new MemoryStream(png, writable: false)) ReadBitmap(input);
         var dialog = new SaveFileDialog { Filter = "PNG 图片|*.png", DefaultExt = ".png", AddExtension = true, FileName = BridgePolicy.SafeName(suggestedName, "截图.png") };
         if (dialog.ShowDialog(owner) != true) return new { saved = false };
         using var output = File.Create(dialog.FileName);
-        var encoder = new PngBitmapEncoder();
-        encoder.Frames.Add(BitmapFrame.Create(bitmap)); encoder.Save(output);
+        output.Write(png);
         return new { saved = true, path = dialog.FileName };
     }
     // 文字输出是明确操作，只写剪贴板，不读取用户现有内容。
@@ -78,7 +89,8 @@ public static class NativeImages
         if (string.IsNullOrEmpty(text) || text.Length > 100_000) throw new InvalidOperationException("复制文字不能为空，且最多100000字符。");
         Clipboard.SetText(text); return new { copied = true };
     }
-    public static object Copy(string dataUrl) { Clipboard.SetImage(DecodePng(dataUrl)); return new { copied = true }; }
+    public static object Copy(string dataUrl) => Copy(DecodePng(dataUrl));
+    internal static object Copy(BitmapSource bitmap) { Clipboard.SetImage(bitmap); return new { copied = true }; }
     // 读取有大小及深度限制的项目 JSON，校验后复制数据供编辑器恢复。
     public static object? OpenProject(Window owner)
     {

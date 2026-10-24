@@ -59,14 +59,14 @@ public sealed partial class AiService : IAiTextService, IDisposable
         var comma = imageDataUrl.IndexOf(',');
         if (comma < 0 || !(imageDataUrl[..comma] is "data:image/png;base64" or "data:image/jpeg;base64" or "data:image/webp;base64"))
             throw new AiProviderException("invalid_image", "OCR 仅接受本地 PNG、JPEG 或 WebP 图片数据。");
-        var image = imageDataUrl[(comma + 1)..];
-        try { var bytes = Convert.FromBase64String(image); if (bytes.Length == 0 || bytes.Length > 20 * 1024 * 1024) throw new FormatException(); }
-        catch (FormatException) { throw new AiProviderException("invalid_image", "图片数据无效或超过 20 MB，请重新导入。"); }
+        // 服务请求只需校验编码和大小，不为随后丢弃的结果分配整张图片。
+        if (!System.Buffers.Text.Base64.IsValid(imageDataUrl.AsSpan(comma + 1), out var imageBytes) || imageBytes == 0 || imageBytes > 20 * 1024 * 1024)
+            throw new AiProviderException("invalid_image", "图片数据无效或超过 20 MB，请重新导入。");
         var provider = await GetProviderAsync(providerId, ct);RequireRevision(provider,expectedRevision);
         // 图片翻译单独返回有界位置与译文；图片中的指令文字始终只是待识别的数据。
         var prompt = translateImage ? ImageTranslationPrompt : "请识别图片中的全部可见文字，保持原有阅读顺序和换行。仅返回识别文本，不添加解释；无法辨认的文字请明确标记。";
         object messages = provider.Kind == "ollama"
-            ? new[] { new { role = "user", content = prompt, images = new[] { image } } }
+            ? new[] { new { role = "user", content = prompt, images = new[] { imageDataUrl[(comma + 1)..] } } }
             : new[] { new { role = "user", content = new object[] { new { type = "text", text = prompt }, new { type = "image_url", image_url = new { url = imageDataUrl } } } } };
         return await CachedAsync(provider,translateImage ? "translate-image-v2" : "ocr",imageDataUrl,()=>SendAsync(provider,messages,ct),ct);
     }, token);
@@ -120,7 +120,9 @@ public sealed partial class AiService : IAiTextService, IDisposable
         }
         // 固定 UTF-8 请求体长度，兼容不完整支持 HTTP/1.1 分块上传的 API 网关。
         // 不重试、不跟随重定向，也不改变系统代理或证书校验。
-        request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+        // 直接生成 UTF-8 字节，仍发送固定 Content-Length，避免巨大 JSON 字符串的额外副本。
+        request.Content = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(body));
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         progress?.Report("正在连接服务并等待响应");
         using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);

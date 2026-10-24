@@ -42,7 +42,10 @@ internal sealed class CaptureAcquisition(ICapturePlatform platform)
                 var pixels = await platform.CaptureItemAsync(CaptureTargetKind.Monitor, monitor.Handle, request.TimeoutMs, deadline.Token).ConfigureAwait(false);
                 frames.Add((monitor.Bounds, pixels));
             }
-            var backdrop = CapturePixelGeometry.Compose(desktop, frames);
+            // 单屏帧已是本次捕获的私有 CPU 快照；尺寸一致时无需再复制整张桌面。
+            var backdrop = frames.Count == 1 && frames[0].Bounds == desktop
+                && frames[0].Pixels.Size == new CaptureSize(desktop.Width, desktop.Height)
+                ? frames[0].Pixels : CapturePixelGeometry.Compose(desktop, frames);
             var selected = backdrop; var selection = desktop;
             if (request.Target.Kind == CaptureTargetKind.Monitor)
             {

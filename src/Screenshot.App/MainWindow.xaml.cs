@@ -25,7 +25,9 @@ public partial class MainWindow : Window
         ["wgc"] = new WgcCaptureBackend(), ["gdi"] = new GdiCaptureBackend()
     };
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly JsonSerializerOptions _json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+    // 仅用于 PostWebMessageAsJson，不拼进 HTML/脚本；保留 Base64 的 +，避免整图转义膨胀。
+    private readonly JsonSerializerOptions _json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     private readonly RequestGate _requests = new();
     private readonly CapturePresentationState _presentation = new();
     private readonly CaptureHandoffState _captureHandoff = new(); // 布局完成前保持原生框选画面。
@@ -540,7 +542,11 @@ public partial class MainWindow : Window
             case "presentation.complete": return await CompleteEditingAsync(payload);
             case "image.save": return NativeImages.Save(this, RequiredString(payload, "dataUrl"), OptionalString(payload, "suggestedName"));
             case "text.copy": return NativeImages.CopyText(RequiredString(payload, "text"));
-            case "image.copy": return NativeImages.Copy(RequiredString(payload, "dataUrl"));
+            case "image.copy":
+                // 完整解码离开 UI 线程，真正的剪贴板写入仍回到原生 STA 线程。
+                var copyBitmap = await Task.Run(() => NativeImages.DecodePng(RequiredString(payload, "dataUrl")), _lifetime.Token);
+                _lifetime.Token.ThrowIfCancellationRequested();
+                return NativeImages.Copy(copyBitmap);
             case "image.pin": return await PinImageAsync(payload);
             case "project.open": await CheckEditorAsync("replace"); return NativeImages.OpenProject(this);
             case "project.save": return NativeImages.SaveProject(this, payload.GetProperty("document"), OptionalString(payload, "suggestedName"));
