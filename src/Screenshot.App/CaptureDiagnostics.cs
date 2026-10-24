@@ -31,12 +31,12 @@ internal sealed class CaptureDiagnostics
         lock (_phases)
         {
             if (_phases.Count < 128) _phases.Add(new { phase, elapsedMs = Math.Round(_clock.Elapsed.TotalMilliseconds, 2), count, details });
-            if (phase == "handoff_released") _completed = true;
+            if (phase is "handoff_released" or "editor_ready_confirmed" or "clipboard_image_committed") _completed = true;
         }
     }
     public void Fail(string reason, object? details = null)
     {
-        lock (_phases) { _failure = reason; _failedUtc = DateTimeOffset.UtcNow; Mark(reason, details: details); }
+        lock (_phases) { _failure = reason; _failedUtc = DateTimeOffset.UtcNow; _completed = false; Mark(reason, details: details); }
         Volatile.Write(ref _latestFailure, this);
         Flush();
     }

@@ -563,11 +563,7 @@ public partial class MainWindow : Window
             case "presentation.complete": return await CompleteEditingAsync(payload);
             case "image.save": return NativeImages.Save(this, RequiredString(payload, "dataUrl"), OptionalString(payload, "suggestedName"));
             case "text.copy": return NativeImages.CopyText(RequiredString(payload, "text"));
-            case "image.copy":
-                // 完整解码离开 UI 线程，真正的剪贴板写入仍回到原生 STA 线程。
-                var copyBitmap = await Task.Run(() => NativeImages.DecodePng(RequiredString(payload, "dataUrl")), _lifetime.Token);
-                _lifetime.Token.ThrowIfCancellationRequested();
-                return NativeImages.Copy(copyBitmap);
+            case "image.copy": return await CopyImageAsync(payload);
             case "image.pin": return await PinImageAsync(payload);
             case "project.open": await CheckEditorAsync("replace"); return NativeImages.OpenProject(this);
             case "project.save": return NativeImages.SaveProject(this, payload.GetProperty("document"), OptionalString(payload, "suggestedName"));
@@ -596,6 +592,9 @@ public partial class MainWindow : Window
     private void Failure(string id, string code, string message) => Post(new { id, ok = false, error = new { code, message } });
     private void Post(object response)
     {
+        if (_lifetime.IsCancellationRequested || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+        // COM 回调的异步续接不依赖隐含同步上下文，所有 WebView 回复均由所属 Dispatcher 发出。
+        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(() => Post(response))); return; }
         if (!_lifetime.IsCancellationRequested && Editor.CoreWebView2 is { } core && BridgePolicy.IsTrustedSource(core.Source))
         {
             WakeEditorResources();

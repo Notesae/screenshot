@@ -134,8 +134,21 @@ public static class NativeImages
         if (string.IsNullOrEmpty(text) || text.Length > 100_000) throw new InvalidOperationException("复制文字不能为空，且最多100000字符。");
         Clipboard.SetText(text); return new { copied = true };
     }
-    public static object Copy(string dataUrl) => Copy(DecodePng(dataUrl));
-    internal static object Copy(BitmapSource bitmap) { Clipboard.SetImage(bitmap); return new { copied = true }; }
+    // 保留同步入口；主界面使用后台准备及显式 STA 提交，不让 WPF 自动转换后台解码对象。
+    public static object Copy(string dataUrl)
+    {
+        var image = PrepareClipboardImage(dataUrl); image.Write();
+        if (image.Confirm() != ClipboardImageStatus.Ready) throw new IOException("图片未能可靠写入剪贴板，已保留当前编辑，请重试。");
+        return new { copied = true };
+    }
+    internal static ClipboardImagePayload PrepareClipboardImage(string dataUrl)
+    {
+        var png = ReadPngBytes(dataUrl);
+        using var stream = new MemoryStream(png, writable: false);
+        var image = new ClipboardImagePayload(png, ReadBitmap(stream));
+        UsePngValidation(PngFingerprint(dataUrl), remember: true);
+        return image;
+    }
     // 读取有大小及深度限制的项目 JSON，校验后复制数据供编辑器恢复。
     public static object? OpenProject(Window owner)
     {
