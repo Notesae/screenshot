@@ -12,7 +12,7 @@ export function placeTools(screen:PixelRect,frame:PixelRect|null,railSize:{width
   const margin=Math.min(24,screen.width/8,screen.height/8),area={x:screen.x+margin,y:screen.y+margin,width:Math.max(1,screen.width-margin*2),height:Math.max(1,screen.height-margin*2)};
   const rail={width:Math.min(railSize.width,area.width),height:Math.min(railSize.height,area.height)};
   const origin=frame?{x:frame.x+(frame.width-rail.width)/2,y:frame.y+frame.height+16}:{x:area.x+(area.width-rail.width)/2,y:area.y+area.height-rail.height};
-  if(frame&&origin.y+rail.height>area.y+area.height)origin.y=frame.y-rail.height-16;
+  // 下方空间不足时由屏内边界贴住屏幕下沿，避免大选区把轨道翻到顶部。
   const railBox={...(manual.rail??boundTool(origin,rail,area)),...rail};
   const card={width:Math.min(cardSize.width,area.width),height:Math.min(cardSize.height,area.height)};
   const anchor={x:railBox.x+clamp(sourceOffset?.x??rail.width/2,0,rail.width),y:railBox.y+clamp(sourceOffset?.y??rail.height/2,0,rail.height)};
