@@ -24,6 +24,8 @@ MSI 根据微软公开的每用户/每机器注册位置检查 WebView2 Runtime�
 
 ## 构建与检查
 
+本地历史包清理、固定构建缓存及成品体积分析见[构建产物与空间管理](BUILD-STORAGE.md)。
+
 ```powershell
 ./scripts/publish.ps1
 ./scripts/prepare-installer-tools.ps1

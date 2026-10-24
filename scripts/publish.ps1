@@ -28,5 +28,11 @@ try {
     Copy-Item -LiteralPath (Join-Path $taskRoot 'packaging/使用说明.txt') -Destination $Output
     & node (Join-Path $PSScriptRoot 'package-layout.cjs') $Output
     if ($LASTEXITCODE) { throw 'Package layout verification failed.' }
+    # 本地只保留本次成品和固定缓存；CI 继续按既有流程收集全部证据。
+    if ($env:GITHUB_ACTIONS -ne 'true') {
+        $cleanup = & (Join-Path $PSScriptRoot 'clean-artifacts.ps1') -Apply -KeepPath $Output
+        if ($cleanup.Failed) { Write-Warning '部分历史产物未清理，详见 artifacts/cleanup/last-run.json。' }
+        Write-Output ("历史产物已清理：{0:N2} GiB" -f ($cleanup.Bytes / 1GB))
+    }
     Write-Output "Runnable output: $Output"
 } finally { Pop-Location }
