@@ -1,6 +1,9 @@
 using System;
 using System.Buffers.Text;
+using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Media.Imaging;
@@ -13,6 +16,9 @@ public sealed record LoadedImage(string DataUrl, string Name, int Width, int Hei
 public static class NativeImages
 {
     private const string PngPrefix = "data:image/png;base64,";
+    private static readonly object PngValidationLock = new();
+    // 仅保留最近四个已成功解码的 SHA-256，不让校验缓存挂住 Base64、PNG 字节或位图。
+    private static readonly LinkedList<byte[]> ValidatedPngs = new();
     // 通过用户选择导入图片，将解码后的首帧转换为受限 PNG 快照。
     public static LoadedImage? Open(Window owner)
     {
@@ -42,14 +48,53 @@ public static class NativeImages
     // 仅解码有正确签名的 PNG data URL，拒绝外链和超大数据。
     public static BitmapSource DecodePng(string dataUrl)
     {
+        var bitmap = DecodePngCore(dataUrl);
+        UsePngValidation(PngFingerprint(dataUrl), remember: true);
+        return bitmap;
+    }
+    private static BitmapSource DecodePngCore(string dataUrl)
+    {
         using var stream = new MemoryStream(ReadPngBytes(dataUrl), writable: false);
         return ReadBitmap(stream);
+    }
+    private static byte[] PngFingerprint(string dataUrl) => SHA256.HashData(MemoryMarshal.AsBytes(dataUrl.AsSpan()));
+    // 内容相同才复用既有像素校验；不同输入仍完整检查编码、签名、解码及尺寸。
+    private static void ValidatePng(string dataUrl)
+    {
+        ValidatePngEnvelope(dataUrl, BridgePolicy.MaxDocumentBytes);
+        var fingerprint = PngFingerprint(dataUrl);
+        if (UsePngValidation(fingerprint, remember: false)) return;
+        DecodePngCore(dataUrl);
+        UsePngValidation(fingerprint, remember: true);
+    }
+    // 短锁内仅维护四项 LRU；哈希和图片解码都在锁外执行。
+    private static bool UsePngValidation(byte[] fingerprint, bool remember)
+    {
+        lock (PngValidationLock)
+        {
+            for (var node = ValidatedPngs.First; node is not null; node = node.Next)
+            {
+                if (!CryptographicOperations.FixedTimeEquals(node.Value, fingerprint)) continue;
+                ValidatedPngs.Remove(node); ValidatedPngs.AddLast(node);
+                return true;
+            }
+            if (remember)
+            {
+                ValidatedPngs.AddLast(fingerprint);
+                if (ValidatedPngs.Count > 4) ValidatedPngs.RemoveFirst();
+            }
+            return false;
+        }
+    }
+    private static void ValidatePngEnvelope(string dataUrl, int maxBytes)
+    {
+        if (!dataUrl.StartsWith(PngPrefix, StringComparison.Ordinal) || dataUrl.Length > maxBytes * 4L / 3 + 64)
+            throw new InvalidOperationException("仅支持有效的本地 PNG 图片，最大 64 MB。");
     }
     // 无分配校验取得精确长度，再从原字符串的区间解码，保留 PNG 和体积边界。
     internal static byte[] ReadPngBytes(string dataUrl, int maxBytes = BridgePolicy.MaxDocumentBytes)
     {
-        if (!dataUrl.StartsWith(PngPrefix, StringComparison.Ordinal) || dataUrl.Length > maxBytes * 4L / 3 + 64)
-            throw new InvalidOperationException("仅支持有效的本地 PNG 图片，最大 64 MB。");
+        ValidatePngEnvelope(dataUrl, maxBytes);
         var encoded = dataUrl.AsSpan(PngPrefix.Length);
         if (!Base64.IsValid(encoded, out var length)) throw new FormatException("PNG 图片编码无效。");
         if (length > maxBytes) throw new InvalidOperationException("图片数据过大。");
@@ -120,6 +165,6 @@ public static class NativeImages
         if (!document.TryGetProperty("image", out var image)) throw new InvalidOperationException("项目缺少图片字段。");
         if (image.ValueKind == JsonValueKind.Null) return;
         if (image.ValueKind != JsonValueKind.Object || !image.TryGetProperty("dataUrl", out var url) || url.ValueKind != JsonValueKind.String) throw new InvalidOperationException("项目图片格式无效。");
-        DecodePng(url.GetString()!);
+        ValidatePng(url.GetString()!);
     }
 }

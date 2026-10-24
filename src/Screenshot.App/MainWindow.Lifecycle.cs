@@ -155,7 +155,7 @@ public partial class MainWindow
         _preserving = true;
         try
         {
-            var script = "window.screenshotPrepareLeave?.(" + JsonSerializer.Serialize(reason) + ") ?? null";
+            var script = "window.screenshotPrepareLeave?.(" + JsonSerializer.Serialize(reason) + "," + JsonSerializer.Serialize(_checkpoint.Known) + ") ?? null";
             using var result = JsonDocument.Parse(await core.ExecuteScriptAsync(script));
             _checkpoint.Validate(result.RootElement, documentId, revision);
         }

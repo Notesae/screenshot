@@ -10,7 +10,7 @@ import { flushSync } from 'react-dom';
 
 import { native, subscribeNative, type LoadedImage, type Settings, type PresentationResult } from './bridge';
 import { defaultEditor, parseDocument, transformContent, type ContentResize, type SourceCrop, type EditorState, type ProjectDocument } from './document';
-import { fileToImage, imageForProcessing, normalizeImage } from './render';
+import { fileToImage, imageForProcessing, normalizeImage, releaseDecodedImageCache } from './render';
 import type { CanvasHandle, CanvasRenderStatus, CanvasSelection } from './EditorCanvas';
 import { overlayForImportedImage, parseCapture, type CaptureEnvelope, type OverlayMetadata, type PixelRect } from './overlay';
 import { CompactOverlay } from './CompactOverlay';
@@ -81,9 +81,9 @@ export default function App() {
   const editor = doc.editor;
   useLayoutEffect(() => {
     window.screenshotPrepareUpdate = () => prepareUpdateSnapshot({ operation: busy, aiBusy: Boolean(aiBusy), editing: canvas.current?.interactionState().editing || false, loading: Boolean(doc.image) && canvasStatus !== 'ready', documentId, revision: history.revision, document: history.current() });
-    window.screenshotPrepareLeave = reason => {
+    window.screenshotPrepareLeave = (reason, known) => {
       if (hostLock.current) return { error: '正在确认编辑状态，请稍后再试。' };
-      const snapshot = prepareLeaveSnapshot({ operation:operationRef.current, aiBusy:Boolean(aiBusy), editing:canvas.current?.interactionState().editing || false, loading:Boolean(doc.image) && canvasStatus !== 'ready', documentId, revision:history.currentRevision(), document:history.current(), projectSaved:savedProject.current?.id===documentId && savedProject.current.revision===history.currentRevision() }, reason);
+      const snapshot = prepareLeaveSnapshot({ operation:operationRef.current, aiBusy:Boolean(aiBusy), editing:canvas.current?.interactionState().editing || false, loading:Boolean(doc.image) && canvasStatus !== 'ready', documentId, revision:history.currentRevision(), document:history.current(), projectSaved:savedProject.current?.id===documentId && savedProject.current.revision===history.currentRevision() }, reason, known);
       if (!('error' in snapshot)) {
         hostLock.current=true;setHostLocked(true);
         // 关闭和替换先使旧任务失效，再通知宿主取消；迟到结果不能回写文档或提示。
@@ -335,6 +335,7 @@ export default function App() {
           if (!matches()) return;
           generation.current++; setOverlay(null); setNotice(null);
         } else setNotice({ text: '图片已复制' });
+        releaseDecodedImageCache();
         setDoc(initial); setDocumentEpoch(value => value + 1);
       } catch (error) {
         motion?.restore();

@@ -1,8 +1,14 @@
-import type { ProjectDocument } from './document';
+import type { EditorState, ProjectDocument } from './document';
 /** 只保留文档引用和编辑元数据；源图片对象在每个快照间共享，不复制 Base64。 */
 export type HistoryState = { past: ProjectDocument[]; present: ProjectDocument; future: ProjectDocument[]; revision: number; group?: string; time: number };
 export function createHistory(document: ProjectDocument): HistoryState { return { past: [], present: document, future: [], revision: 0, time: 0 }; }
-function metadata(document: ProjectDocument) { return JSON.stringify(document.editor); }
+// 编辑状态提交后保持不可变；弱引用复用序列化结果，不阻止被裁剪或重置的历史释放。
+const metadataCache = new WeakMap<EditorState, string>();
+function metadata(document: ProjectDocument) {
+  let value = metadataCache.get(document.editor);
+  if (value === undefined) { value = JSON.stringify(document.editor); metadataCache.set(document.editor, value); }
+  return value;
+}
 /** 合并相邻输入事务，限制最多80步与8MiB元数据；新编辑始终丢弃重做分支。 */
 export function commitHistory(state: HistoryState, document: ProjectDocument, options: { group?: string; now?: number } = {}): HistoryState {
   if (state.present.image === document.image && metadata(state.present) === metadata(document)) return state;

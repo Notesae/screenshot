@@ -137,10 +137,11 @@ public partial class MainWindow : Window
             core.NavigationStarting += (_, args) =>
             {
                 if (!BridgePolicy.IsTrustedSource(args.Uri)) { args.Cancel = true; return; }
+                _checkpoint.Reset();
                 // 新网页拥有新的消息序列；加载失败时也不能沿用旧页的运动许可。
                 FrozenBackdrop.Suspend(); _backdropGate.Reset(_presentation.Overlay?.CaptureId);
             };
-            core.ProcessFailed += (_, _) => { FrozenBackdrop.Suspend(); _backdropGate.Reset(_presentation.Overlay?.CaptureId); };
+            core.ProcessFailed += (_, _) => { _checkpoint.Reset(); FrozenBackdrop.Suspend(); _backdropGate.Reset(_presentation.Overlay?.CaptureId); };
             core.FrameNavigationStarting += (_, args) => args.Cancel = true;
             core.NewWindowRequested += (_, args) => args.Handled = true;
             core.PermissionRequested += (_, args) => args.State = CoreWebView2PermissionState.Deny;

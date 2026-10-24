@@ -9,17 +9,23 @@ import { canvasToPngDataUrl } from './png';
 export const FONT = '"Microsoft YaHei", "PingFang SC", sans-serif';
 // 只缓存最近一张解码结果，复用校验与首次画布渲染；不按撤销历史积累整图像素。
 let lastDecoded:{url:string;promise:Promise<HTMLImageElement>}|null=null;
-export function loadImage(dataUrl: string): Promise<HTMLImageElement> {
-  if(lastDecoded?.url===dataUrl)return lastDecoded.promise;
+let decodeCacheEpoch = 0;
+/** 完成后只解除缓存引用；仍在收尾的渲染可正常结束，但不能重新挂住旧图片。 */
+export function releaseDecodedImageCache() { lastDecoded = null; decodeCacheEpoch++; }
+export function loadImage(dataUrl: string, epoch = decodeCacheEpoch): Promise<HTMLImageElement> {
+  const cacheable = epoch === decodeCacheEpoch;
+  if(cacheable && lastDecoded?.url===dataUrl)return lastDecoded.promise;
   const image=new Image();
   const promise=new Promise<HTMLImageElement>((resolve,reject)=>{
     image.onload=()=>resolve(image);
     image.onerror=()=>{if(lastDecoded?.promise===promise)lastDecoded=null;reject(new Error('图片无法解码，请选择有效图片。'));};
   });
-  lastDecoded={url:dataUrl,promise};image.src=dataUrl;return promise;
+  if(cacheable)lastDecoded={url:dataUrl,promise};
+  image.src=dataUrl;return promise;
 }
 /** 生成预览与导出共用的底图，原样模式无装饰，美化与重排在此合成。 */
 export async function renderBase(doc: ProjectDocument, scale = 1): Promise<HTMLCanvasElement> {
+  const epoch = decodeCacheEpoch;
   if (typeof document.fonts !== 'undefined') await document.fonts.ready;
   const { image, editor } = doc;
   const size = outputSize(image, editor);
@@ -42,7 +48,7 @@ export async function renderBase(doc: ProjectDocument, scale = 1): Promise<HTMLC
     return canvas;
   }
   if (!image) return canvas;
-  const source = await loadImage(image.dataUrl);
+  const source = await loadImage(image.dataUrl, epoch);
   if (source.naturalWidth !== image.width || source.naturalHeight !== image.height) throw new Error('图片尺寸与项目记录不符。');
   const content = contentGeometry(image, editor);
   const padding = editor.mode === 'beauty' ? editor.padding : 0;
