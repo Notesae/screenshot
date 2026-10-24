@@ -4,10 +4,10 @@ import type { OverlayMetadata, PixelRect } from './overlay';
 import { presentationMotion } from './LiquidMotion';
 
 /** 选区内空白直接拖动；标注命中交还画布。裁剪及绘制完成前保留落点，避免旧帧闪回。 */
-export function CaptureSelection({ viewport, metadata, disabled, settled, onAdjust, onPreview, onDragging, hitAnnotation, onBegin, children }: {
+export function CaptureSelection({ viewport, metadata, disabled, settled, onAdjust, onPreview, onDragging, hitAnnotation, onBegin, onBlankClick, children }: {
   viewport:{width:number;height:number};metadata: OverlayMetadata|null; disabled: boolean; settled: boolean; onAdjust: (area: PixelRect) => Promise<boolean>;
   onPreview: (area: PixelRect|null) => void; onDragging: (active: boolean) => void;
-  hitAnnotation: (event: globalThis.PointerEvent) => boolean; onBegin: () => void; children: ReactNode;
+  hitAnnotation: (event: globalThis.PointerEvent) => boolean; onBegin: () => void; onBlankClick?: () => void; children: ReactNode;
 }) {
   const [preview, setPreview] = useState<PixelRect|null>(null), [pending,setPending]=useState(false);
   const frame=useRef<HTMLDivElement>(null),sequence=useRef(0);
@@ -56,7 +56,8 @@ export function CaptureSelection({ viewport, metadata, disabled, settled, onAdju
     const current=drag.current;if(!current||!metadata||event.pointerId!==current.id)return;
     move(event);drag.current=null;
     if(current.element.hasPointerCapture(current.id))current.element.releasePointerCapture(current.id);
-    if(!current.started)return;
+    // 背景点击已被选区接管，需显式取消标注选择；拖动和手柄点击仍沿用选区手势。
+    if(!current.started){if(current.handle==='move')onBlankClick?.();return;}
     onDragging(false);presentationMotion(current.element)?.selectionGesture(false, sameArea(current.next,current.area));
     if(sameArea(current.next,metadata.selection)){reset();return;}
     setPending(true);const request=++sequence.current;
