@@ -61,6 +61,7 @@ public partial class MainWindow : Window
         _terms = terms; terms.RequireAccepted();
         InitializeComponent();
         InitializeBackdropMotion();
+        InitializeResourcePolicy();
         Editor.DefaultBackgroundColor = System.Drawing.Color.Transparent;
         Closing += ProtectClosing;
         SourceInitialized += (_, _) =>
@@ -289,6 +290,7 @@ public partial class MainWindow : Window
     // 主动进入无冻结背景的轻量编辑器，文档保持不变；加载失败时才显示原生兜底条。
     private void ShowWorkbench()
     {
+        WakeEditorResources();
         _captureHandoff.Release();_composedCaptureId=null;Opacity=1;ShowActivated=true;
         _presentation.ShowWorkbench();
         _backdropGate.Reset(null);
@@ -445,6 +447,7 @@ public partial class MainWindow : Window
     private async void OnWebMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs args)
     {
         if (!BridgePolicy.IsTrustedSource(args.Source)) return;
+        WakeEditorResources();
         string? id = null;
         IDisposable? lease = null;
         try
@@ -470,7 +473,7 @@ public partial class MainWindow : Window
         catch (SnapshotStoreException exception) { if (id is not null) Failure(id, exception.Code, exception.Message); }
         catch (OperationCanceledException) { if (id is not null) Failure(id, "cancelled", "操作已取消。"); }
         catch (Exception exception) { if (id is not null) Failure(id, "operation_failed", exception is JsonException ? "请求格式无效。" : exception.Message); }
-        finally { lease?.Dispose(); }
+        finally { lease?.Dispose(); ScheduleIdleResources(); }
     }
     // 仅允许协议列明的命令；文件、剪贴板、捕获及密钥相关操作留在原生进程。
     private async Task<object?> ExecuteAsync(string method, JsonElement payload)
@@ -576,6 +579,11 @@ public partial class MainWindow : Window
     private void Failure(string id, string code, string message) => Post(new { id, ok = false, error = new { code, message } });
     private void Post(object response)
     {
-        if (!_lifetime.IsCancellationRequested && Editor.CoreWebView2 is { } core && BridgePolicy.IsTrustedSource(core.Source)) core.PostWebMessageAsJson(JsonSerializer.Serialize(response, _json));
+        if (!_lifetime.IsCancellationRequested && Editor.CoreWebView2 is { } core && BridgePolicy.IsTrustedSource(core.Source))
+        {
+            WakeEditorResources();
+            core.PostWebMessageAsJson(JsonSerializer.Serialize(response, _json));
+            ScheduleIdleResources();
+        }
     }
 }

@@ -16,12 +16,13 @@ import { TooltipLayer } from './TooltipLayer';
 import { OverlayScrollbars } from './OverlayScrollbars';
 import { flushSync } from 'react-dom';
 import { matchesPresentationViewport, readPresentationViewport } from './presentationViewport';
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type PointerEvent, type KeyboardEvent } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type PointerEvent, type KeyboardEvent } from 'react';
 import { Check, Copy, FolderOpen, Frame, GripVertical, ImagePlus, MoreHorizontal, Pin, RotateCcw, ScanText, Settings2, Sparkles, X } from 'lucide-react';
 import { StyleTools } from './StyleTools';
 import { TextTools, type TextToolsProps } from './TextTools';
 import { CaptureControls } from './CaptureControls';
-import { EditorCanvas, type CanvasHandle, type CanvasRenderStatus, type CanvasSelection } from './EditorCanvas';
+import type { CanvasHandle, CanvasRenderStatus, CanvasSelection } from './EditorCanvas';
+import { preloadEditorCanvas } from './editorRuntime';
 import { outputSize, type AnnotationKind, type ContentResize, type SourceCrop, type EditorState, type ProjectDocument } from './document';
 import { native, type Settings, type PresentationResult } from './bridge';
 import { overlayLayout, type OverlayMetadata } from './overlay';
@@ -33,6 +34,8 @@ import type { PixelRect } from './overlay';
 import { ImageTranslationReader, translationReaderPlacement } from './ImageTranslationReader';
 
 
+
+const EditorCanvas = lazy(async () => ({ default: (await preloadEditorCanvas()).EditorCanvas }));
 
 type Panel = 'beauty'|'text'|'more'|'properties'|'recovery';
 
@@ -281,7 +284,7 @@ export function CompactOverlay(props:Props) {
   return <div ref={rootRef} data-editor-root className={'clay-editor '+(metadata?'is-overlay':'is-neutral')+(chromeVisible?' is-presented':' is-awaiting')+(preparing?' is-preparing':'')+(props.suspended?' is-suspended':'')+(fullReading?' is-reading':'')} inert={props.locked} onKeyDownCapture={event=>{const target=event.target;if(event.key==='Escape'&&!event.nativeEvent.isComposing&&!composing.current&&target instanceof HTMLElement&&target.matches('input,textarea,select')&&!target.closest('.clay-color-popover')){event.preventDefault();event.stopPropagation();target.blur();}}} onDragOver={event=>{if(Array.from(event.dataTransfer.types).includes('Files'))event.preventDefault();}} onDrop={event=>{event.preventDefault();void props.onFiles(event.dataTransfer.files);}}>
     <CaptureSelection viewport={viewport} metadata={metadata} disabled={!!busy||!!aiBusy||props.locked||comparing||!canvasSettled} settled={canvasSettled&&!busy} onAdjust={props.onAdjustCapture} onPreview={previewSelection} onDragging={active=>{selectionDragging.current=active;if(active)beginSelectionFollow();}} hitAnnotation={event=>canvasRef.current?.hasAnnotationAt(event)??false} onBegin={()=>canvasRef.current?.exitSelection()}>
     <div className={metadata?'clay-canvas-fixed':'clay-canvas-stage'} inert={!!busy} style={mapped?{visibility:selectionPreview?'hidden':undefined,left:mapped.frame.x,top:mapped.frame.y,width:mapped.frame.width,height:mapped.frame.height}:undefined}>
-      {hasContent?<EditorCanvas ref={canvasRef} compareRaw={comparing} onCompareError={error=>{setComparison(null);props.onError(error);}} showViewControls={visiblePanel!=='recovery'} document={doc} onDrawingToolChange={setDrawingTool} onSelection={props.onSelection} onRenderStatus={props.onRenderStatus} fixedDisplayScale={mapped?.scale} onReady={()=>{setCanvasReady(true);setPaintedImage(doc.image);}} onAnnotations={(annotations,group)=>update({annotations},group)} onError={props.onError}/>:<div className="clay-launcher"><Frame size={32} aria-hidden="true"/><h1>截图，接着编辑。</h1><p>从托盘或快捷键开始，也可以打开本机文件。</p><ControlButton className="clay-primary" disabled={!!busy} onClick={()=>props.onCapture('capture.region')}>区域截图</ControlButton><ControlButton disabled={!!busy} onClick={props.onOpenImage}>打开图片</ControlButton><ControlButton disabled={!!busy} onClick={props.onOpenProject}>打开项目</ControlButton></div>}
+      {hasContent?<Suspense fallback={null}><EditorCanvas ref={canvasRef} compareRaw={comparing} onCompareError={error=>{setComparison(null);props.onError(error);}} showViewControls={visiblePanel!=='recovery'} document={doc} onDrawingToolChange={setDrawingTool} onSelection={props.onSelection} onRenderStatus={props.onRenderStatus} fixedDisplayScale={mapped?.scale} onReady={()=>{setCanvasReady(true);setPaintedImage(doc.image);}} onAnnotations={(annotations,group)=>update({annotations},group)} onError={props.onError}/></Suspense>:<div className="clay-launcher"><Frame size={32} aria-hidden="true"/><h1>截图，接着编辑。</h1><p>从托盘或快捷键开始，也可以打开本机文件。</p><ControlButton className="clay-primary" disabled={!!busy} onClick={()=>props.onCapture('capture.region')}>区域截图</ControlButton><ControlButton disabled={!!busy} onClick={props.onOpenImage}>打开图片</ControlButton><ControlButton disabled={!!busy} onClick={props.onOpenProject}>打开项目</ControlButton></div>}
     </div>
     </CaptureSelection>
     <svg className="liquid-panel-bridge" aria-hidden="true"><path/></svg>

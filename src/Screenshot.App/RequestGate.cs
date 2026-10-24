@@ -9,6 +9,7 @@ internal sealed class RequestGate
     private readonly object _sync = new();
     private bool _nativeBusy;
     private bool _aiBusy;
+    public bool IsBusy { get { lock (_sync) return _nativeBusy || _aiBusy; } }
 
     // 成功取得对应操作的租约，由调用方在 finally 中释放。
     public bool TryEnter(string method, out IDisposable? lease)

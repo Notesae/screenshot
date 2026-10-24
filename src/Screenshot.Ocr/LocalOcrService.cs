@@ -153,12 +153,29 @@ public sealed class LocalOcrService : IDisposable
         return (output.GetTensorDataAsSpan<float>().ToArray(),output.GetTensorTypeAndShape().Shape);
     }
 
+    /// <summary>托盘空闲时尝试释放可重建的模型会话；推理或排队请求占用执行权时直接跳过。</summary>
+    public void ReleaseIdleSessions()
+    {
+        if (Volatile.Read(ref _disposed) != 0 || !_gate.Wait(0)) return;
+        try { if (Volatile.Read(ref _disposed) == 0) ReleaseSessions(); }
+        finally { _gate.Release(); }
+    }
+
+    // 仅持有执行权时调用；先解除引用，下次识别仍按原来的模型摘要和参数完整初始化。
+    private void ReleaseSessions()
+    {
+        var detector = _detector; var recognizer = _recognizer;
+        _detector = null; _recognizer = null; _dictionary = null;
+        try { detector?.Dispose(); }
+        finally { recognizer?.Dispose(); }
+    }
+
     /// <summary>取消存活请求，等其释放执行权后销毁会话，防止原生资源与推理并发释放。</summary>
     public void Dispose()
     {
         if(Interlocked.Exchange(ref _disposed,1)!=0) return;
         _lifetime.Cancel(); _gate.Wait();
-        try { _detector?.Dispose(); _recognizer?.Dispose(); }
+        try { ReleaseSessions(); }
         finally { _gate.Release(); _lifetime.Dispose(); }
     }
 }

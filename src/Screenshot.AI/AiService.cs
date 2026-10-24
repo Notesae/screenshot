@@ -8,7 +8,8 @@ namespace Screenshot.AI;
 public sealed partial class AiService : IAiTextService, IDisposable
 {
     private readonly AiSettingsStore _store;
-    private readonly HttpClient _client;
+    // 读取设置不创建 HTTP 客户端；首次显式服务请求才创建自有客户端。
+    private readonly Lazy<HttpClient> _client;
     // 仅释放内部创建的客户端，避免影响宿主注入的共享客户端。
     private readonly bool _ownsClient;
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(90);
@@ -19,7 +20,7 @@ public sealed partial class AiService : IAiTextService, IDisposable
         _store = store ?? new();
         _ownsClient = client is null;
         // 禁止将授权头或图片随重定向发送到其他来源。
-        _client = client ?? new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
+        _client = new(() => client ?? new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan });
     }
 
     /// <summary>读取前端可用的服务摘要，始终排除密钥及密文。</summary>
@@ -125,7 +126,7 @@ public sealed partial class AiService : IAiTextService, IDisposable
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         progress?.Report("正在连接服务并等待响应");
-        using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+        using var response = await _client.Value.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
         if (!response.IsSuccessStatusCode)
         {
             var status=(int)response.StatusCode;
@@ -209,5 +210,5 @@ public sealed partial class AiService : IAiTextService, IDisposable
             throw new AiProviderException("invalid_api_key", "API 密钥格式无效，请移除换行或控制字符。");
     }
 
-    public void Dispose() { if (_ownsClient) _client.Dispose(); }
+    public void Dispose() { if (_ownsClient && _client.IsValueCreated) _client.Value.Dispose(); }
 }

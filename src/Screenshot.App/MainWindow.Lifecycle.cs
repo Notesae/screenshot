@@ -149,6 +149,7 @@ public partial class MainWindow
     // 只验证覆盖、关闭和完成的忙状态与文档身份，不写恢复库；失败保留当前编辑。
     private async Task CheckEditorAsync(string reason, string? documentId = null, long? revision = null)
     {
+        WakeEditorResources();
         if (!_editorMounted.Task.IsCompletedSuccessfully) return;
         if (!_ready || Editor.CoreWebView2 is not { } core) throw new IOException("编辑器尚未就绪，已保留当前编辑。");
         if (_preserving) throw new IOException("正在确认编辑状态，请稍后再试。");
@@ -159,7 +160,7 @@ public partial class MainWindow
             using var result = JsonDocument.Parse(await core.ExecuteScriptAsync(script));
             _checkpoint.Validate(result.RootElement, documentId, revision);
         }
-        finally { try { await core.ExecuteScriptAsync("window.screenshotFinishLeave?.()"); } finally { _preserving = false; } }
+        finally { try { await core.ExecuteScriptAsync("window.screenshotFinishLeave?.()"); } finally { _preserving = false; ScheduleIdleResources(); } }
     }
 
     private async void ProtectClosing(object? sender, CancelEventArgs args)

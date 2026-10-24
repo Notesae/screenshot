@@ -1,5 +1,3 @@
-import { FabricImage, StaticCanvas } from 'fabric';
-import { annotationToObject } from './annotations';
 import { applyEditorChange, outputSize, type ProjectDocument } from './document';
 import { renderBase } from './render';
 
@@ -17,8 +15,11 @@ export async function renderBeautyContent(doc:ProjectDocument,maxEdge:number):Pr
 export async function renderBeautyPreview(doc:ProjectDocument,maxEdge:number):Promise<HTMLCanvasElement> {
   const size=outputSize(doc.image,doc.editor);
   const scale=Math.min(1,maxEdge/Math.max(size.width,size.height));
+  // 无标注预览只用原生画布，避免从启动入口间接拉入完整 Fabric。
+  const composition=doc.editor.annotations.length?await Promise.all([import('fabric'),import('./annotations')]):null;
   const base=await renderBase(doc,scale);
-  if(!doc.editor.annotations.length)return base;
+  if(!composition)return base;
+  const [{FabricImage,StaticCanvas},{annotationToObject}]=composition;
   const canvas=new StaticCanvas(undefined,{width:base.width,height:base.height,enableRetinaScaling:false,renderOnAddRemove:false});
   try{
     canvas.setViewportTransform([scale,0,0,scale,0,0]);

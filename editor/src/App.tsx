@@ -14,6 +14,7 @@ import { fileToImage, imageForProcessing, normalizeImage, releaseDecodedImageCac
 import type { CanvasHandle, CanvasRenderStatus, CanvasSelection } from './EditorCanvas';
 import { overlayForImportedImage, parseCapture, type CaptureEnvelope, type OverlayMetadata, type PixelRect } from './overlay';
 import { CompactOverlay } from './CompactOverlay';
+import { preloadEditorCanvas } from './editorRuntime';
 import { groupImageTextLines, ocrImageRegions, parseImageTranslation, prepareImageTranslation, shouldTranslateImageText } from './imageTranslation';
 import { useEditorHistory } from './useEditorHistory';
 import { annotationKeyAction, historyKeyAction } from './keyboard';
@@ -85,6 +86,7 @@ export default function App() {
       if (hostLock.current) return { error: '正在确认编辑状态，请稍后再试。' };
       const snapshot = prepareLeaveSnapshot({ operation:operationRef.current, aiBusy:Boolean(aiBusy), editing:canvas.current?.interactionState().editing || false, loading:Boolean(doc.image) && canvasStatus !== 'ready', documentId, revision:history.currentRevision(), document:history.current(), projectSaved:savedProject.current?.id===documentId && savedProject.current.revision===history.currentRevision() }, reason, known);
       if (!('error' in snapshot)) {
+        if(reason==='replace')void preloadEditorCanvas().catch(()=>{});
         hostLock.current=true;setHostLocked(true);
         // 关闭和替换先使旧任务失效，再通知宿主取消；迟到结果不能回写文档或提示。
         if(reason==='replace'||reason==='close')void stopAi().catch(()=>{});
@@ -144,7 +146,7 @@ export default function App() {
     if(capture.overlay?.captureId&&expiredCaptures.current.has(capture.overlay.captureId)&&!timedOutCaptures.current.has(capture.overlay.captureId))return;
     if (capture.overlay) {pendingCapture.current = { captureId: capture.overlay.captureId, revision };flushSync(()=>setLoadingCapture(revision));}
     try {
-      const image = await normalizeImage(capture.image);
+      const [image] = await Promise.all([normalizeImage(capture.image), preloadEditorCanvas()]);
       if (revision !== generation.current) return;
       if(capture.overlay?.captureId&&expiredCaptures.current.has(capture.overlay.captureId)&&!timedOutCaptures.current.has(capture.overlay.captureId))return;
       if (native.available && !capture.overlay) await native.request('document.preserve');
@@ -187,8 +189,8 @@ export default function App() {
     if (revision !== generation.current) return;
     const sourceOverlay = overlayRef.current, project = parseDocument(value);
     if (project.image) {
-      project.image = await normalizeImage(project.image);
-    }
+      [project.image] = await Promise.all([normalizeImage(project.image), preloadEditorCanvas()]);
+    } else await preloadEditorCanvas();
     if (revision !== generation.current) return;
     if (native.available) await native.request('document.preserve');
     if (revision !== generation.current) return;
