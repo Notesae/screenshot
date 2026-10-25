@@ -1,10 +1,14 @@
-import { clamp, motionTokens, type MotionRect } from './motion';
+import { clamp, motionTokens, MotionSpring, type MotionRect } from './motion';
 
 // 主体先飞行 300ms；刹停前接入回摆，尾部晚 40ms 受力，全部收敛后精确还原。
 const flight = .3, recoilStart = .264, tailDelay = .04, recoilDuration = .72;
 const duration = recoilStart + tailDelay + recoilDuration;
 /** 共享姿态：位移与弯曲为 CSS 像素，waist/taper 是中段厚度与前后厚度差的比例。 */
 const rest = { x: 0, y: 0, scaleX: 1, scaleY: 1, shear: 0, lead: 0, tail: 0, direction: -1, unfold: 1, skin: 1, content: 1, bend: 0, waist: 0, taper: 0 };
+type Pose = typeof rest;
+// 方向只决定受力侧，不参与接力积分；其余分量各自保留速度。
+const carried = ['x', 'y', 'scaleX', 'scaleY', 'shear', 'lead', 'tail', 'unfold', 'skin', 'content', 'bend', 'waist', 'taper'] as const;
+type Carried = typeof carried[number];
 
 /** 同一纵向形变场供外轮廓、按钮与拖动柄采样；导数用于保持曲线切线和材质倾斜一致。 */
 export function railWarp(x: number, y: number, width: number, height: number, pose: typeof rest) {
@@ -57,6 +61,8 @@ export class RailToss {
   private origin = { x: 0, y: 0 };
   private seed = { width: 1, height: 1 };
   private direction = -1;
+  // 被输入打断后的接力弹簧；为空时按时间轨迹采样。
+  private carry: Record<Carried, MotionSpring> | null = null;
 
   /** 从完成按钮附近的一团紧实材质抛向轨道中心，窄轨道仍保留可辨认的起点。 */
   begin(box: MotionRect, source: MotionRect | undefined, reduced: boolean) {
@@ -67,20 +73,52 @@ export class RailToss {
     if (Math.abs(x - width / 2) < Math.min(28, width * .15)) x = width - this.seed.width / 2;
     this.origin = { x: clamp(x, this.seed.width / 2, width - this.seed.width / 2), y: clamp(source ? source.y + source.height / 2 : height / 2, this.seed.height / 2, height - this.seed.height / 2) };
     this.direction = this.origin.x > width / 2 ? -1 : 1;
-    this.elapsed = reduced ? duration : 0;
+    this.elapsed = reduced ? duration : 0; this.carry = null;
   }
-  finish() { this.elapsed = duration; }
-  step(elapsed: number, reduced: boolean) { this.elapsed = reduced ? duration : Math.min(duration, this.elapsed + clamp(elapsed, 0, motionTokens.solver.maxElapsed)); }
-  get moving() { return this.elapsed < duration; }
+  finish() { this.elapsed = duration; this.carry = null; }
+  /** 用户中途接管时，从当前姿态和瞬时速度交给弹簧收束，不跳到终态。 */
+  release() {
+    if (this.carry || this.elapsed >= duration) return;
+    // 用相邻采样估算轨迹速度，弹簧接手后形变方向和快慢连续。
+    const h = 1 / 240, now = this.sample(this.elapsed), next = this.sample(Math.min(duration, this.elapsed + h));
+    const carry = {} as Record<Carried, MotionSpring>;
+    for (const key of carried) {
+      const spring = carry[key] = new MotionSpring(now[key]);
+      spring.to = rest[key]; spring.v = (next[key] - now[key]) / h;
+    }
+    this.carry = carry; this.elapsed = duration;
+  }
+  step(elapsed: number, reduced: boolean) {
+    if (reduced) { this.finish(); return; }
+    const dt = clamp(elapsed, 0, motionTokens.solver.maxElapsed);
+    if (this.carry) {
+      let moving = false;
+      for (const key of carried) { const spring = this.carry[key]; spring.step(dt, 'entry'); moving = spring.moving || moving; }
+      if (!moving) this.carry = null;
+      return;
+    }
+    this.elapsed = Math.min(duration, this.elapsed + dt);
+  }
+  get moving() { return this.elapsed < duration || this.carry !== null; }
+
+  get frame(): Pose {
+    if (this.carry) {
+      const pose: Pose = { ...rest, direction: this.direction };
+      for (const key of carried) pose[key] = this.carry[key].x;
+      // 透明度与展开进度有物理边界；几何允许弹簧的轻微越界回弹。
+      pose.unfold = clamp(pose.unfold); pose.skin = clamp(pose.skin); pose.content = clamp(pose.content);
+      return pose;
+    }
+    return this.elapsed < duration ? this.sample(this.elapsed) : rest;
+  }
 
   /** 正弦阻尼产生前冲、反向拉回和较小的二次回摆；起止包络让接入和归位都保持连续。 */
-  get frame() {
-    if (!this.moving) return rest;
-    const { width, height } = this.box, p = clamp(this.elapsed / flight);
+  private sample(elapsed: number): Pose {
+    const { width, height } = this.box, p = clamp(elapsed / flight);
     const travel = 1 - Math.pow(1 - p, 3), unfold = p * p * (3 - 2 * p);
     // 前后端共用同一受力波形；延迟传播表现软体内部的惯性，而非独立按钮跳动。
     const [lead, tail] = [0, tailDelay].map(delay => {
-      const t = Math.max(0, this.elapsed - recoilStart - delay), attack = clamp(t / .04), release = clamp((t - .5) / (recoilDuration - .5));
+      const t = Math.max(0, elapsed - recoilStart - delay), attack = clamp(t / .04), release = clamp((t - .5) / (recoilDuration - .5));
       return Math.exp(-6.5 * t) * Math.sin(19 * t) * attack * attack * (3 - 2 * attack) * (1 - release * release * (3 - 2 * release));
     });
     const force = Math.min(48, width * .11), front = this.direction * force * lead, rear = this.direction * force * .45 * tail;

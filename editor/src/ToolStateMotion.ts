@@ -9,6 +9,10 @@ const axes=['x','y','width','height'] as const;
 const stateAxes=[...axes,'draw','edit'] as const;
 const stateMoving=(s:State)=>stateAxes.some(axis=>s[axis].moving)||s.recoil.moving||s.landing!==null;
 const stateIconForce=(s:State)=>clamp(s.width.v/440+(s.draw.v-s.edit.v)/30+s.recoil.x/12,-1,1);
+// 柔性限幅：强受力逐渐趋近上限，不在峰值截出停顿的平台。
+const soft=(value:number,limit:number)=>limit*Math.tanh(value/limit);
+// 一次落位释放的冲量（px/s），按钮与整条软体共用。
+const landingImpulse=230;
 
 /** 底座和局部槽位共用同一弹簧参数；只有工具三态重排保留速度，整体搬动重建坐标基准。 */
 export class ToolStateMotion {
@@ -16,12 +20,20 @@ export class ToolStateMotion {
   private frame:Geometry|null=null;
   private bounds:MotionRect|null=null;
   private rebase=true;
+  // 整条轨道的落位余振：底座伸缩，全部按钮与拖动柄随同一形变场移动。
+  private recoil=new MotionSpring();
+  // 只保留最新一次三态重排的释放，旧过渡不能延迟补弹。
+  private landing:{direction:number;age:number}|null=null;
   constructor(private rail:HTMLElement,private clock:MotionClock){}
   /** 由主轨唯一的布局读取阶段喂入，避免独立观察器用两次测量重复补偿位置。 */
   layout(bounds:MotionRect,slots:Slot[]){
     const changing=slots.some(({element})=>this.states.has(element)&&this.states.get(element)!.mode!==(element.dataset.toolState??''));
     const animate=!this.rebase&&!this.clock.reduced&&!this.rail.closest('[inert],[data-motion-dragging],[data-motion-hidden=true],.is-suspended,.is-awaiting')&&(changing||this.moving);
-    this.frame??=geometry(bounds);this.bounds=bounds;
+    this.frame??=geometry(bounds);
+    // 轨道变宽先向外伸、变窄先向内收；宽度不变的换位仍释放一次外伸力。
+    if(animate&&changing)this.landing={direction:Math.sign(bounds.width-this.frame.width.x)||1,age:0};
+    else if(!animate){this.recoil.snap(0);this.landing=null;}
+    this.bounds=bounds;
     for(const axis of axes){this.frame[axis].to=bounds[axis];if(!animate)this.frame[axis].snap(bounds[axis]);}
     const present=new Set<HTMLElement>();
     for(const {element,box} of slots){
@@ -49,13 +61,14 @@ export class ToolStateMotion {
   }
   get pending(){for(const s of this.states.values())if(s.mode!==(s.element.dataset.toolState??''))return true;return false;}
   get moving(){
-    if(this.frame&&axes.some(axis=>this.frame![axis].moving))return true;
+    if(this.recoil.moving||this.landing||this.frame&&axes.some(axis=>this.frame![axis].moving))return true;
     for(const s of this.states.values())if(stateMoving(s))return true;
     return false;
   }
   get body(){
     const b=this.bounds,f=this.frame;
-    return b&&f?{x:f.x.x-b.x,y:f.y.x-b.y,width:f.width.x,height:f.height.x}:null;
+    // strain 为底座以自身中心的横向伸缩比例（纵向反比），lift 为整体上浮像素。
+    return b&&f?{x:f.x.x-b.x,y:f.y.x-b.y,width:f.width.x,height:f.height.x,strain:soft(this.recoil.x/300,.05),lift:-this.recoil.x*.12}:null;
   }
   /** 图标只消费这一轴外力，避免为每个 SVG 另建底座与完整姿态对象。 */
   iconForce(element:HTMLElement){
@@ -66,8 +79,10 @@ export class ToolStateMotion {
   pose(element:HTMLElement){
     const s=this.states.get(element),body=this.body;
     if(!s||!body)return null;
-    return {x:s.x.x-s.box.x+body.x,y:s.y.x-s.box.y+body.y,width:s.width.x,height:s.height.x,
-      strain:clamp(s.recoil.x/100,-.1,.1),lift:-s.recoil.x*.12,
+    // 槽位中心按底座的伸缩场位移，整条软体一起拉伸与回缩，按钮本身不额外变形。
+    const dx=(s.x.x+s.width.x/2-body.width/2)*body.strain,dy=(s.y.x+s.height.x/2-body.height/2)*(1/(1+body.strain)-1)+body.lift;
+    return {x:s.x.x-s.box.x+body.x+dx,y:s.y.x-s.box.y+body.y+dy,width:s.width.x,height:s.height.x,
+      strain:soft(s.recoil.x/100,.1),lift:-s.recoil.x*.12,
       iconForce:stateIconForce(s)};
   }
   step(dt:number){
@@ -82,17 +97,28 @@ export class ToolStateMotion {
           s.landing.age+=dt;
           // 先抵达新轮廓，再释放一次弹性力；只改变速度，不跳改当前形状。
           if(s.landing.age>=.1&&Math.abs(s.width.to-s.width.x)<.65&&Math.abs(s.draw.to-s.draw.x)+Math.abs(s.edit.to-s.edit.x)<.04){
-            s.recoil.v=clamp(s.recoil.v+s.landing.direction*230,-300,300);s.landing=null;
+            s.recoil.v=soft(s.recoil.v+s.landing.direction*landingImpulse,300);s.landing=null;
           }
         }
       }
       this.paint(s);
     }
+    if(this.clock.reduced){this.recoil.snap(0);this.landing=null;}
+    else{
+      this.recoil.step(dt,'toolRecoil');
+      if(this.landing){
+        this.landing.age+=dt;
+        // 底座和所有槽位都抵达新轮廓后，才把同一次释放传给整条软体。
+        const f=this.frame;let arrived=!f||Math.abs(f.width.to-f.width.x)<.65&&Math.abs(f.height.to-f.height.x)<.65;
+        for(const s of this.states.values())if(s.landing){arrived=false;break;}
+        if(this.landing.age>=.1&&arrived){this.recoil.v=soft(this.recoil.v+this.landing.direction*landingImpulse,300);this.landing=null;}
+      }
+    }
     return this.moving;
   }
   /** 选区移动、重入及手动搬动不是三态过渡：清掉旧速度，下一次布局以当前位置初始化。 */
   reset(){
-    this.rebase=true;
+    this.rebase=true;this.recoil.snap(0);this.landing=null;
     if(this.frame)for(const axis of axes)this.frame[axis].snap(this.frame[axis].to);
     for(const s of this.states.values()){for(const axis of axes)s[axis].snap(s[axis].to);s.draw.snap(s.draw.to);s.edit.snap(s.edit.to);s.recoil.snap(0);s.landing=null;this.paint(s);}
   }

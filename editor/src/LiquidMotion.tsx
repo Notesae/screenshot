@@ -138,10 +138,10 @@ export class LiquidMotion {
       }
       this.wake();
     };
-    // 按下、键盘或滚轮输入立即接管落位，用户操作不必等待抛出动画结束。
+    // 按下、键盘或滚轮输入立即接管落位：从当前形变和速度弹性收束，不硬切到终态。
     const settleEntrance = () => {
       if (!this.active || !this.entrance.moving) return;
-      this.entrance.finish(); this.paint(0, performance.now()); this.wake();
+      this.entrance.release(); this.paint(0, performance.now()); this.wake();
     };
     listen(rail, 'pointerdown', settleEntrance, true); listen(rail, 'keydown', settleEntrance, true); listen(rail, 'wheel', settleEntrance, true);
     listen(rail, 'pointerdown', ((event: PointerEvent) => { if (event.button === 0) press((event.target as Element).closest('[data-motion-button]')); }) as EventListener);
@@ -442,7 +442,10 @@ export class LiquidMotion {
       }
       node.skin.style.opacity = String(toss.skin); node.glyph.style.opacity = String(toss.content);
       // 受压侧略变平、外侧鼓起；图文只跟随平移，始终不参与软体挤压。
-      node.skin.style.borderRadius = [node.radius + bendX*3,node.radius - bendX*2,node.radius + bendX*2,node.radius - bendX*3].map((value, corner) => Math.max(0, value + contact * T.contact.flatten * ((corner === 1 || corner === 2 ? 1 : -1) === node.contactSide ? -1 : .35)) + 'px').join(' ');
+      // 圆角按显示像素计算，再除以入场与三态宽度的缩放，宽窄过渡时四角仍保持圆润而非椭圆。
+      const radiusX = toss.scaleX * (mode ? mode.width / Math.max(1, node.rect.width) * (1 + mode.strain) : 1), radiusY = toss.scaleY * (mode ? 1 / (1 + mode.strain) : 1);
+      const radii = [node.radius + bendX*3,node.radius - bendX*2,node.radius + bendX*2,node.radius - bendX*3].map((value, corner) => Math.max(0, value + contact * T.contact.flatten * ((corner === 1 || corner === 2 ? 1 : -1) === node.contactSide ? -1 : .35)));
+      node.skin.style.borderRadius = radii.map(value => value / radiusX + 'px').join(' ') + ' / ' + radii.map(value => value / radiusY + 'px').join(' ');
       property(node.skin.style, '--liquid-light', String(this.economy ? 0 : clamp(a * .95, 0, .8)));
       property(node.skin.style, '--liquid-light-y', clamp((pointer.y - this.rr.y - node.rect.y) / node.rect.height * 100, 0, 100) + '%');
       property(node.skin.style, '--liquid-light-x', clamp((pointer.x - this.rr.x - node.rect.x) / node.rect.width * 100, 0, 100) + '%');
@@ -457,13 +460,17 @@ export class LiquidMotion {
     body.style.transformOrigin = 'center'; body.style.opacity = '1';
     body.style.transform = 'translate(' + toss.x + 'px,' + toss.y + 'px) skewX(' + (toss.shear + this.bulge.x * .35) + 'deg) scale(' + toss.scaleX + ',' + toss.scaleY + ')';
     const railPose=this.toolModes.body;
-    if(railPose)body.style.transform=`translate(${railPose.x+(railPose.width-this.rr.width)/2}px,${railPose.y+(railPose.height-this.rr.height)/2}px) `+body.style.transform+` scale(${railPose.width/Math.max(1,this.rr.width)},${railPose.height/Math.max(1,this.rr.height)})`;
-    // 圆角抵消整体缩放，小团才是圆润软泥；前后端的曲率随错开的受力回摆。
+    // 三态宽度过渡与落位余振共用中心缩放；余振只改缩放与上浮，左缘对齐仍由布局补偿决定。
+    const poseX=railPose?railPose.width/Math.max(1,this.rr.width):1,poseY=railPose?railPose.height/Math.max(1,this.rr.height):1;
+    if(railPose)body.style.transform=`translate(${railPose.x+(railPose.width-this.rr.width)/2}px,${railPose.y+(railPose.height-this.rr.height)/2+railPose.lift}px) `+body.style.transform+` scale(${poseX*(1+railPose.strain)},${poseY/(1+railPose.strain)})`;
+    // 圆角抵消入场和三态宽度缩放，小团才是圆润软泥；前后端的曲率随错开的受力回摆。
+    // 余振伸缩只有数个百分点，不计入轮廓，避免为它逐帧重建带投影的路径。
     const radii = [this.railRadius+Math.max(0,-this.bulge.x),this.railRadius+Math.max(0,this.bulge.x),this.railRadius,this.railRadius].map((value, corner) => Math.max(4, value + (1 - toss.unfold) * 18 + (((corner === 0 || corner === 3 ? -1 : 1) === toss.direction) ? toss.lead : toss.tail) * 9));
-    body.style.borderRadius = radii.map(value => value / toss.scaleX + 'px').join(' ') + ' / ' + radii.map(value => value / toss.scaleY + 'px').join(' ');
-    const outlineInputs = [this.rr.width, this.rr.height, ...radii, toss.scaleX, toss.scaleY, toss.bend, toss.waist, toss.taper, toss.direction];
+    const contourScaleX = toss.scaleX * poseX, contourScaleY = toss.scaleY * poseY;
+    body.style.borderRadius = radii.map(value => value / contourScaleX + 'px').join(' ') + ' / ' + radii.map(value => value / contourScaleY + 'px').join(' ');
+    const outlineInputs = [this.rr.width, this.rr.height, ...radii, contourScaleX, contourScaleY, toss.bend, toss.waist, toss.taper, toss.direction];
     if (!this.outlineInputs || outlineInputs.some((value, index) => value !== this.outlineInputs![index])) {
-      const outline = railOutline(this.rr.width, this.rr.height, radii, toss);
+      const outline = railOutline(this.rr.width, this.rr.height, radii, { ...toss, scaleX: contourScaleX, scaleY: contourScaleY });
       if (outline !== this.outlinePath) { this.outline?.setAttribute('d', outline); this.outlinePath = outline; }
       this.outlineInputs = outlineInputs;
     }
