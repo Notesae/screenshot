@@ -57,10 +57,15 @@ export class ControlFeedback {
     listen(window, 'blur', event => { if (event.target === window) this.reset(); });
     this.observer = new MutationObserver(records => {
       // 滑块到达预设时语义即时选中，材质和标识沿同一弹簧点亮；离开该档也保留退场。
+      // 同批记录都读取最终属性值；按首次出现顺序只唤醒一次，不改变任何受力时间步。
+      let selections:Set<HTMLButtonElement>|undefined;
       for(const record of records)if(record.type==='attributes'&&record.attributeName==='aria-pressed'&&record.target instanceof HTMLButtonElement&&record.target.hasAttribute('data-soft-selection')){
+        if(selections?.has(record.target))continue;
+        (selections??=new Set<HTMLButtonElement>()).add(record.target);
         const state=this.state(record.target);state.selected.to=Number(record.target.getAttribute('aria-pressed')==='true');this.wake(state);
       }
-      if(records.some(record=>record.type==='childList'))this.prepareSelections();
+      // 反馈描边和覆盖滑条不含业务按钮，内部增删不必重新扫描整棵控件树。
+      if(records.some(record=>record.type==='childList'&&!(record.target instanceof Element&&record.target.closest('.annotation-feedback,.clay-scrollbar-layer'))))this.prepareSelections();
       for (const state of new Set([...this.active, ...(this.held ? [this.held] : []), ...(this.hovered ? [this.hovered] : [])])) {
         if (!this.usable(state.element)) this.clear(state);
       }

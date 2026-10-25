@@ -33,7 +33,7 @@ export class LiquidMotion {
   private dirty = true;
   private active = false;
   private destroyed = false;
-  private pointer = { x: 0, y: 0, inside: false };
+  private pointer = { x: 0, y: 0, inside: false, fine: false };
   private pressed: Surface | null = null;
   private nearest: Surface | null = null;
   // 同时只保留一对牵引表面；一次接触只传递一次冲量，压缩由各自弹簧续接。
@@ -91,7 +91,7 @@ export class LiquidMotion {
     root.classList.add('liquid-motion');
     root.dataset.motionEconomy = String(this.economy);
     root.dataset.motionHidden = String(document.hidden); this.clock.setSuspended(true);
-    this.clock.onIdle = () => { root.dataset.motionState = 'sleep'; };
+    this.clock.onIdle = () => { attribute(root, 'data-motion-state', 'sleep'); };
     this.toolModes=new ToolStateMotion(rail,this.clock);
     this.icons=new RailIconMotion(rail,this.clock,()=>!this.active||document.hidden||this.toolsTransitioning||this.entrance.moving||Boolean(this.root.dataset.motionDragging),owner=>this.toolModes.iconForce(owner));
     this.clock.listen((dt, time) => this.paint(dt, time));
@@ -117,7 +117,11 @@ export class LiquidMotion {
       if (!this.active || document.hidden) return;
       // 布局交接可能重新派发同坐标事件；没有真实移动时不重新唤醒刚收束的牵引场。
       if(!this.pointer.inside&&Math.hypot(event.clientX-this.pointer.x,event.clientY-this.pointer.y)<.75)return;
-      this.pointer = { x: event.clientX, y: event.clientY, inside: event.pointerType === 'mouse' && !(event.target as Element).closest('.clay-card,.clay-reader,.clay-select-menu,.clay-color-popover') };
+      const inside = event.pointerType === 'mouse' && !(event.target as Element).closest('.clay-card,.clay-reader,.clay-select-menu,.clay-color-popover');
+      const fine = this.fine.matches;
+      // 精确重复的输入不延长空帧；区域或指针能力改变仍更新，布局与拖动结束保留原刷新入口。
+      if (event.clientX === this.pointer.x && event.clientY === this.pointer.y && inside === this.pointer.inside && fine === this.pointer.fine) return;
+      this.pointer = { x: event.clientX, y: event.clientY, inside, fine };
       this.wake();
     }) as EventListener);
     listen(root, 'pointerleave', () => { this.pointer.inside = false; this.wake(); });
@@ -195,7 +199,7 @@ export class LiquidMotion {
     if (this.panelLayout) this.panelLayout.actual = this.panelRect;
     this.panelTransition?.snap(this.panelRect, true);
   }
-  private wake() { if (!this.destroyed && this.active && !document.hidden) { this.root.dataset.motionState = 'awake'; this.clock.wake(); } }
+  private wake() { if (!this.destroyed && this.active && !document.hidden) { attribute(this.root, 'data-motion-state', 'awake'); this.clock.wake(); } }
   /** 只在宿主真正撤挡后入场；挂起旧截图时取消时间线，不提前消费动画。 */
   present(presented: boolean) {
     if (this.active === presented) return;
@@ -367,7 +371,7 @@ export class LiquidMotion {
     // 重排本身提供整组受力；静止鼠标不能因按钮从下方经过而逐个触发迎向/碰撞。
     if(modeMoving){this.pointer.inside=false;this.nearest=null;this.contact=null;}
     if (this.pressed && !this.usable(this.pressed)) { this.pressed.press.snap(0); this.pressed = null; }
-    this.root.dataset.motionFrames = String(this.clock.frames); this.root.dataset.motionState = 'awake';
+    attribute(this.root, 'data-motion-frames', String(this.clock.frames)); attribute(this.root, 'data-motion-state', 'awake');
     const reduced = this.clock.reduced, pointer = this.pointer;
     if (this.root.dataset.motionDragging) this.entrance.finish();
     this.entrance.step(dt, reduced);

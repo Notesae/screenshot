@@ -26,6 +26,8 @@ export function OverlayScrollbars() {
 
     function schedule(scan = false) {
       rescan ||= scan;
+      // 真实扫描仍可发现新增滚动区；没有滚动区且无需扫描时不创建空布局帧。
+      if (!rescan && entries.size === 0) return;
       if (!frame) frame = requestAnimationFrame(() => {
         frame = 0;
         if (rescan) { rescan = false; discover(); }
@@ -201,7 +203,8 @@ export function OverlayScrollbars() {
           if(target.matches('.liquid-skin,.liquid-glyph,.liquid-active,.liquid-rail-body,.liquid-sweep,.liquid-panel-skin,.liquid-surface-skin,.control-skin,.control-content,.control-soft-body,[data-rail-icon-part],[data-motion-button],[data-control-button],[data-selection-handle],input[type=range],.clay-slider-fill,.clay-slider-thumb,.annotation-sample,.annotation-tool-glyph,.clay-selection-jelly,.clay-selection-size,.clay-translation-tools'))continue;
           if(target.matches('.liquid-panel-body,.liquid-panel-page,.liquid-panel-content,.liquid-surface-content,.clay-card,.clay-rail')){positionOnly=true;continue;}
         }
-        scan=true;
+        // 完整扫描已覆盖本批后续变化，无需继续分类通知。
+        scan=true;break;
       }
       if(scan||positionOnly)schedule(scan);
     });
