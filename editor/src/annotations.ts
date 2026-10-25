@@ -1,4 +1,4 @@
-import { Control, FabricObject, Path, Point, Rect, Textbox, controlsUtils, util } from 'fabric';
+import { Control, FabricObject, Path, Point, Rect, Textbox, controlsUtils, util, type ControlCursorCallback } from 'fabric';
 import { FONT } from './render';
 import type { Annotation, AnnotationKind } from './document';
 import { MosaicRect } from './MosaicRect';
@@ -9,6 +9,13 @@ import { InkPath } from './InkPath';
 const kinds = new WeakMap<FabricObject, { type: AnnotationKind; id: string; points?: [number, number][]; strokeWidth?: number }>();
 // 属性修改共用入口；线宽用于几何笔触，块大小仅用于马赛克。
 export type AnnotationChange = { color: string; fontSize: number; strokeWidth?: number; blockSize?: number };
+/** 角点按方位提示对角缩放，避免扁长图形的四角都被判为水平或垂直。 */
+const cornerResizeCursor: ControlCursorCallback = (event, control, target, coord) => {
+  const direction = new Point(control.x, control.y).rotate(util.degreesToRadians(target.getTotalAngle()));
+  const point = target.getCenterPoint().add(direction).transform(target.getViewportTransform());
+  // 只给原光标计算传入单位方框的方向；缩放锁定判断、命中和拖拽仍沿用 Fabric。
+  return controlsUtils.scaleCursorStyleHandler(event, control, target, Object.assign(point, { corner: coord.corner, touchCorner: coord.touchCorner }));
+};
 /** 只用本地几何构造标注，不恢复任意 Fabric JSON；遮盖不接受透明度字段。 */
 export function annotationToObject(a: Annotation): FabricObject {
   const props = { originX: 'left' as const, originY: 'top' as const, left: a.left, top: a.top, width: a.width, height: a.height, scaleX: a.scaleX, scaleY: a.scaleY, angle: a.angle, cornerColor: '#b4432c', borderColor: '#b4432c', transparentCorners: false, lockScalingFlip: true };
@@ -36,7 +43,10 @@ export function annotationToObject(a: Annotation): FabricObject {
         positionArrow(target as Path,tail,head);return true;
       },
     })]));
-  }else if(a.type!=='text')object.setControlsVisibility({mtr:false});
+  }else{
+    for(const corner of ['tl','tr','bl','br'])object.controls[corner].cursorStyleHandler=cornerResizeCursor;
+    if(a.type!=='text')object.setControlsVisibility({mtr:false});
+  }
   kinds.set(object, { type: a.type, id: a.id || crypto.randomUUID(), ...(a.type === 'arrow' ? { strokeWidth: a.strokeWidth ?? 3 } : {}), ...(a.type === 'brush' ? { points: a.points ?? [[0, 0], [1, 1]] } : {}) });
   return object;
 }
