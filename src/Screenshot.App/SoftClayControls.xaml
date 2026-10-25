@@ -33,19 +33,18 @@
         <local:SoftClaySurface x:Name="Face" IsHitTestVisible="False" Background="{TemplateBinding Background}" CornerRadius="{DynamicResource ClayControlRadius}"
                 BorderThickness="0" Material="{Binding Path=(local:SoftClaySurface.Material),RelativeSource={RelativeSource TemplatedParent}}">
           <Grid>
+            <!-- 悬停底色是随材质运动的独立叠加层，由 SoftClayLight 弹簧连续点亮；按下仍由 State 承接。 -->
+            <Border CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayHover}" Opacity="0" local:SoftClayLight.When="IsMouseOver"/>
             <Border x:Name="State" CornerRadius="{DynamicResource ClayControlRadius}" Background="Transparent"/>
-
           </Grid>
         </local:SoftClaySurface>
         <ContentPresenter x:Name="Glyph" IsHitTestVisible="False" Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                           VerticalAlignment="{TemplateBinding VerticalContentAlignment}" RecognizesAccessKey="True"/>
         <Border x:Name="Focus" Background="{DynamicResource ClayFocusFill}" BorderThickness="0"
-                CornerRadius="{DynamicResource ClayControlRadius}" Visibility="Collapsed" IsHitTestVisible="False"/>
+                CornerRadius="{DynamicResource ClayControlRadius}" Opacity="0" IsHitTestVisible="False" local:SoftClayLight.When="IsKeyboardFocused"/>
       </Grid>
       <ControlTemplate.Triggers>
-        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="State" Property="Background" Value="{DynamicResource ClayHover}"/></Trigger>
         <Trigger Property="IsPressed" Value="True"><Setter TargetName="State" Property="Background" Value="{DynamicResource ClayPressed}"/><Setter TargetName="Face" Property="Material" Value="Pressed"/><Setter Property="Effect" Value="{x:Null}"/></Trigger>
-        <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Focus" Property="Visibility" Value="Visible"/></Trigger>
         <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="{DynamicResource ClayDisabledOpacity}"/><Setter TargetName="State" Property="Background" Value="Transparent"/><Setter TargetName="Face" Property="Material" Value="Flat"/><Setter Property="Effect" Value="{x:Null}"/></Trigger>
       </ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>
@@ -107,16 +106,18 @@
   <Style x:Key="ClayMenuItem" TargetType="MenuItem" BasedOn="{StaticResource ClayControl}">
     <Setter Property="Padding" Value="12,8"/><Setter Property="MinHeight" Value="{DynamicResource ClayCompactHeight}"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="MenuItem">
-      <Border x:Name="Face" CornerRadius="{DynamicResource ClayControlRadius}" Padding="{TemplateBinding Padding}" Background="Transparent" BorderThickness="0" Margin="0,1">
-        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <!-- 高亮与键盘焦点是叠在底面上的两层，按各自弹簧交叉淡入淡出；焦点层在上，与原触发器优先级一致。 -->
+      <Grid Margin="0,1">
+        <Border x:Name="Face" CornerRadius="{DynamicResource ClayControlRadius}" Background="Transparent" BorderThickness="0"/>
+        <Border CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayHover}" Opacity="0" local:SoftClayLight.When="IsHighlighted&amp;!IsKeyboardFocusWithin"/>
+        <Border CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClaySelected}" Opacity="0" local:SoftClayLight.When="IsKeyboardFocusWithin"/>
+        <Grid Margin="{TemplateBinding Padding}"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
           <ContentPresenter ContentSource="Icon" VerticalAlignment="Center" Margin="0,0,8,0"/>
           <ContentPresenter Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center"/>
           <TextBlock Grid.Column="2" Text="{TemplateBinding InputGestureText}" Foreground="{DynamicResource ClayMuted}" FontSize="{DynamicResource ClayLabelSize}" Margin="16,0,0,0" VerticalAlignment="Center"/>
         </Grid>
-      </Border>
+      </Grid>
       <ControlTemplate.Triggers>
-        <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayHover}"/></Trigger>
-        <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClaySelected}"/></Trigger>
         <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="{DynamicResource ClayDisabledOpacity}"/></Trigger>
       </ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>
@@ -152,14 +153,16 @@
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Control">
       <Grid>
         <local:SoftClaySurface x:Name="Face" CornerRadius="{DynamicResource ClayControlRadius}" Background="{TemplateBinding Background}" BorderThickness="0" Material="Inset">
-          <!-- 内容宿主只传一次内边距，避免单行输入比下拉框多出一层高度。 -->
-          <ScrollViewer x:Name="PART_ContentHost" Padding="{TemplateBinding Padding}" VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"/>
+          <Grid>
+            <!-- 悬停激活底色在文字下方连续点亮；校验错误时让出错误底色。 -->
+            <Border CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayWellActive}" Opacity="0" IsHitTestVisible="False" local:SoftClayLight.When="IsMouseOver&amp;!HasError"/>
+            <!-- 内容宿主只传一次内边距，避免单行输入比下拉框多出一层高度。 -->
+            <ScrollViewer x:Name="PART_ContentHost" Padding="{TemplateBinding Padding}" VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"/>
+          </Grid>
         </local:SoftClaySurface>
-        <Border x:Name="Focus" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayFocusFill}" BorderThickness="0" Visibility="Collapsed" IsHitTestVisible="False"/>
+        <Border x:Name="Focus" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayFocusFill}" BorderThickness="0" Opacity="0" IsHitTestVisible="False" local:SoftClayLight.When="IsKeyboardFocusWithin"/>
       </Grid>
       <ControlTemplate.Triggers>
-        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayWellActive}"/></Trigger>
-        <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Focus" Property="Visibility" Value="Visible"/></Trigger>
         <Trigger Property="Validation.HasError" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayErrorSurface}"/></Trigger>
         <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="{DynamicResource ClayDisabledOpacity}"/></Trigger>
       </ControlTemplate.Triggers>
@@ -191,7 +194,10 @@
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="CheckBox">
       <Grid Background="Transparent" MinHeight="28">
         <Grid.ColumnDefinitions><ColumnDefinition Width="26"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <local:SoftClaySurface x:Name="Face" Width="18" Height="18" HorizontalAlignment="Left" VerticalAlignment="Center" CornerRadius="5" Background="{DynamicResource ClayWell}" BorderThickness="0" Material="Inset"/>
+        <local:SoftClaySurface x:Name="Face" Width="18" Height="18" HorizontalAlignment="Left" VerticalAlignment="Center" CornerRadius="5" Background="{DynamicResource ClayWell}" BorderThickness="0" Material="Inset">
+          <!-- 未勾选时的悬停底色在材质内连续点亮，随材质一起迎向；勾选或不确定态使用强调底色，悬停层随之熄灭。 -->
+          <Border CornerRadius="5" Background="{DynamicResource ClayWellActive}" Opacity="0" IsHitTestVisible="False" local:SoftClayLight.When="IsMouseOver&amp;!IsCheckedAny"/>
+        </local:SoftClaySurface>
         <Grid x:Name="Glyph" Grid.ColumnSpan="2" IsHitTestVisible="False">
           <Grid.ColumnDefinitions><ColumnDefinition Width="26"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
           <Grid Width="18" Height="18" HorizontalAlignment="Left" VerticalAlignment="Center">
@@ -200,14 +206,12 @@
           </Grid>
           <ContentPresenter Grid.Column="1" VerticalAlignment="Center" RecognizesAccessKey="True"/>
         </Grid>
-        <Border x:Name="Focus" Width="18" Height="18" HorizontalAlignment="Left" VerticalAlignment="Center" CornerRadius="5" Background="{DynamicResource ClayFocusFill}" BorderThickness="0" Visibility="Collapsed" IsHitTestVisible="False"/>
+        <Border x:Name="Focus" Width="18" Height="18" HorizontalAlignment="Left" VerticalAlignment="Center" CornerRadius="5" Background="{DynamicResource ClayFocusFill}" BorderThickness="0" Opacity="0" IsHitTestVisible="False" local:SoftClayLight.When="IsKeyboardFocused"/>
       </Grid>
       <ControlTemplate.Triggers>
-        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayWellActive}"/></Trigger>
         <Trigger Property="IsChecked" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayAccentBottom}"/><Setter TargetName="Mark" Property="Visibility" Value="Visible"/></Trigger>
         <Trigger Property="IsChecked" Value="{x:Null}"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayAccentBottom}"/><Setter TargetName="Mixed" Property="Visibility" Value="Visible"/></Trigger>
         <Trigger Property="IsPressed" Value="True"><Setter TargetName="Face" Property="Opacity" Value="0.75"/></Trigger>
-        <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Focus" Property="Visibility" Value="Visible"/></Trigger>
         <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="{DynamicResource ClayDisabledOpacity}"/></Trigger>
       </ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>
@@ -217,13 +221,14 @@
     <Setter Property="MinHeight" Value="{DynamicResource ClayCompactHeight}"/><Setter Property="Padding" Value="12,8"/>
     <Setter Property="Background" Value="Transparent"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ContentControl">
-      <Border x:Name="Face" CornerRadius="{DynamicResource ClayControlRadius}" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" BorderThickness="0">
-        <ContentPresenter x:Name="ItemContent" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
-      </Border>
+      <!-- 悬停与选中/键盘焦点各为一层：选中层点亮时悬停层同步熄灭，两种底色交叉过渡而不叠加。 -->
+      <Grid>
+        <Border x:Name="Face" CornerRadius="{DynamicResource ClayControlRadius}" Background="{TemplateBinding Background}" BorderThickness="0"/>
+        <Border CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayHover}" Opacity="0" IsHitTestVisible="False" local:SoftClayLight.When="IsMouseOver&amp;!IsSelected&amp;!IsKeyboardFocusWithin"/>
+        <Border CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClaySelected}" Opacity="0" IsHitTestVisible="False" local:SoftClayLight.When="IsSelected|IsKeyboardFocusWithin"/>
+        <ContentPresenter x:Name="ItemContent" Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
+      </Grid>
       <ControlTemplate.Triggers>
-        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayHover}"/></Trigger>
-        <Trigger Property="Selector.IsSelected" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClaySelected}"/></Trigger>
-        <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClaySelected}"/></Trigger>
         <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="{DynamicResource ClayDisabledOpacity}"/></Trigger>
       </ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>
@@ -242,7 +247,11 @@
             <!-- 固定输入槽位；底板承接形变，文字与箭头共享不缩放的图文层。 -->
             <Grid Background="Transparent">
               <local:SoftClaySurface x:Name="Face" IsHitTestVisible="False" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayWell}" BorderThickness="0" Material="Inset">
-                <Border x:Name="Focus" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayFocusFill}" Visibility="Collapsed"/>
+                <!-- 悬停与展开共用激活底色层，焦点层读取下拉框的键盘焦点；两层都随材质运动并由弹簧连续点亮。 -->
+                <Grid>
+                  <Border CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayWellActive}" Opacity="0" local:SoftClayLight.When="IsMouseOver|IsChecked"/>
+                  <Border x:Name="Focus" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayFocusFill}" Opacity="0" local:SoftClayLight.When="IsKeyboardFocusWithin" local:SoftClayLight.OwnerType="{x:Type ComboBox}"/>
+                </Grid>
               </local:SoftClaySurface>
               <Grid x:Name="Glyph" IsHitTestVisible="False">
                 <ContentPresenter Margin="12,9,36,9" VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}"
@@ -253,12 +262,6 @@
                 <Path x:Name="Arrow" Data="M 0,0 L 4,4 L 8,0" Stroke="{DynamicResource ClayMuted}" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0"/>
               </Grid>
             </Grid>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayWellActive}"/></Trigger>
-              <Trigger Property="IsChecked" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayWellActive}"/></Trigger>
-              <!-- 焦点底色随材质运动，不能用固定外层覆盖出矩形边缘。 -->
-              <DataTrigger Binding="{Binding IsKeyboardFocusWithin,RelativeSource={RelativeSource AncestorType={x:Type ComboBox}}}" Value="True"><Setter TargetName="Focus" Property="Visibility" Value="Visible"/></DataTrigger>
-            </ControlTemplate.Triggers>
           </ControlTemplate></ToggleButton.Template>
         </ToggleButton>
         <Popup x:Name="PART_Popup" Placement="Bottom" VerticalOffset="4" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False">
@@ -286,12 +289,15 @@
     <Setter Property="Foreground" Value="{DynamicResource ClayMuted}"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TabItem">
       <local:SoftClaySurface x:Name="Face" CornerRadius="{DynamicResource ClayControlRadius}" Background="Transparent" BorderThickness="0" Padding="16,9" Margin="0,0,8,0" MinHeight="{DynamicResource ClayControlHeight}">
-        <ContentPresenter ContentSource="Header" VerticalAlignment="Center" HorizontalAlignment="Center" RecognizesAccessKey="True"/>
+        <Grid>
+          <!-- 叠加层用负外距抵消材质内边距铺满整张标签；未选中时悬停点亮，键盘焦点层在最上方。 -->
+          <Border Margin="-16,-9" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayHover}" Opacity="0" IsHitTestVisible="False" local:SoftClayLight.When="IsMouseOver&amp;!IsSelected"/>
+          <Border Margin="-16,-9" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClaySelected}" Opacity="0" IsHitTestVisible="False" local:SoftClayLight.When="IsKeyboardFocused"/>
+          <ContentPresenter ContentSource="Header" VerticalAlignment="Center" HorizontalAlignment="Center" RecognizesAccessKey="True"/>
+        </Grid>
       </local:SoftClaySurface>
       <ControlTemplate.Triggers>
-        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayHover}"/></Trigger>
         <Trigger Property="IsSelected" Value="True"><Setter Property="Foreground" Value="{DynamicResource ClayInk}"/><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayRaised}"/><Setter TargetName="Face" Property="Material" Value="Raised"/><Setter TargetName="Face" Property="Effect" Value="{DynamicResource ClayButtonShadow}"/></Trigger>
-        <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClaySelected}"/></Trigger>
         <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="{DynamicResource ClayDisabledOpacity}"/></Trigger>
       </ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>
@@ -314,17 +320,18 @@
                       Padding="{TemplateBinding Padding}" MinHeight="{DynamicResource ClayControlHeight}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center">
           <ToggleButton.Template><ControlTemplate TargetType="ToggleButton">
             <Grid Background="Transparent">
-              <Border x:Name="Face" Background="Transparent" BorderThickness="0" CornerRadius="{DynamicResource ClayControlRadius}"/>
+              <!-- 悬停/展开底色与键盘焦点底色放在材质内，随迎向一起移动并由弹簧连续点亮。 -->
+              <Border x:Name="Face" Background="Transparent" BorderThickness="0" CornerRadius="{DynamicResource ClayControlRadius}">
+                <Grid>
+                  <Border CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayHover}" Opacity="0" local:SoftClayLight.When="IsMouseOver|IsChecked"/>
+                  <Border CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayFocusFill}" Opacity="0" local:SoftClayLight.When="IsKeyboardFocused"/>
+                </Grid>
+              </Border>
               <Grid x:Name="Glyph" Margin="{TemplateBinding Padding}" IsHitTestVisible="False"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <ContentPresenter Margin="0,0,12,0" VerticalAlignment="Center"/>
                 <Path x:Name="Arrow" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center" Data="M 0,0 L 4,4 L 8,0" Stroke="{DynamicResource ClayMuted}" StrokeThickness="1.8" RenderTransformOrigin="0.5,0.5"/>
               </Grid>
             </Grid>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsChecked" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayHover}"/></Trigger>
-              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayHover}"/></Trigger>
-              <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Face" Property="Background" Value="{DynamicResource ClayFocusFill}"/></Trigger>
-            </ControlTemplate.Triggers>
           </ControlTemplate></ToggleButton.Template>
           <ContentPresenter Content="{TemplateBinding Header}" TextElement.Foreground="{DynamicResource ClayInk}"/>
         </ToggleButton>
@@ -343,7 +350,7 @@
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
       <Track x:Name="PART_Track" Orientation="{TemplateBinding Orientation}" Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}" Value="{Binding Value,RelativeSource={RelativeSource TemplatedParent},Mode=TwoWay}" ViewportSize="{TemplateBinding ViewportSize}" IsDirectionReversed="True">
         <Track.DecreaseRepeatButton><RepeatButton x:Name="Decrease" Command="ScrollBar.PageUpCommand" Focusable="False"><RepeatButton.Template><ControlTemplate><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.DecreaseRepeatButton>
-        <Track.Thumb><Thumb x:Name="GripControl" MinHeight="{DynamicResource ClayScrollMinThumb}" Focusable="False"><Thumb.Template><ControlTemplate TargetType="Thumb"><Border x:Name="Grip" Background="{DynamicResource ClayScrollbar}" CornerRadius="4" Margin="{DynamicResource ClayScrollThumbMargin}"/><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Grip" Property="Background" Value="{DynamicResource ClayMuted}"/></Trigger><Trigger Property="IsDragging" Value="True"><Setter TargetName="Grip" Property="Background" Value="{DynamicResource ClayFocus}"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Thumb.Template></Thumb></Track.Thumb>
+        <Track.Thumb><Thumb x:Name="GripControl" MinHeight="{DynamicResource ClayScrollMinThumb}" Focusable="False"><Thumb.Template><ControlTemplate TargetType="Thumb"><!-- 悬停与拖动颜色各为一层，由弹簧交叉点亮。 --><Grid Margin="{DynamicResource ClayScrollThumbMargin}"><Border x:Name="Grip" Background="{DynamicResource ClayScrollbar}" CornerRadius="4"/><Border Background="{DynamicResource ClayMuted}" CornerRadius="4" Opacity="0" local:SoftClayLight.When="IsMouseOver&amp;!IsDragging"/><Border Background="{DynamicResource ClayFocus}" CornerRadius="4" Opacity="0" local:SoftClayLight.When="IsDragging"/></Grid></ControlTemplate></Thumb.Template></Thumb></Track.Thumb>
         <Track.IncreaseRepeatButton><RepeatButton x:Name="Increase" Command="ScrollBar.PageDownCommand" Focusable="False"><RepeatButton.Template><ControlTemplate><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.IncreaseRepeatButton>
       </Track>
       <ControlTemplate.Triggers><Trigger Property="Orientation" Value="Horizontal"><Setter Property="Width" Value="Auto"/><Setter Property="Height" Value="{DynamicResource ClayScrollThickness}"/><Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="False"/><Setter TargetName="GripControl" Property="MinHeight" Value="0"/><Setter TargetName="GripControl" Property="MinWidth" Value="{DynamicResource ClayScrollMinThumb}"/><Setter TargetName="Decrease" Property="Command" Value="ScrollBar.PageLeftCommand"/><Setter TargetName="Increase" Property="Command" Value="ScrollBar.PageRightCommand"/></Trigger></ControlTemplate.Triggers>
