@@ -1,4 +1,4 @@
-# 先生成本地网页，再发布带 .NET 运行时的 Windows x64 可运行目录。
+﻿# 先生成本地网页，再发布带 .NET 运行时的 Windows x64 可运行目录。
 param([string]$Output = (Join-Path (Split-Path $PSScriptRoot -Parent) 'artifacts/Screenshot-win-x64'), [switch]$SkipRestore,
       [ValidatePattern('^10\.0\.\d+$')][string]$RuntimeVersion = '10.0.13', [ValidateSet('Source','Vendor')][string]$NativeRuntime='Source')
 $ErrorActionPreference = 'Stop'

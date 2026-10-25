@@ -1,4 +1,4 @@
-# 只识别当前工作区内的生成物；默认预览，-Apply 才执行删除。
+﻿# 只识别当前工作区内的生成物；默认预览，-Apply 才执行删除。
 [CmdletBinding()]
 param([switch]$Apply, [string[]]$KeepPath = @())
 $ErrorActionPreference = 'Stop'
@@ -13,7 +13,19 @@ $separator = [IO.Path]::DirectorySeparatorChar
 $protectedNames = @('tools', 'dotnet-home', 'headless-tools', 'installer-tools', 'installer-build',
     'native-build', 'native-runtime', 'native-source-downloads', 'native-vendor-baseline',
     'publish-build-source', 'publish-build-vendor', 'verify-source', 'verify-vendor', 'launcher-build', 'qa', 'cleanup')
-$keepRoots = @($KeepPath | ForEach-Object { [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($_)) })
+# 以下两个函数替代 PowerShell 7（.NET Core）专有的 Path API，使 Windows PowerShell 5.1 也能直接运行本脚本。
+# 去掉末尾目录分隔符，但保留盘符根目录（如 C:\）本身。
+function Get-TrimmedPath([string]$Path) {
+    $full = [IO.Path]::GetFullPath($Path)
+    $rootLength = [IO.Path]::GetPathRoot($full).Length
+    while ($full.Length -gt $rootLength -and ($full.EndsWith([string][IO.Path]::DirectorySeparatorChar) -or $full.EndsWith([string][IO.Path]::AltDirectorySeparatorChar))) { $full = $full.Substring(0, $full.Length - 1) }
+    return $full
+}
+# 清理目标已校验位于 artifacts 之下，可直接截去项目根前缀得到报告用的相对路径。
+function Get-ProjectRelativePath([string]$Path) {
+    return $Path.Substring($projectRoot.Length).TrimStart([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+}
+$keepRoots = @($KeepPath | ForEach-Object { Get-TrimmedPath $_ })
 $runningPaths = @(Get-Process -Name Screenshot -ErrorAction SilentlyContinue | ForEach-Object { $_.Path } | Where-Object { $_ })
 $candidates = [Collections.Generic.List[object]]::new()
 
@@ -103,10 +115,10 @@ foreach ($candidate in $candidates) {
             Remove-Item -LiteralPath $candidate.Path -Recurse -Force -ErrorAction Stop
             $status = 'deleted'
         }
-        $report.Add([pscustomobject]@{ Path = [IO.Path]::GetRelativePath($projectRoot, $candidate.Path); Reason = $candidate.Reason; Bytes = $size.Bytes; Files = $size.Files; Status = $status })
+        $report.Add([pscustomobject]@{ Path = (Get-ProjectRelativePath $candidate.Path); Reason = $candidate.Reason; Bytes = $size.Bytes; Files = $size.Files; Status = $status })
     } catch {
         Write-Warning "未完成清理：$($candidate.Path)：$($_.Exception.Message)"
-        $report.Add([pscustomobject]@{ Path = [IO.Path]::GetRelativePath($projectRoot, $candidate.Path); Reason = $candidate.Reason; Bytes = 0; Files = 0; Status = 'failed'; Error = $_.Exception.Message })
+        $report.Add([pscustomobject]@{ Path = (Get-ProjectRelativePath $candidate.Path); Reason = $candidate.Reason; Bytes = 0; Files = 0; Status = 'failed'; Error = $_.Exception.Message })
     }
 }
 $summary = [pscustomobject]@{

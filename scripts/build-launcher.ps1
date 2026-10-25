@@ -1,4 +1,4 @@
-# 使用已有 MSVC 编译静态运行时的入口；不安装工具，不启动 Screenshot。
+﻿# 使用已有 MSVC 编译静态运行时的入口；不安装工具，不启动 Screenshot。
 param([Parameter(Mandatory)][string]$Output)
 $ErrorActionPreference = 'Stop'
 $Output = [IO.Path]::GetFullPath($Output)
