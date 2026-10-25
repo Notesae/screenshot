@@ -10,8 +10,14 @@ internal sealed class BackdropMotion
 {
     private static readonly JsonDocument Tokens = JsonDocument.Parse(typeof(BackdropMotion).Assembly.GetManifestResourceStream("Screenshot.BackgroundMotionTokens")
         ?? throw new InvalidOperationException("缺少背景动效参数。"));
-    private static JsonElement Motion => Tokens.RootElement.GetProperty("motion");
-    internal static double Padding => Motion.GetProperty("edgePadding").GetDouble();
+    // 嵌入参数在进程内不变；保留原配置交给求解器，只省去逐帧重复查找。
+    private static readonly JsonElement Motion = Tokens.RootElement.GetProperty("motion");
+    private static readonly JsonElement DesktopConfig = Motion.GetProperty("desktop"), AtmosphereConfig = Motion.GetProperty("atmosphere"), EntryConfig = Motion.GetProperty("entry");
+    private static readonly double DesktopX = DesktopConfig.GetProperty("x").GetDouble(), DesktopY = DesktopConfig.GetProperty("y").GetDouble();
+    private static readonly double LightX = AtmosphereConfig.GetProperty("x").GetDouble(), LightY = AtmosphereConfig.GetProperty("y").GetDouble();
+    private static readonly double EntryOffsetY = EntryConfig.GetProperty("offsetY").GetDouble();
+    private static readonly int SleepFrames = Motion.GetProperty("sleepFrames").GetInt32();
+    internal static double Padding { get; } = Motion.GetProperty("edgePadding").GetDouble();
     private readonly SoftClayMotion.SpringState _x = new(), _y = new(), _lightX = new(), _lightY = new(), _entry = new(1);
     private double _pointerX, _pointerY;
     private int _quiet;
@@ -22,7 +28,7 @@ internal sealed class BackdropMotion
     // 每次输入只进行一次像素落点吸附，防止停稳边界来回切换目标。
     private bool _pixelSettling;
     public bool Held { get; private set; }
-    public BackdropFrame Frame => new(_x.Value, _y.Value + (1 - _entry.Value) * Motion.GetProperty("entry").GetProperty("offsetY").GetDouble(), _lightX.Value, _lightY.Value, _entry.Value);
+    public BackdropFrame Frame => new(_x.Value, _y.Value + (1 - _entry.Value) * EntryOffsetY, _lightX.Value, _lightY.Value, _entry.Value);
     internal double VelocityX => _x.Velocity;
     // 暗角可以继续缓移；只有共享图像平面停稳后才允许恢复锐利采样。
     internal bool TranslationSettled => !_x.Moving && !_y.Moving && !_entry.Moving;
@@ -48,9 +54,8 @@ internal sealed class BackdropMotion
     // 恢复原始跟随目标，并让本次输入重新经历连续运动和临近停稳的像素收敛。
     private void Target()
     {
-        var desktop = Motion.GetProperty("desktop"); var light = Motion.GetProperty("atmosphere");
-        _x.To = _pointerX * desktop.GetProperty("x").GetDouble(); _y.To = _pointerY * desktop.GetProperty("y").GetDouble();
-        _lightX.To = _pointerX * light.GetProperty("x").GetDouble(); _lightY.To = _pointerY * light.GetProperty("y").GetDouble();
+        _x.To = _pointerX * DesktopX; _y.To = _pointerY * DesktopY;
+        _lightX.To = _pointerX * LightX; _lightY.To = _pointerY * LightY;
         _quiet = 0; _pointerIdle = 0; _pixelSettling = false;
     }
     // 按下连入场的可见进度一起冻结，松开从同一姿态接回。
@@ -73,12 +78,11 @@ internal sealed class BackdropMotion
         if (!double.IsFinite(elapsed)) { Reset(); return false; }
         if (Held) return false;
         _pointerIdle += Math.Clamp(elapsed, 0, .05);
-        var desktop = Motion.GetProperty("desktop");
-        var moving = _x.Step(elapsed, desktop);
-        moving = _y.Step(elapsed, desktop) || moving;
-        moving = _lightX.Step(elapsed, Motion.GetProperty("atmosphere")) || moving;
-        moving = _lightY.Step(elapsed, Motion.GetProperty("atmosphere")) || moving;
-        moving = _entry.Step(elapsed, Motion.GetProperty("entry")) || moving;
+        var moving = _x.Step(elapsed, DesktopConfig);
+        moving = _y.Step(elapsed, DesktopConfig) || moving;
+        moving = _lightX.Step(elapsed, AtmosphereConfig) || moving;
+        moving = _lightY.Step(elapsed, AtmosphereConfig) || moving;
+        moving = _entry.Step(elapsed, EntryConfig) || moving;
         // 80ms 无新坐标、剩余距离不超过半个物理像素且速度低于 2px/s 才微调终点。
         // 不对当前帧取整，也不清速度；新输入会直接取消本次吸附并连续反向。
         if (!_pixelSettling && _pointerIdle >= .08 && !_entry.Moving
@@ -87,8 +91,8 @@ internal sealed class BackdropMotion
         {
             _pixelSettling = true;
             // 幅度边界也落在像素网格内，避免 125% DPI 下向外取整超过原有位移上限。
-            var maxX = Math.Floor(desktop.GetProperty("x").GetDouble() * _pixelScaleX);
-            var maxY = Math.Floor(desktop.GetProperty("y").GetDouble() * _pixelScaleY);
+            var maxX = Math.Floor(DesktopX * _pixelScaleX);
+            var maxY = Math.Floor(DesktopY * _pixelScaleY);
             _x.To = Math.Clamp(Math.Round(_x.To * _pixelScaleX, MidpointRounding.AwayFromZero), -maxX, maxX) / _pixelScaleX;
             _y.To = Math.Clamp(Math.Round(_y.To * _pixelScaleY, MidpointRounding.AwayFromZero), -maxY, maxY) / _pixelScaleY;
             moving = _x.Moving || _y.Moving || moving;
@@ -96,7 +100,7 @@ internal sealed class BackdropMotion
         // 极小位移可能先达到原弹簧阈值；完成像素落点处理前不能提前休眠。
         moving = moving || !_pixelSettling;
         _quiet = moving ? 0 : _quiet + 1;
-        return _quiet < Motion.GetProperty("sleepFrames").GetInt32();
+        return _quiet < SleepFrames;
     }
 }
 

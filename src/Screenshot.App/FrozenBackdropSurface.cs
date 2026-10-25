@@ -18,6 +18,8 @@ public sealed class FrozenBackdropSurface : Grid
     private readonly Func<double, bool> _advance;
     private BitmapSource? _source;
     private bool _ready, _allowed, _reduced, _entered, _animating, _holding, _pointerHeld, _interactionHeld;
+    // 仅缓存四边遮罩的几何，NaN 保证首帧写入；采样、暗角和呈现许可仍每帧处理。
+    private double _maskX = double.NaN, _maskY = double.NaN, _maskWidth = double.NaN, _maskHeight = double.NaN;
 
     // WebView 与底图引用同一变换；无需跨进程逐帧消息，也不会出现内外相位差。
     internal TranslateTransform MotionTransform => _shift;
@@ -155,10 +157,14 @@ public sealed class FrozenBackdropSurface : Grid
         var w = ActualWidth; var h = ActualHeight;
         var x = Math.Clamp(frame.X, -w, w); var y = Math.Clamp(frame.Y, -h, h);
         // 固定尺寸细条只改变换，不逐帧触发布局；竖条避开横条，四角不叠加变黑。
-        var vertical = h > 0 ? (h - Math.Abs(y)) / h : 0;
-        _edgeMask[0].Matrix = new Matrix(Math.Max(0, x), 0, 0, vertical, 0, Math.Max(0, y));
-        _edgeMask[1].Matrix = new Matrix(Math.Max(0, -x), 0, 0, vertical, w + Math.Min(0, x), Math.Max(0, y));
-        _edgeMask[2].Matrix = new Matrix(1, 0, 0, Math.Max(0, y), 0, 0);
-        _edgeMask[3].Matrix = new Matrix(1, 0, 0, Math.Max(0, -y), 0, h + Math.Min(0, y));
+        if (x != _maskX || y != _maskY || w != _maskWidth || h != _maskHeight)
+        {
+            var vertical = h > 0 ? (h - Math.Abs(y)) / h : 0;
+            _edgeMask[0].Matrix = new Matrix(Math.Max(0, x), 0, 0, vertical, 0, Math.Max(0, y));
+            _edgeMask[1].Matrix = new Matrix(Math.Max(0, -x), 0, 0, vertical, w + Math.Min(0, x), Math.Max(0, y));
+            _edgeMask[2].Matrix = new Matrix(1, 0, 0, Math.Max(0, y), 0, 0);
+            _edgeMask[3].Matrix = new Matrix(1, 0, 0, Math.Max(0, -y), 0, h + Math.Min(0, y));
+            _maskX = x; _maskY = y; _maskWidth = w; _maskHeight = h;
+        }
     }
 }
