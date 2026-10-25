@@ -42,13 +42,20 @@ export class AnnotationMotion {
     path.setAttribute('d', d); path.setAttribute('transform', `matrix(${matrix.join(' ')})`);
     path.setAttribute('pathLength', '1'); path.setAttribute('vector-effect', 'non-scaling-stroke');
     group.append(path); this.root.append(group);
-    void this.clock.tween(this.key, mode === 'remove' ? 180 : mode === 'contact' ? 220 : 360, p => {
-      const ring = mode === 'contact', removing = mode === 'remove';
-      const scale = removing ? 1 - .08 * p : ring ? 1.45 - .45 * p : 1 + amplitude * Math.sin(p * Math.PI * 3) * (1 - p);
+    // 反馈与其它表面同用弹簧：落笔圈按 press 收紧并轻微越位，删除按 exit 收束；
+    // 提交/选中由 selection 弹簧的速度带出一次鼓起与回缩，不再用正弦时长曲线。
+    const ring = mode === 'contact', removing = mode === 'remove', preset = removing ? 'exit' : ring ? 'press' : 'selection';
+    // selection 弹簧 0→1 的峰值速度约 9/s，用于把速度归一成 ±1 的鼓起量。
+    const peak = 9;
+    path.style.strokeDasharray = '1';
+    void this.clock.spring(this.key, (value, velocity) => {
+      const p = Math.max(0, value), fade = Math.min(1, p);
+      const scale = removing ? 1 - .08 * p : ring ? 1.45 - .45 * p : 1 + amplitude * 2 * velocity / peak;
       group.setAttribute('transform', `translate(${center.x} ${center.y}) scale(${scale}) translate(${-center.x} ${-center.y})`);
-      group.style.opacity = String((1 - p) * (mode === 'select' ? .45 : .8));
-      path.style.strokeDasharray = '1'; path.style.strokeDashoffset = String(removing ? p : ring ? 0 : Math.max(0, 1 - p * 3));
-      if (p === 1) group.remove();
-    });
+      // 可见度跟随弹簧剩余能量（离终点距离 + 归一速度）衰减：余振在时可见，停稳时恰好淡尽，不硬切移除。
+      const energy = Math.min(1, Math.abs(1 - value) + Math.abs(velocity) / peak);
+      group.style.opacity = String(energy * (mode === 'select' ? .45 : .8));
+      path.style.strokeDashoffset = String(removing ? fade : ring ? 0 : Math.max(0, 1 - fade * 3));
+    }, 0, 1, preset).then(completed => { if (completed) group.remove(); });
   }
 }

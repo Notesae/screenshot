@@ -22,8 +22,6 @@ export class SurfaceTransition {
   private shell: MotionSpring;
   private opening = false;
   private closing = false;
-  private elapsed = 0;
-  private duration = 170;
   private returning = false;
   private strainX=new MotionSpring();
   private strainY=new MotionSpring();
@@ -39,7 +37,8 @@ export class SurfaceTransition {
   get box(): MotionRect { return { x: this.geometry.x.x, y: this.geometry.y.x, width: this.geometry.width.x, height: this.geometry.height.x }; }
   get velocity(): MotionRect { return { x: this.geometry.x.v, y: this.geometry.y.v, width: this.geometry.width.v, height: this.geometry.height.v }; }
   get strain():SurfaceStrain { return {x:this.strainX.x,y:this.strainY.x,stretch:this.stretch.x}; }
-  get moving() { return this.closing || this.opening && (this.opacity.moving || this.shell.moving || axes.some(axis => this.geometry[axis].moving) || this.strainX.moving || this.strainY.moving || this.stretch.moving); }
+  get moving() { return (this.opening || this.closing) && this.settling; }
+  private get settling() { return this.opacity.moving || this.shell.moving || axes.some(axis => this.geometry[axis].moving) || this.strainX.moving || this.strainY.moving || this.stretch.moving; }
 
   open(target: MotionRect, _newContent = false) {
     // 正文换页由独立层交接；外壳与可见度只改目标，重开时保留收回速度。
@@ -47,16 +46,17 @@ export class SurfaceTransition {
     this.opening = true; this.closing = this.returning = false; this.redirect(target);
   }
   redirect(target: MotionRect) { for (const axis of axes) this.geometry[axis].to = target[axis]; }
-  close(directionX = 0, directionY = 1, duration = 170) {
+  close(directionX = 0, directionY = 1) {
     const box=this.box;
-    this.startClose({ ...box, x: box.x + clamp(directionX, -1, 1) * 6, y: box.y + clamp(directionY, -1, 1) * 6, width: box.width * .98, height: box.height * .97 },duration,false);
+    this.startClose({ ...box, x: box.x + clamp(directionX, -1, 1) * 6, y: box.y + clamp(directionY, -1, 1) * 6, width: box.width * .98, height: box.height * .97 },false);
   }
   /** 主浮卡回收到对应按钮；正文提前淡出，避免缩小时挤压文字。 */
-  closeTo(target:MotionRect,duration=this.soft?380:260){this.startClose(target,duration,true);}
-  private startClose(target:MotionRect,duration:number,returning:boolean){
+  closeTo(target:MotionRect){this.startClose(target,true);}
+  /** 收起与打开同为弹簧：从当前几何、可见度和速度续接，不再按固定时长曲线收束。 */
+  private startClose(target:MotionRect,returning:boolean){
     if (this.closing || !this.opening && this.alpha === 0 && this.material === 0) return;
     this.redirect(target);this.returning=returning;
-    this.elapsed = 0; this.duration = Math.max(0, duration); this.opening = false; this.closing = true;
+    this.opacity.to = this.shell.to = 0; this.opening = false; this.closing = true;
   }
   /** 手动布局或系统归位允许清零速度；普通目标变化只改弹簧目标。 */
   snap(box: MotionRect, open: boolean) {
@@ -76,16 +76,14 @@ export class SurfaceTransition {
       this.opacity.step(elapsed * (1 - this.contentDelay * .5), 'panel');
       this.shell.step(elapsed * Math.min(2, this.materialLead), 'panel');
     } else {
-      const dt = clamp(elapsed, 0, .05), remaining = Math.max(0, this.duration / 1000 - this.elapsed);
       for (const axis of axes) {
         const spring = this.geometry[axis];
-        settleMotion(spring, spring.to, dt, remaining);
+        spring.step(elapsed, 'exit');
         if ((axis === 'width' || axis === 'height') && spring.x < 1) { spring.x = 1; spring.v = Math.max(0, spring.v); }
       }
-      settleMotion(this.opacity, 0, dt, Math.max(0, this.duration / 1000 * (this.returning ? .62 : 1) - this.elapsed));
-      settleMotion(this.shell, 0, dt, remaining);
-      this.elapsed += dt;
-      if (dt >= remaining) this.finish();
+      // 回到按钮时正文以 1.6 倍时间先淡尽，外壳收小时不挤压文字。
+      this.opacity.step(elapsed * (this.returning ? 1.6 : 1), 'exit');
+      this.shell.step(elapsed, 'exit');
     }
     // 透明度触及物理边界即卸掉越界速度，反复开合不会积累不可见的超调。
     for (const spring of [this.opacity, this.shell]) if (spring.x < 0 || spring.x > 1) { spring.x = clamp(spring.x); spring.v = 0; }
@@ -97,5 +95,7 @@ export class SurfaceTransition {
       this.stretch.to=16*Math.tanh((v.width/Math.max(40,box.width)-v.height/Math.max(40,box.height))*.2);
       this.strainX.step(elapsed,'selection');this.strainY.step(elapsed,'selection');this.stretch.step(elapsed,'selection');
     }
+    // 收起的全部分量停稳后才交出精确终态，调用者据此卸载表面。
+    if (this.closing && !this.settling) this.finish();
   }
 }

@@ -32,12 +32,15 @@ internal sealed class NativeSurfaceTransition
         _x.To = _y.To = 0; _scaleX.To = _scaleY.To = 100;
         _opening = true; Moving = true;
     }
+    /// <summary>收起与打开同为弹簧：几何保留当前速度续接；duration 只是宿主窗口销毁前的截止时刻。</summary>
     public void Close(double duration, double directionX = 0, double directionY = 1)
     {
         if (Moving && !_opening) return;
         _from = Frame;
         _to = Frame with { X = Frame.X + Math.Clamp(directionX, -1, 1) * 6, Y = Frame.Y + Math.Clamp(directionY, -1, 1) * 6,
             ScaleX = Frame.ScaleX * .98, ScaleY = Frame.ScaleY * .97, Material = 0, Content = 0 };
+        _x.To = _to.X; _y.To = _to.Y; _scaleX.To = _to.ScaleX * 100; _scaleY.To = _to.ScaleY * 100;
+        _progress.Snap(0); _progress.To = 1;
         _duration = Math.Max(0, duration); _elapsed = 0; _opening = false; Moving = true;
     }
     public void Step(double elapsed)
@@ -55,12 +58,11 @@ internal sealed class NativeSurfaceTransition
         else
         {
             _elapsed += Math.Clamp(elapsed, 0, .05);
-            var time = _duration == 0 ? 1 : Math.Clamp(_elapsed / _duration, 0, 1);
-            p = 1 - Math.Pow(1 - time, 3); Moving = time < 1;
-            var speed = time < 1 && _duration > 0 ? 3 * Math.Pow(1 - time, 2) / _duration : 0;
-            CloseAxis(_x, _from.X, _to.X, p, speed); CloseAxis(_y, _from.Y, _to.Y, p, speed);
-            CloseAxis(_scaleX, _from.ScaleX * 100, _to.ScaleX * 100, p, speed);
-            CloseAxis(_scaleY, _from.ScaleY * 100, _to.ScaleY * 100, p, speed);
+            _x.Step(elapsed, "exit"); _y.Step(elapsed, "exit");
+            _scaleX.Step(elapsed, "exit"); _scaleY.Step(elapsed, "exit");
+            // 可见度以 1.6 倍时间推进，约 90ms 淡尽；截止时刻前几何只剩亚像素余量，交给 Finish 无可见跳变。
+            _progress.Step(elapsed * 1.6, "exit"); p = Math.Clamp(_progress.Value, 0, 1);
+            Moving = _elapsed < _duration && (_progress.Moving || _x.Moving || _y.Moving || _scaleX.Moving || _scaleY.Moving);
         }
         static double Mix(double from, double to, double value) => from + (to - from) * value;
         Frame = !Moving ? _to : new(_x.Value, _y.Value, _scaleX.Value / 100, _scaleY.Value / 100,
@@ -68,8 +70,6 @@ internal sealed class NativeSurfaceTransition
             Mix(_from.Content, _to.Content, _opening ? Math.Clamp((p - .25) / .75, 0, 1) : p));
         if (!Moving) Finish();
     }
-    private static void CloseAxis(SoftClayMotion.SpringState spring, double from, double to, double progress, double speed)
-    { spring.Value = from + (to - from) * progress; spring.Velocity = (to - from) * speed; spring.To = to; }
     private void Finish()
     {
         Frame = _to; Moving = false;

@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, type ComponentPropsWithRef, type RefObject } from 'react';
 import { clamp, panelBridge, motionTokens as T, MotionClock, MotionSpring, type MotionRect } from './motion';
 import { ControlFeedback } from './ControlMotion';
+import { MaterialLight } from './MaterialLight';
 import { SurfaceTransition } from './surfaceTransition';
 import { paintPanel } from './PanelSkin';
 import { SelectionJelly, type SelectionGrip } from './SelectionJelly';
@@ -69,6 +70,8 @@ export class LiquidMotion {
   private panelContent = '';
   private manualPanel = false;
   private controls: ControlFeedback;
+  // 悬停、焦点、当前项与展开的材质点亮，与按压反馈共用外壳时钟。
+  private light: MaterialLight;
   // 尺寸读数即时变化，只有胶囊外壳保留 5/4px 以内的短惯性。
   private sizePosition: MotionRect | null = null;
   private capturePosition: MotionRect | null = null;
@@ -96,6 +99,7 @@ export class LiquidMotion {
     this.icons=new RailIconMotion(rail,this.clock,()=>!this.active||document.hidden||this.toolsTransitioning||this.entrance.moving||Boolean(this.root.dataset.motionDragging),owner=>this.toolModes.iconForce(owner));
     this.clock.listen((dt, time) => this.paint(dt, time));
     this.controls = new ControlFeedback(root, this.clock);
+    this.light = new MaterialLight(root, this.clock);
     const invalidate = () => this.invalidate();
     this.resize = new ResizeObserver(entries => {
       // 同一布局帧内补偿材质比例，内容展开时不能先按新尺寸拉伸一帧再追赶。
@@ -159,7 +163,7 @@ export class LiquidMotion {
       root.dataset.motionHidden = String(document.hidden);
       if (document.hidden) {
         // 先取消业务退出，再结束表现过渡，避免隐藏时误发完成或留下半张浮卡。
-        this.restore(); this.controls.present(false); this.clock.setSuspended(true); this.resetField();
+        this.restore(); this.controls.present(false); this.light.settle(); this.clock.setSuspended(true); this.resetField();
       } else { this.clock.setSuspended(!this.active); this.controls.present(this.active); invalidate(); }
     });
     listen(root, 'keydown', ((event: KeyboardEvent) => {
@@ -167,7 +171,7 @@ export class LiquidMotion {
     }) as EventListener, true);
     const updateReduced = () => {
       root.dataset.motionReduced = String(this.reduced.matches);
-      if (this.reduced.matches) { this.controls.reset(); this.contact = null; }
+      if (this.reduced.matches) { this.controls.reset(); this.light.settle(); this.contact = null; }
       this.clock.setReduced(this.reduced.matches); this.wake();
     };
     this.reduced.addEventListener('change', updateReduced);
@@ -516,6 +520,8 @@ export class LiquidMotion {
     property(blob.style, '--liquid-selection', String(clamp(ind.opacity.x)));
     property(blob.style, '--liquid-press', skin?.style.getPropertyValue('--liquid-depth') || '0');
     for (const name of ['--liquid-light', '--liquid-light-x', '--liquid-light-y']) property(blob.style, name, skin?.style.getPropertyValue(name) || '0');
+    // 键盘焦点亮度由来源按钮的点亮弹簧给出，共享选中面同步承接。
+    property(blob.style, '--lit-focus', source?.el.style.getPropertyValue('--lit-focus') || '0');
     const panel = this.panelElement, layout = this.panelLayout;
     if (panel?.isConnected && layout && !panel.classList.contains('is-closing') && !this.clock.has('panel')) {
       this.panelRect = layout.actual;
@@ -613,20 +619,21 @@ export class LiquidMotion {
     const selection = this.root.querySelector<HTMLElement>('.clay-capture-selection');
     const mask = this.root.querySelector<SVGElement>('.clay-selection-mask');
     const panels = [...this.root.querySelectorAll<HTMLElement>('.clay-card,.clay-reader')];
-    const completed = await this.clock.tween('exit', kind === 'complete' ? T.duration.confirmExit : 270, p => {
-      const reduced = this.clock.reduced;
+    // 退场与其它表面同用 exit 弹簧：位移与缩放保留约 1.6% 的柔和越位，透明度按截断后的进度收尽。
+    const completed = await this.clock.spring('exit', (value) => {
+      const reduced = this.clock.reduced, p = Math.max(0, value), fade = clamp(value);
       if (this.clone && frame) {
         const scaleX = 1 + (28 / frame.width - 1) * p, scaleY = 1 + (28 / frame.height - 1) * p;
         this.clone.style.transform = 'translate(' + (end.x + end.width / 2 - frame.x - frame.width / 2) * p + 'px,' + (end.y + end.height / 2 - frame.y - frame.height / 2) * p + 'px) scale(' + scaleX + ',' + scaleY + ')';
-        this.clone.style.opacity = String(1 - clamp((p - .7) / .3)); this.clone.style.borderRadius = p * 24 + 'px';
+        this.clone.style.opacity = String(1 - clamp((fade - .7) / .3)); this.clone.style.borderRadius = p * 24 + 'px';
       }
-      if (visual) { visual.style.opacity = this.clone ? '0' : String(1 - p); if (!reduced && kind === 'dismiss') visual.style.transform = 'translateY(' + 12 * p * p + 'px)'; }
-      if (selection) selection.style.opacity = String(1 - p);
-      if (mask) mask.style.opacity = String(1 - p);
-      this.rail.style.opacity = String(1 - p);
+      if (visual) { visual.style.opacity = this.clone ? '0' : String(1 - fade); if (!reduced && kind === 'dismiss') visual.style.transform = 'translateY(' + 12 * p * p + 'px)'; }
+      if (selection) selection.style.opacity = String(1 - fade);
+      if (mask) mask.style.opacity = String(1 - fade);
+      this.rail.style.opacity = String(1 - fade);
       if (!reduced) this.rail.style.transform = kind === 'complete' ? 'translate(' + (end.x + end.width / 2 - this.rr.x - this.rr.width / 2) * p + 'px,0) scale(' + (1 - .86 * p) + ',' + (1 - .1 * p) + ')' : 'translateY(' + 18 * p * p + 'px) scaleY(' + (1 - .08 * p) + ')';
-      for (const panel of panels) { panel.style.opacity = String(1 - p); if (!reduced) panel.style.transform = 'translateY(' + (kind === 'complete' ? -6 : 12) * p + 'px)'; }
-    });
+      for (const panel of panels) { panel.style.opacity = String(1 - fade); if (!reduced) panel.style.transform = 'translateY(' + (kind === 'complete' ? -6 : 12) * p + 'px)'; }
+    }, 0, 1, 'exit');
     return completed && !this.destroyed && this.exitSequence === sequence;
   }
   /** 失败、取消或旧文档失效时恢复可编辑现场；不会恢复已卸载的新会话。 */
@@ -639,7 +646,7 @@ export class LiquidMotion {
     this.paintSelection();
   }
   destroy() {
-    this.restore(); this.destroyed = true; this.controls.destroy(); this.icons.destroy(); this.toolModes.destroy(); this.clock.dispose(); this.resize.disconnect(); this.mutation.disconnect();
+    this.restore(); this.destroyed = true; this.controls.destroy(); this.light.destroy(); this.icons.destroy(); this.toolModes.destroy(); this.clock.dispose(); this.resize.disconnect(); this.mutation.disconnect();
     this.cleanup.forEach(clean => clean());
   }
 }

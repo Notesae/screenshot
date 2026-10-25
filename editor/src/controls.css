@@ -5,17 +5,16 @@
 }
 .clay-editor :where(button, input, textarea, select, summary) { border: 0; border-radius: var(--clay-radius-control); }
 /* 焦点通过底色和亮度表达，不绘制外圈，也不改变控件占位。 */
-.clay-editor :where([role=button], summary, a):focus-visible { background-color: var(--clay-focusFill); }
+.clay-editor :where([role=button], a):focus-visible { background-color: var(--clay-focusFill); }
 .clay-editor button {
   border: 0;
   min-height: var(--clay-size-control); min-width: 0; padding: 9px 12px; gap: 8px;
   background: var(--clay-raised); box-shadow: var(--clay-button);
   font-size: var(--clay-type-body); font-weight: 500; line-height: 1.5; cursor: pointer;
-  transition: transform var(--clay-time-release) var(--clay-spring), filter 140ms ease, box-shadow 140ms ease;
+  /* 悬停与焦点亮度由 MaterialLight 的弹簧变量连续混合，不用 CSS 过渡或伪类硬切。 */
+  filter: brightness(calc(1 + .04 * var(--lit-hover, 0) + .14 * var(--lit-focus, 0)));
 }
-.clay-editor button:hover:enabled { background: var(--clay-raised); filter: brightness(1.04); }
-.clay-editor button:focus-visible:enabled { filter: brightness(1.14); }
-.clay-editor button:active:enabled { transition-duration: var(--clay-time-press); transform: scale(var(--clay-pressed-scale)); box-shadow: var(--clay-press); }
+.clay-editor button:active:enabled { box-shadow: var(--clay-press); }
 .clay-editor :where(button, input, textarea, select):disabled { opacity: var(--clay-disabled-opacity); cursor: default; }
 .clay-editor button:disabled { filter: none; box-shadow: inset 0 1px 2px #ffffff0d; }
 /* 主操作和绘制待命态保留原导轨的蓝色凸面；字段焦点不借用该强调色。 */
@@ -23,7 +22,7 @@
 .clay-editor button.clay-primary:hover:enabled, .clay-editor button[aria-pressed=true]:hover:enabled { background: var(--clay-primary); }
 .clay-editor button.clay-primary:active:enabled, .clay-editor button[aria-pressed=true]:active:enabled { box-shadow: var(--clay-press); }
 .clay-editor button.clay-danger { color: var(--clay-error); }
-.clay-editor button.clay-danger:hover:enabled { background: var(--clay-errorSurface); }
+.clay-editor button.clay-danger:enabled { background: color-mix(in srgb, var(--clay-errorSurface) calc(var(--lit-hover, 0) * 100%), var(--clay-raised)); }
 .clay-editor svg { width: var(--clay-size-icon); height: var(--clay-size-icon); flex-shrink: 0; stroke-width: 1.8; }
 .clay-editor :where(h1, h2, h3, p) { margin: 0; }
 .clay-editor h1 { font-size: var(--clay-type-heading); font-weight: 600; }
@@ -35,10 +34,9 @@
   border: 0; border-radius: var(--clay-radius-control);
   color: var(--clay-ink); background: var(--clay-well); box-shadow: var(--clay-inset);
   caret-color: var(--clay-focus); font-size: var(--clay-type-body); line-height: 1.6;
-  transition: background-color var(--clay-time-press) ease;
 }
-.clay-editor :where(input:not([type=checkbox]):not([type=range]), textarea, select):hover:enabled,
-.clay-editor :where(input:not([type=checkbox]):not([type=range]), textarea, select):focus { background: var(--clay-wellActive); }
+/* 悬停或输入焦点按弹簧进度混入激活底色；禁用字段没有悬停目标。 */
+.clay-editor :where(input:not([type=checkbox]):not([type=range]), textarea, select) { background: color-mix(in srgb, var(--clay-wellActive) calc(max(var(--lit-hover, 0), var(--lit-focus, 0)) * 100%), var(--clay-well)); }
 .clay-editor :where(input, textarea)[aria-invalid=true] { background: var(--clay-errorSurface); }
 .clay-editor :where(input, textarea)::placeholder { color: var(--clay-muted); opacity: 1; }
 .clay-editor :where(input, textarea):read-only { color: var(--clay-muted); }
@@ -52,7 +50,7 @@
   display: inline-grid; place-content: center; width: 18px; height: 18px; flex-shrink: 0;
   padding: 0; border: 0; border-radius: 5px; background: var(--clay-well); box-shadow: var(--clay-inset); cursor: pointer;
 }
-.clay-editor input[type=checkbox]:focus-visible { background: var(--clay-wellActive); filter: brightness(1.3); }
+.clay-editor input[type=checkbox] { filter: brightness(calc(1 + .3 * var(--lit-focus, 0))); }
 .clay-editor input[type=checkbox]:checked, .clay-editor input[type=checkbox]:indeterminate { background: var(--clay-accentBottom); }
 .clay-editor input[type=checkbox]:checked::after { content: ''; width: 9px; height: 5px; border: solid var(--clay-onAccent); border-width: 0 0 2px 2px; transform: translateY(-1px) rotate(-45deg); }
 .clay-editor input[type=checkbox]:indeterminate::after { content: ''; width: 8px; height: 2px; background: var(--clay-onAccent); }
@@ -60,15 +58,14 @@
 .clay-editor details { min-width: 0; border: 0; padding-top: 8px; }
 .clay-editor summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: var(--clay-size-control); padding: 10px 12px; border-color: transparent; color: var(--clay-ink); list-style: none; cursor: pointer; user-select: none; font-size: var(--clay-type-label); }
 .clay-editor summary::-webkit-details-marker { display: none; }
-.clay-editor summary:hover { background: var(--clay-hover); }
-.clay-editor details[open] > summary { background: var(--clay-hover); }
-.clay-editor summary:focus-visible { background: var(--clay-focusFill); }
-.clay-editor summary::after { content: ''; width: 7px; height: 7px; flex-shrink: 0; border-right: 1.5px solid var(--clay-muted); border-bottom: 1.5px solid var(--clay-muted); transform: rotate(45deg); transition: transform 190ms cubic-bezier(.22,1,.36,1); }
+/* 悬停、展开与键盘焦点三种底色按各自弹簧叠加混合。 */
+.clay-editor summary { background: color-mix(in srgb, var(--clay-focusFill) calc(var(--lit-focus, 0) * 100%), color-mix(in srgb, var(--clay-hover) calc(max(var(--lit-hover, 0), var(--lit-open, 0)) * 100%), transparent)); }
+.clay-editor summary::after { content: ''; width: 7px; height: 7px; flex-shrink: 0; border-right: 1.5px solid var(--clay-muted); border-bottom: 1.5px solid var(--clay-muted); transform: rotate(45deg); }
 /* 关闭动画结束前 details 仍保持 open；箭头按逻辑状态同步回收。 */
 .clay-editor summary[aria-expanded=true]::after,
 .clay-editor details[open] > summary:not([aria-expanded])::after { transform: rotate(225deg); }
 /* MotionDetails 的箭头由与高度同一组弹簧驱动，不另起 CSS 缓动。 */
-.clay-editor summary[aria-expanded]::after { transform: rotate(calc(45deg + var(--details-turn, 0) * 180deg)); transition: none; }
+.clay-editor summary[aria-expanded]::after { transform: rotate(calc(45deg + var(--details-turn, 0) * 180deg)); }
 .clay-editor details[open] > :not(summary) { margin-top: 12px; }
 .clay-editor details[open] > label + label { margin-top: 16px; }
 .clay-unit-field { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: var(--clay-size-control); padding: 0 12px; border: 0; border-radius: var(--clay-radius-control); background: var(--clay-well); box-shadow: var(--clay-inset); }
@@ -143,5 +140,3 @@
 .clay-editor .clay-select-menu > .liquid-surface-content > button:active:enabled,
 .clay-editor .clay-color-options > button:active:enabled { transform: none; box-shadow: none; }
 
-/* 系统减少动态同时关闭折叠箭头的过渡。 */
-@media (prefers-reduced-motion: reduce) { .clay-editor summary::after { transition: none; } }

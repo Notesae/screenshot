@@ -39,7 +39,8 @@
 /* 材质交接由连续状态控制；逻辑取消选中不能提前恢复一张独立灰皮肤。 */
 [data-motion-button][data-motion-material=true] > .liquid-skin { visibility: hidden; }
 [data-motion-button][data-hover-panel=beauty][aria-pressed=true] > .liquid-skin { background: var(--clay-primary); --liquid-rest-shadow: var(--clay-primary-shadow); }
-[data-motion-button]:focus-visible > .liquid-skin { filter: brightness(1.2); }
+/* 键盘焦点亮度随 MaterialLight 弹簧连续点亮，不由 :focus-visible 硬切。 */
+[data-motion-button] > .liquid-skin { filter: brightness(calc(1 + .2 * var(--lit-focus, 0))); }
 [data-motion-button]:disabled > .liquid-skin { --liquid-rest-shadow: inset 0 1px 2px #ffffff0d; }
 /* 灰底、蓝色涂层和凹陷阴影共用一个变换与圆角，颜色和深度按弹簧进度混合。 */
 .liquid-active { position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none; border-radius: var(--clay-radius-control); background: var(--clay-raised); opacity: 0; transform-origin: center; }
@@ -48,8 +49,8 @@
 .liquid-active-color { background: var(--clay-primary); opacity: var(--liquid-selection,0); }
 .liquid-active-color::before { content: ""; box-shadow: var(--clay-primary-shadow); opacity: calc(1 - var(--liquid-press,0)); }
 .liquid-active-depth { box-shadow: var(--clay-press); opacity: var(--liquid-press,0); }
-/* 焦点保留在语义按钮，蓝色材质同步承接原皮肤的键盘焦点亮度。 */
-.clay-editor .liquid-rail:has([data-motion-button][data-motion-material=true]:focus-visible) > .liquid-active { filter: brightness(1.2); }
+/* 焦点保留在语义按钮，蓝色材质同步承接来源按钮的焦点点亮进度。 */
+.clay-editor .liquid-rail > .liquid-active { filter: brightness(calc(1 + .2 * var(--lit-focus, 0))); }
 .liquid-sweep { position: absolute; inset: 0; z-index: 3; pointer-events: none; border-radius: inherit; opacity: 0; background: linear-gradient(115deg,transparent 38%,#ffffff40 50%,transparent 62%); }
 .clay-editor .liquid-panel { background: transparent; box-shadow: none; overflow: visible; animation: none !important; }
 .liquid-panel-body { position: relative; display: flex; flex-direction: column; min-height: 0; border-radius: inherit; transform-origin: top left; isolation: isolate; }
@@ -101,19 +102,21 @@
 .control-skin { position:absolute; inset:0; z-index:-1; border-radius:inherit; background:var(--control-face); box-shadow:var(--control-shadow); pointer-events:none; }
 .control-content { display:inline-flex; align-items:center; justify-content:inherit; gap:inherit; min-width:0; width:100%; pointer-events:none; }
 .control-soft-body { position:absolute; inset:0; display:flex; align-items:center; justify-content:inherit; gap:inherit; padding:inherit; border-radius:inherit; isolation:isolate; pointer-events:none; }
-.clay-editor [data-control-button]:hover:enabled .control-skin { filter:brightness(1.04); }
-.clay-editor [data-control-button]:focus-visible:enabled .control-skin { filter:brightness(1.14); }
+/* 悬停与键盘焦点亮度按弹簧进度叠加，禁用控件没有点亮目标。 */
+.clay-editor [data-control-button] .control-skin { filter:brightness(calc(1 + .04 * var(--lit-hover, 0) + .14 * var(--lit-focus, 0))); }
 .clay-editor [data-control-button]:active:enabled .control-skin { box-shadow:var(--clay-press); }
 .clay-editor button[data-control-button]:is(.clay-primary,[aria-pressed=true]):not([data-soft-selection]) { --control-face:var(--clay-primary); --control-shadow:var(--clay-primary-shadow); }
-.clay-editor button[data-control-button].clay-danger:hover:enabled { --control-face:var(--clay-errorSurface); }
-.clay-editor button[data-control-button]:is(.clay-select-trigger,.clay-color-trigger) { --control-face:var(--clay-well); --control-shadow:var(--clay-inset); }
-.clay-editor button[data-control-button]:is(.clay-select-trigger,.clay-color-trigger):is(:hover,:focus-visible,[aria-expanded=true]) { --control-face:var(--clay-wellActive); }
+.clay-editor button[data-control-button]:where(.clay-danger:enabled) { --control-face:color-mix(in srgb, var(--clay-errorSurface) calc(var(--lit-hover, 0) * 100%), var(--clay-raised)); }
+/* 悬停、焦点与展开取最强的一路，连续混入激活底色。 */
+.clay-editor button[data-control-button]:is(.clay-select-trigger,.clay-color-trigger) { --control-face:color-mix(in srgb, var(--clay-wellActive) calc(max(var(--lit-hover, 0), var(--lit-focus, 0), var(--lit-open, 0)) * 100%), var(--clay-well)); --control-shadow:var(--clay-inset); }
 .clay-editor :is(.clay-card-heading,.clay-notice,.clay-reader-actions,.canvas-zoom) button[data-control-button], .clay-editor .clay-reader-mode button[data-control-button], .clay-editor .clay-select-menu button[data-control-button], .clay-editor .clay-color-options button[data-control-button] { --control-face:transparent; --control-shadow:none; }
 .clay-editor .clay-reader-mode button[data-control-button][aria-pressed=true] { --control-face:var(--clay-raised); --control-shadow:var(--clay-button); }
-.clay-editor .clay-select-menu button[data-control-button]:is(.is-active,[aria-selected=true]), .clay-editor .clay-color-options button[data-control-button][aria-pressed=true]:not([data-soft-selection]) { --control-face:var(--clay-selected); }
+/* 菜单高亮随指针或方向键移动时，旧项淡出、新项点亮，不再整块换色。 */
+.clay-editor .clay-select-menu button[data-control-button] { --control-face:color-mix(in srgb, var(--clay-selected) calc(var(--lit-active, 0) * 100%), transparent); }
+.clay-editor .clay-color-options button[data-control-button][aria-pressed=true]:not([data-soft-selection]) { --control-face:var(--clay-selected); }
 .clay-select-trigger > .control-content > span, .clay-select-menu .control-content > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.clay-select-trigger .control-content > svg { transition:transform 170ms ease; }
-.clay-select-trigger[aria-expanded=true] .control-content > svg { transform:rotate(180deg); }
+/* 下拉箭头与菜单开合共用 panel 弹簧的未截断进度，翻转时带一次回弹。 */
+.clay-select-trigger .control-content > svg { transform:rotate(calc(var(--lit-turn, 0) * 180deg)); }
 .clay-editor input[type=range]::-webkit-slider-thumb { transform:scale(var(--range-scale-x,1),var(--range-scale-y,1)); background:linear-gradient(var(--clay-ink),var(--clay-muted)); box-shadow:var(--clay-button); }
 .clay-editor input[type=range]::-moz-range-thumb { transform:scale(var(--range-scale-x,1),var(--range-scale-y,1)); background:linear-gradient(var(--clay-ink),var(--clay-muted)); box-shadow:var(--clay-button); }
 /* 可见滑块与真实 range 分层；值即时提交，材质沿同一速度拉长、反向和回弹。 */
@@ -122,7 +125,8 @@
 .clay-slider-fill { position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(90deg,color-mix(in srgb,var(--clay-focus) 40%,#777570),color-mix(in srgb,var(--clay-focus) 55%,#b4b0a9)); transform-origin: left; pointer-events: none; }
 .clay-slider-thumb { position: absolute; left: 0; top: 5px; width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(155deg,#f0ede8,#bcb8b1); box-shadow: inset 0 1px 1px #fff8,0 2px 4px #0006,0 0 1px #0005; pointer-events: none; }
 .clay-editor .clay-slider > input[type=range] { position: absolute; inset: 0; margin: 0; width: 100%; height: 28px; opacity: 0; }
-.clay-slider:has(input:focus-visible) .clay-slider-thumb { filter: brightness(1.2); box-shadow: var(--clay-button),0 0 10px color-mix(in srgb,var(--clay-focus) 45%,transparent); }
+/* 焦点亮度与外发光按弹簧进度出现，变量写在 .clay-slider 上由拇指继承。 */
+.clay-slider .clay-slider-thumb { filter: brightness(calc(1 + .2 * var(--lit-focus, 0))); box-shadow: inset 0 1px 1px #fff8,0 2px 4px #0006,0 0 1px #0005,0 0 10px color-mix(in srgb,var(--clay-focus) calc(var(--lit-focus, 0) * 45%),transparent); }
 .clay-slider[data-disabled=true] { opacity: .45; }
 .clay-editor input[type=checkbox] { position:relative; isolation:isolate; background:transparent; box-shadow:none; }
 .clay-editor input[type=checkbox]::before { content:''; position:absolute; inset:0; z-index:-1; border-radius:inherit; background:var(--clay-well); box-shadow:var(--clay-inset); pointer-events:none; transform:scale(var(--check-scale-x,1),var(--check-scale-y,1)); }

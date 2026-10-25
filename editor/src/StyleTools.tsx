@@ -9,7 +9,6 @@ import { contentGeometry, outputSize, type EditorState, type ProjectDocument } f
 import { BEAUTY_KEYS, BUILTIN_STYLES, beautyStyle, fittedBeautyPresets, parsePresets, type StylePreset } from './stylePresets';
 import { BeautyStylePreview } from './BeautyStylePreview';
 import { presentationMotion } from './LiquidMotion';
-import { motionTokens } from './motion';
 import { motionSuspended, observeMotionScope } from './motionScope';
 import './beauty-tools.css';
 
@@ -36,10 +35,11 @@ export function StyleTools({document:doc,update,comparing,onCompare,onGesture,on
     const node=list.current,clock=presentationMotion(node)?.clock;
     if(!node||!clock||motionSuspended(node))return;
     const from=listMotion.current.alpha<1?{...listMotion.current}:{alpha:.65,y:4};
-    void clock.tween(listKey,motionTokens.duration.disclosure,progress=>{
-      const state=listMotion.current={alpha:from.alpha+(1-from.alpha)*progress,y:from.y*(1-progress)};
+    // 与浮卡同用 panel 弹簧：位移可轻微越位后回正，透明度按截断进度到达不透明。
+    void clock.spring(listKey,progress=>{
+      const state=listMotion.current={alpha:from.alpha+(1-from.alpha)*Math.min(1,Math.max(0,progress)),y:from.y*(1-progress)};
       node.style.opacity=String(state.alpha);node.style.transform=`translateY(${state.y}px)`;
-    });
+    },0,1,'panel');
     const stop=observeMotionScope(node,suspended=>{if(suspended)clock.finish(listKey);});
     return()=>{stop();clock.cancel(listKey);};
   },[showSaved]);
