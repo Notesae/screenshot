@@ -36,7 +36,9 @@ export function MotionDetails({ children, open = false, ...props }: ComponentPro
     const target = next ? node.getBoundingClientRect().height : summary.getBoundingClientRect().height + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
     setExpanded(next);
     // clip 不创建可滚动容器，展开期间聚焦字段不会产生伪滚动并误关外置弹层。
-    const paint = (progress: number) => { node.style.height = from + (target - from) * progress + 'px'; node.style.overflow = 'clip'; };
+    // 裁切方式整段过渡固定，只写一次，避免每帧重复触发样式观察。
+    node.style.overflow = 'clip';
+    const paint = (progress: number) => { node.style.height = from + (target - from) * progress + 'px'; };
     const motion = motionSuspended(node) ? (paint(1), Promise.resolve(true)) : scheduler.tween(key, motionTokens.duration.disclosure, paint);
     void motion.then(completed => {
       if (!completed || current !== version.current) return;

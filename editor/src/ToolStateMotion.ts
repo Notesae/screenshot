@@ -2,9 +2,12 @@ import { clamp, MotionClock, MotionSpring, type MotionRect } from './motion';
 
 type Slot={element:HTMLElement;box:MotionRect};
 type Geometry={x:MotionSpring;y:MotionSpring;width:MotionSpring;height:MotionSpring};
-type State=Geometry&{element:HTMLElement;box:MotionRect;mode:string;draw:MotionSpring;edit:MotionSpring;recoil:MotionSpring;landing:{direction:number;age:number}|null};
+type State=Geometry&{element:HTMLElement;box:MotionRect;mode:string;draw:MotionSpring;edit:MotionSpring;recoil:MotionSpring;landing:{direction:number;age:number}|null;painted:{reveal:number;draw:number;edit:number}};
 const geometry=(box:MotionRect):Geometry=>({x:new MotionSpring(box.x),y:new MotionSpring(box.y),width:new MotionSpring(box.width),height:new MotionSpring(box.height)});
 const axes=['x','y','width','height'] as const;
+// 槽位弹簧顺序固定，逐帧复用键名，避免每个按钮反复分配临时数组。
+const stateAxes=[...axes,'draw','edit'] as const;
+const stateMoving=(s:State)=>stateAxes.some(axis=>s[axis].moving)||s.recoil.moving||s.landing!==null;
 
 /** 底座和局部槽位共用同一弹簧参数；只有工具三态重排保留速度，整体搬动重建坐标基准。 */
 export class ToolStateMotion {
@@ -23,7 +26,7 @@ export class ToolStateMotion {
     for(const {element,box} of slots){
       present.add(element);const mode=element.dataset.toolState??'';
       let s=this.states.get(element);
-      if(!s){s={element,box,mode,...geometry(box),draw:new MotionSpring(Number(mode==='drawing')),edit:new MotionSpring(Number(mode==='editing')),recoil:new MotionSpring(),landing:null};this.states.set(element,s);}
+      if(!s){s={element,box,mode,...geometry(box),draw:new MotionSpring(Number(mode==='drawing')),edit:new MotionSpring(Number(mode==='editing')),recoil:new MotionSpring(),landing:null,painted:{reveal:NaN,draw:NaN,edit:NaN}};this.states.set(element,s);}
       // 仅记录最新目标，不能用定时回调给已经反向的旧状态补上一记冲量。
       if(animate&&s.mode!==mode)s.landing={direction:Math.sign(box.width-s.width.x)||(mode==='drawing'?1:-1),age:0};
       s.box=box;s.mode=mode;
@@ -37,12 +40,18 @@ export class ToolStateMotion {
   }
   private paint(s:State){
     if(!s.mode)return;
-    s.element.style.setProperty('--tool-reveal',String((s.width.x-39)/36));
-    s.element.style.setProperty('--tool-draw-state',String(clamp(s.draw.x)));
-    s.element.style.setProperty('--tool-edit-state',String(clamp(s.edit.x)));
+    const reveal=(s.width.x-39)/36,draw=clamp(s.draw.x),edit=clamp(s.edit.x),last=s.painted;
+    // 精确相等才省略写入，保留全部形变精度，也不让纯余振反复更新静止材质。
+    if(last.reveal!==reveal){s.element.style.setProperty('--tool-reveal',String(reveal));last.reveal=reveal;}
+    if(last.draw!==draw){s.element.style.setProperty('--tool-draw-state',String(draw));last.draw=draw;}
+    if(last.edit!==edit){s.element.style.setProperty('--tool-edit-state',String(edit));last.edit=edit;}
   }
-  get pending(){return [...this.states.values()].some(s=>s.mode!==(s.element.dataset.toolState??''));}
-  get moving(){return !!this.frame&&axes.some(axis=>this.frame![axis].moving)||[...this.states.values()].some(s=>axes.some(axis=>s[axis].moving)||s.draw.moving||s.edit.moving||s.recoil.moving||s.landing!==null);}
+  get pending(){for(const s of this.states.values())if(s.mode!==(s.element.dataset.toolState??''))return true;return false;}
+  get moving(){
+    if(this.frame&&axes.some(axis=>this.frame![axis].moving))return true;
+    for(const s of this.states.values())if(stateMoving(s))return true;
+    return false;
+  }
   get body(){
     const b=this.bounds,f=this.frame;
     return b&&f?{x:f.x.x-b.x,y:f.y.x-b.y,width:f.width.x,height:f.height.x}:null;
@@ -58,9 +67,8 @@ export class ToolStateMotion {
   step(dt:number){
     if(this.frame)for(const axis of axes){const spring=this.frame[axis];if(this.clock.reduced)spring.snap(spring.to);else spring.step(dt,'toolLayout');}
     for(const s of this.states.values()){
-      const springs=[...axes.map(axis=>s[axis]),s.draw,s.edit];
-      if(!springs.some(spring=>spring.moving)&&!s.recoil.moving&&!s.landing)continue;
-      for(const spring of springs){if(this.clock.reduced)spring.snap(spring.to);else spring.step(dt,'toolLayout');}
+      if(!stateMoving(s))continue;
+      for(const axis of stateAxes){const spring=s[axis];if(this.clock.reduced)spring.snap(spring.to);else spring.step(dt,'toolLayout');}
       if(this.clock.reduced){s.recoil.snap(0);s.landing=null;}
       else {
         s.recoil.step(dt,'toolRecoil');

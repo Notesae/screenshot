@@ -14,14 +14,21 @@ export function MotionRange(props:Omit<ComponentPropsWithoutRef<'input'>,'type'>
     const shared=presentationMotion(node)?.clock,clock=shared??new MotionClock(),key='slider:'+id;
     const position=new MotionSpring(),pressure=new MotionSpring(),pull=new MotionSpring();
     let travel=Math.max(1,node.clientWidth-18),disposed=false;
+    // 仅跳过完全相同的表现值；弹簧仍逐帧积分，反向和余振不做量化或节流。
+    let paintedX=NaN,paintedTravel=NaN,paintedStrain=NaN,paintedPressure=NaN;
     position.snap(desired.current*travel);
     const media=matchMedia('(prefers-reduced-motion: reduce)');
     const preference=()=>{if(!shared)clock.setReduced(media.matches);};preference();
     const paint=()=>{
-      const x=clamp(position.x,0,travel),strain=pull.x,p=pressure.x,wide=1+Math.abs(strain)*.65+p*.12;
-      fill.style.transform=`scaleX(${x/travel})`;
-      thumb.style.transform=`translate3d(${x}px,0,0) scale(${wide},${1/wide}) rotate(${strain*9}deg)`;
-      thumb.style.borderRadius=`${50-strain*18}% ${50+strain*18}% ${50+strain*18}% ${50-strain*18}%`;
+      const x=clamp(position.x,0,travel),strain=pull.x,p=pressure.x;
+      const moved=x!==paintedX,strained=strain!==paintedStrain;
+      if(moved||travel!==paintedTravel)fill.style.transform=`scaleX(${x/travel})`;
+      if(moved||strained||p!==paintedPressure){
+        const wide=1+Math.abs(strain)*.65+p*.12;
+        thumb.style.transform=`translate3d(${x}px,0,0) scale(${wide},${1/wide}) rotate(${strain*9}deg)`;
+      }
+      if(strained)thumb.style.borderRadius=`${50-strain*18}% ${50+strain*18}% ${50+strain*18}% ${50-strain*18}%`;
+      paintedX=x;paintedTravel=travel;paintedStrain=strain;paintedPressure=p;
     };
     const run=()=>{
       if(disposed)return;

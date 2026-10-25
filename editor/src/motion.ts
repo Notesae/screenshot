@@ -18,6 +18,8 @@ export class MotionSpring {
   get moving() { return this.x !== this.to || this.v !== 0; }
   /** 分割长帧后积分，达到统一位置/速度阈值才精确归位。 */
   step(elapsed: number, preset: SpringPreset) {
+    // 共享时钟仍会访问已停稳的轴；目标和速度都未变化时无需重复积分。
+    if (!this.moving) return this.x;
     const dt = clamp(elapsed, 0, motionTokens.solver.maxElapsed);
     const steps = Math.max(1, Math.ceil(dt / motionTokens.solver.maxStep)), h = dt / steps;
     const { k, c } = motionTokens.spring[preset];

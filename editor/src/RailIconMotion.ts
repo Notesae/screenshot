@@ -1,9 +1,12 @@
 import { clamp, MotionClock, MotionSpring } from './motion';
 
 type Part={element:SVGGraphicsElement;x:number;y:number;index:number;original:[string,string,string]};
-type Icon={owner:HTMLElement;kind:string;parts:Part[];force:MotionSpring;tail:MotionSpring;pulse:number;held:boolean;painted:string};
+type Icon={owner:HTMLElement;kind:string;parts:Part[];force:MotionSpring;tail:MotionSpring;pulse:number;held:boolean;painted:string;paintedForce:number;paintedTail:number};
 const ownerSelector='[data-motion-button],.clay-grip';
 const shapes='path,rect,line,polyline,polygon,circle,ellipse';
+const glyphShapes='.liquid-glyph svg '+shapes.split(',').join(', .liquid-glyph svg '),gripShapes='svg '+shapes.split(',').join(', svg ');
+const splitKinds=new Set(['more','mosaic','grip','scan']),pairedKinds=new Set(['translate','read']),bendKinds=new Set(['arrow','brush','highlight','pin']);
+const historyKinds=new Set(['undo','redo']),crossKinds=new Set(['close','cancel']),outlineKinds=new Set(['rect','ellipse','text']);
 
 /** 仅形变 SVG 线条和部件；不移动按钮、文案或图标占位，共用主轨时钟并保留中断速度。 */
 export class RailIconMotion {
@@ -38,10 +41,10 @@ export class RailIconMotion {
     for(const owner of this.rail.querySelectorAll<HTMLElement>(ownerSelector)){
       present.add(owner);
       const kind=owner.dataset.iconMotion??owner.dataset.annotationKind??owner.dataset.motionAction??owner.dataset.panelTrigger??'grip';
-      const nodes=[...owner.querySelectorAll<SVGGraphicsElement>('.liquid-glyph svg '+shapes.split(',').join(', .liquid-glyph svg '))];
-      if(owner.classList.contains('clay-grip'))nodes.push(...owner.querySelectorAll<SVGGraphicsElement>('svg '+shapes.split(',').join(', svg ')));
+      const nodes=[...owner.querySelectorAll<SVGGraphicsElement>(glyphShapes)];
+      if(owner.classList.contains('clay-grip'))nodes.push(...owner.querySelectorAll<SVGGraphicsElement>(gripShapes));
       let icon=this.icons.get(owner);
-      if(!icon){icon={owner,kind,parts:[],force:new MotionSpring(),tail:new MotionSpring(),pulse:0,held:false,painted:''};this.icons.set(owner,icon);}
+      if(!icon){icon={owner,kind,parts:[],force:new MotionSpring(),tail:new MotionSpring(),pulse:0,held:false,painted:'',paintedForce:NaN,paintedTail:NaN};this.icons.set(owner,icon);}
       // 翻译衍生按钮会复用 DOM 切换取消/阅读，不能沿用旧笔画的构造和受力方向。
       if(icon.kind!==kind){for(const part of icon.parts)this.restore(part);icon.kind=kind;icon.parts=[];icon.painted='';}
       const old=new Map(icon.parts.map(part=>[part.element,part]));
@@ -57,6 +60,9 @@ export class RailIconMotion {
   }
   private restore(part:Part){const style=part.element.style;[style.transform,style.transformOrigin,style.transformBox]=part.original;delete part.element.dataset.railIconPart;}
   private paint(icon:Icon){
+    // 共享时钟还在推进其它按钮时，静止图标不重复限幅和格式化；新部件仍强制首绘。
+    if(icon.painted&&icon.paintedForce===icon.force.x&&icon.paintedTail===icon.tail.x)return;
+    icon.paintedForce=icon.force.x;icon.paintedTail=icon.tail.x;
     // 柔性限幅避免较强受力撞到硬上限后停顿，再反向时仍连续。
     const f=1.45*Math.tanh(icon.force.x/1.45),lag=1.2*Math.tanh((icon.force.x-icon.tail.x)/1.2),pose=f+':'+lag;
     if(icon.painted===pose)return;icon.painted=pose;
@@ -64,14 +70,14 @@ export class RailIconMotion {
       // 21px 图标需要可辨的横纵形变；面积近似守恒，卸力后按原速度反向回鼓。
       const {x,y,index}=part;let dx=x*lag*2,dy=y*lag*1.4,turn=lag*7,sx=1+f*.22,sy=1/sx,skew=lag*7;
       // 不同构造按部件受力：括角/点阵分开合拢，箭杆/笔尖弯转，书页和译文笔画相向牵拉。
-      if(['more','mosaic','grip','scan'].includes(icon.kind)){dx+=x*f*3;dy+=y*f*2;turn=lag*3;}
-      else if(['translate','read'].includes(icon.kind)){dx+=x*f*2.4;turn+=x*f*16;}
-      else if(['arrow','brush','highlight','pin'].includes(icon.kind)){turn+=f*(icon.kind==='pin'?14:-16);dx+=y*lag*1.6;}
-      else if(['undo','redo'].includes(icon.kind)){turn+=f*(icon.kind==='undo'?-23:23);skew=0;}
-      else if(['close','cancel'].includes(icon.kind)){turn+=(index%2?1:-1)*f*14;sx=1+f*.18;sy=1/sx;}
+      if(splitKinds.has(icon.kind)){dx+=x*f*3;dy+=y*f*2;turn=lag*3;}
+      else if(pairedKinds.has(icon.kind)){dx+=x*f*2.4;turn+=x*f*16;}
+      else if(bendKinds.has(icon.kind)){turn+=f*(icon.kind==='pin'?14:-16);dx+=y*lag*1.6;}
+      else if(historyKinds.has(icon.kind)){turn+=f*(icon.kind==='undo'?-23:23);skew=0;}
+      else if(crossKinds.has(icon.kind)){turn+=(index%2?1:-1)*f*14;sx=1+f*.18;sy=1/sx;}
       else if(icon.kind==='done'){turn-=f*12;skew+=f*8;}
       else if(icon.kind==='appearance'){turn+=x*f*15;dx+=x*f*1.7;}
-      else if(['rect','ellipse','text'].includes(icon.kind)){skew+=f*9;}
+      else if(outlineKinds.has(icon.kind)){skew+=f*9;}
       part.element.style.transform=f===0&&lag===0?part.original[0]:`translate(${dx}px,${dy}px) rotate(${turn}deg) skewX(${skew}deg) scale(${sx},${sy})`;
     }
   }

@@ -19,6 +19,12 @@ internal static class SoftClayMotion
     private static readonly JsonDocument Tokens = JsonDocument.Parse(typeof(SoftClayMotion).Assembly.GetManifestResourceStream("Screenshot.LiquidMotionTokens")
         ?? throw new InvalidOperationException("缺少共享动效参数。"));
     private static JsonElement Motion => Tokens.RootElement.GetProperty("motion");
+    // 嵌入参数在进程内不变；只解析一次求解器数值，避免每轴、每帧重复查找 JSON。
+    private static readonly JsonElement Solver = Motion.GetProperty("solver");
+    private static readonly double MaxElapsed = Solver.GetProperty("maxElapsed").GetDouble();
+    private static readonly double MaxStep = Solver.GetProperty("maxStep").GetDouble();
+    private static readonly double PositionEpsilon = Solver.GetProperty("positionEpsilon").GetDouble();
+    private static readonly double VelocityEpsilon = Solver.GetProperty("velocityEpsilon").GetDouble();
     // 首次框选与网页移动框选共用软边幅度和显现参数。
     internal static JsonElement SelectionTokens => Motion.GetProperty("selection");
     // 弱表保留重定向状态；只有尚未停稳的控件进入活动帧列表。
@@ -168,15 +174,15 @@ internal static class SoftClayMotion
     private static void Render(object? sender, EventArgs args)
     {
         var now = Stopwatch.GetTimestamp();
-        var elapsed = Math.Min(Motion.GetProperty("solver").GetProperty("maxElapsed").GetDouble(), (now - _last) / (double)Stopwatch.Frequency);
+        var elapsed = Math.Min(MaxElapsed, (now - _last) / (double)Stopwatch.Frequency);
         _last = now;
         foreach (var pair in Active.ToArray())
         {
             var state = pair.Value;
             if (!state.Owner.IsLoaded || !state.Owner.IsVisible || !state.Owner.IsEnabled || !SystemParameters.ClientAreaAnimation) { state.Reset(); Active.Remove(pair.Key); continue; }
             var config = Motion.GetProperty("spring").GetProperty(state.Pressed ? "press" : "attention");
-            var moving = false;
-            foreach (var spring in new[] { state.X, state.Y }) moving = spring.Step(elapsed, config) || moving;
+            var moving = state.X.Step(elapsed, config);
+            moving = state.Y.Step(elapsed, config) || moving;
             var press = Motion.GetProperty("spring").GetProperty("press");
             moving = state.ScaleX.Step(elapsed, press) || moving;
             moving = state.ScaleY.Step(elapsed, press) || moving;
@@ -303,16 +309,16 @@ internal static class SoftClayMotion
         public bool Step(double elapsed, string preset) => Step(elapsed, Motion.GetProperty("spring").GetProperty(preset));
         public bool Step(double elapsed, JsonElement config)
         {
-            var solver = Motion.GetProperty("solver");
-            elapsed = Math.Clamp(elapsed, 0, solver.GetProperty("maxElapsed").GetDouble());
-            var steps = Math.Max(1, (int)Math.Ceiling(elapsed / solver.GetProperty("maxStep").GetDouble()));
+            elapsed = Math.Clamp(elapsed, 0, MaxElapsed);
+            var steps = Math.Max(1, (int)Math.Ceiling(elapsed / MaxStep));
             var step = elapsed / steps;
+            var k = config.GetProperty("k").GetDouble(); var c = config.GetProperty("c").GetDouble();
             for (var index = 0; index < steps; index++)
             {
-                Velocity += (-config.GetProperty("k").GetDouble() * (Value - To) - config.GetProperty("c").GetDouble() * Velocity) * step;
+                Velocity += (-k * (Value - To) - c * Velocity) * step;
                 Value += Velocity * step;
             }
-            if (Math.Abs(Value - To) < solver.GetProperty("positionEpsilon").GetDouble() && Math.Abs(Velocity) < solver.GetProperty("velocityEpsilon").GetDouble()) Snap(To);
+            if (Math.Abs(Value - To) < PositionEpsilon && Math.Abs(Velocity) < VelocityEpsilon) Snap(To);
             return Value != To || Velocity != 0;
         }
     }
