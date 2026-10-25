@@ -100,7 +100,8 @@ export class ControlFeedback {
     if(state.element.hasAttribute('data-soft-selection')){
       state.element.style.setProperty('--control-selected',String(clamp(state.selected.x)));
       // 皮肤、选中材质与标识同属一个软体，不能各自缩放成嵌套的两层按钮。
-      const body=state.element.querySelector<HTMLElement>('.control-soft-body'),pull=clamp(state.selected.v*.009,-.055,.055);
+      // 点亮速度峰值会超过上限，柔性限幅让拉伸平滑趋近而不出现停顿平顶。
+      const body=state.element.querySelector<HTMLElement>('.control-soft-body'),pull=.055*Math.tanh(state.selected.v*.009/.055);
       if(body)body.style.transform=`translate(${x}px,${y}px) scale(${1+(T.press.x-1)*p+pull},${1+(T.press.y-1)*p-pull})`;
       return;
     }

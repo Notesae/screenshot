@@ -50,19 +50,19 @@ public sealed class SoftClayDisclosure : Decorator
     }
 }
 
-/// <summary>约 190ms 的可反向高度过渡；纯状态可在没有窗口的情况下验证。</summary>
-internal sealed class DisclosureTransition
+/// <summary>可反向的弹簧过渡；改目标保留当前位置与速度。纯状态可在没有窗口的情况下验证。</summary>
+/// <param name="preset">共享弹簧预设：高度用近临界阻尼，箭头可用带回弹的预设。</param>
+/// <param name="bounded">高度进度限制在 0..1，近临界阻尼的微小越界不会撑出空白或负高度。</param>
+internal sealed class DisclosureTransition(string preset = "toolLayout", bool bounded = true)
 {
-    public double Value { get; private set; }
-    public double Target { get; private set; }
-    private double _from, _elapsed;
-    public bool Moving => Value != Target;
-    public void Redirect(double target) { _from = Value; Target = target; _elapsed = 0; }
+    private readonly SoftClayMotion.SpringState _spring = new();
+    public double Value => bounded ? Math.Clamp(_spring.Value, 0, 1) : _spring.Value;
+    public double Target => _spring.To;
+    public bool Moving => _spring.Moving;
+    public void Redirect(double target) => _spring.To = target;
     public void Step(double elapsed)
     {
-        if (double.IsPositiveInfinity(elapsed)) { Value = Target; return; }
-        _elapsed += Math.Clamp(elapsed, 0, .05);
-        var p = Math.Clamp(_elapsed / SoftClayMotion.Duration("disclosure"), 0, 1);
-        Value = p == 1 ? Target : _from + (Target - _from) * (1 - Math.Pow(1 - p, 3));
+        if (double.IsPositiveInfinity(elapsed)) { _spring.Snap(_spring.To); return; }
+        _spring.Step(elapsed, preset);
     }
 }

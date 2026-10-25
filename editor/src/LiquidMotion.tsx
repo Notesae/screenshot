@@ -463,24 +463,24 @@ export class LiquidMotion {
     // 三态宽度过渡与落位余振共用中心缩放；余振只改缩放与上浮，左缘对齐仍由布局补偿决定。
     const poseX=railPose?railPose.width/Math.max(1,this.rr.width):1,poseY=railPose?railPose.height/Math.max(1,this.rr.height):1;
     if(railPose)body.style.transform=`translate(${railPose.x+(railPose.width-this.rr.width)/2}px,${railPose.y+(railPose.height-this.rr.height)/2+railPose.lift}px) `+body.style.transform+` scale(${poseX*(1+railPose.strain)},${poseY/(1+railPose.strain)})`;
-    // 圆角抵消入场和三态宽度缩放，小团才是圆润软泥；前后端的曲率随错开的受力回摆。
-    // 余振伸缩只有数个百分点，不计入轮廓，避免为它逐帧重建带投影的路径。
-    const radii = [this.railRadius+Math.max(0,-this.bulge.x),this.railRadius+Math.max(0,this.bulge.x),this.railRadius,this.railRadius].map((value, corner) => Math.max(4, value + (1 - toss.unfold) * 18 + (((corner === 0 || corner === 3 ? -1 : 1) === toss.direction) ? toss.lead : toss.tail) * 9));
-    const contourScaleX = toss.scaleX * poseX, contourScaleY = toss.scaleY * poseY;
-    body.style.borderRadius = radii.map(value => value / contourScaleX + 'px').join(' ') + ' / ' + radii.map(value => value / contourScaleY + 'px').join(' ');
-    const outlineInputs = [this.rr.width, this.rr.height, ...radii, contourScaleX, contourScaleY, toss.bend, toss.waist, toss.taper, toss.direction];
+    // 圆角抵消入场缩放，小团才是圆润软泥；前后端的曲率随错开的受力回摆。
+    // 轮廓只随入场形变重建：悬停鼓起只走倾斜，三态宽度（约 ±7%）与余振走合成层缩放，
+    // 不逐帧改路径，否则底座的大半径投影滤镜会每帧重新栅格化。
+    const radii = [this.railRadius,this.railRadius,this.railRadius,this.railRadius].map((value, corner) => Math.max(4, value + (1 - toss.unfold) * 18 + (((corner === 0 || corner === 3 ? -1 : 1) === toss.direction) ? toss.lead : toss.tail) * 9));
+    body.style.borderRadius = radii.map(value => value / toss.scaleX + 'px').join(' ') + ' / ' + radii.map(value => value / toss.scaleY + 'px').join(' ');
+    const outlineInputs = [this.rr.width, this.rr.height, ...radii, toss.scaleX, toss.scaleY, toss.bend, toss.waist, toss.taper, toss.direction];
     if (!this.outlineInputs || outlineInputs.some((value, index) => value !== this.outlineInputs![index])) {
-      const outline = railOutline(this.rr.width, this.rr.height, radii, { ...toss, scaleX: contourScaleX, scaleY: contourScaleY });
+      const outline = railOutline(this.rr.width, this.rr.height, radii, toss);
       if (outline !== this.outlinePath) { this.outline?.setAttribute('d', outline); this.outlinePath = outline; }
       this.outlineInputs = outlineInputs;
     }
     if (this.grip) {
       const localX = this.grip.rect.x + this.grip.rect.width / 2 - this.rr.width / 2, localY = this.grip.rect.y + this.grip.rect.height / 2 - this.rr.height / 2;
       const warpedY = railWarp(localX + this.rr.width / 2, localY + this.rr.height / 2, this.rr.width, this.rr.height, toss).y - this.rr.height / 2;
-      this.grip.icon.style.transform = 'translate(' + (toss.x + localX * (toss.scaleX - 1) + shear * warpedY * toss.scaleY) + 'px,' + (toss.y + warpedY * toss.scaleY - localY) + 'px)';
+      // 拼出完整字符串后去重写入：静止时不再每帧提交相同样式，避免唤醒滚动条观察器。
       const gripPose=this.toolModes.pose(this.grip.element);
-      if(gripPose)this.grip.icon.style.transform=`translate(${gripPose.x}px,${gripPose.y}px) `+this.grip.icon.style.transform;
-      this.grip.icon.style.opacity = String(toss.content);
+      property(this.grip.icon.style, 'transform', (gripPose ? `translate(${gripPose.x}px, ${gripPose.y}px) ` : '') + 'translate(' + (toss.x + localX * (toss.scaleX - 1) + shear * warpedY * toss.scaleY) + 'px, ' + (toss.y + warpedY * toss.scaleY - localY) + 'px)');
+      property(this.grip.icon.style, 'opacity', String(toss.content));
     }
     // 追光在同一 SVG 轮廓内移动，不再覆盖一张独立矩形背景。
     if (this.bodyLightNode) attribute(this.bodyLightNode, 'cx', String(this.bodyLight.x));

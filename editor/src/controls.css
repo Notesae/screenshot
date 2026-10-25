@@ -67,6 +67,8 @@
 /* 关闭动画结束前 details 仍保持 open；箭头按逻辑状态同步回收。 */
 .clay-editor summary[aria-expanded=true]::after,
 .clay-editor details[open] > summary:not([aria-expanded])::after { transform: rotate(225deg); }
+/* MotionDetails 的箭头由与高度同一组弹簧驱动，不另起 CSS 缓动。 */
+.clay-editor summary[aria-expanded]::after { transform: rotate(calc(45deg + var(--details-turn, 0) * 180deg)); transition: none; }
 .clay-editor details[open] > :not(summary) { margin-top: 12px; }
 .clay-editor details[open] > label + label { margin-top: 16px; }
 .clay-unit-field { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: var(--clay-size-control); padding: 0 12px; border: 0; border-radius: var(--clay-radius-control); background: var(--clay-well); box-shadow: var(--clay-inset); }

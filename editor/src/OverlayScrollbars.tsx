@@ -200,8 +200,9 @@ export function OverlayScrollbars() {
           // 主浮卡形变时内部滑条原本就隐藏；装饰液桥也不改变任何滚动容器的几何。
           if(target.matches('.liquid-panel-body[data-motion-running=true]')||target.closest('svg.liquid-panel-bridge'))continue;
           // 动效每帧写材质/图标样式，不能据此遍历整棵 DOM 并强制读取布局。
-          if(target.matches('.liquid-skin,.liquid-glyph,.liquid-active,.liquid-rail-body,.liquid-sweep,.liquid-panel-skin,.liquid-surface-skin,.control-skin,.control-content,.control-soft-body,[data-rail-icon-part],[data-motion-button],[data-control-button],[data-selection-handle],input[type=range],.clay-slider-fill,.clay-slider-thumb,.annotation-sample,.annotation-tool-glyph,.clay-selection-jelly,.clay-selection-size,.clay-translation-tools'))continue;
-          if(target.matches('.liquid-panel-body,.liquid-panel-page,.liquid-panel-content,.liquid-surface-content,.clay-card,.clay-rail')){positionOnly=true;continue;}
+          if(target.matches('.liquid-skin,.liquid-glyph,.liquid-active,.liquid-rail-body,.liquid-sweep,.liquid-panel-skin,.liquid-surface-skin,.control-skin,.control-content,.control-soft-body,[data-rail-icon-part],[data-motion-button],[data-control-button],[data-selection-handle],input[type=range],.clay-slider-fill,.clay-slider-thumb,.annotation-sample,.annotation-tool-glyph,.clay-selection-jelly,.clay-selection-size,.clay-translation-tools,.clay-grip > svg,details > summary'))continue;
+          // 折叠过渡逐帧写高度：只需重排已知滑条，结束时移除标记后的那次写入再完整扫描。
+          if(target.matches('.liquid-panel-body,.liquid-panel-page,.liquid-panel-content,.liquid-surface-content,.clay-card,.clay-rail,details[data-motion-running=true]')){positionOnly=true;continue;}
         }
         // 完整扫描已覆盖本批后续变化，无需继续分类通知。
         scan=true;break;

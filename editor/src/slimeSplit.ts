@@ -24,6 +24,13 @@ export class SlimeSplit {
     if (this.phase === 'settle') return 1 - smooth((this.elapsed - .28) / .08);
     return this.moving ? 1 : 0;
   }
+  /** 布局只在阶段切换时取一个目标宽度，其余伸缩交给合成层；返回 null 表示保持当前占位。 */
+  get layoutTarget(): number | null {
+    if (this.phase === 'pull') return pulled().layout;
+    if (this.phase === 'recoil' || this.phase === 'open') return opened().layout;
+    if (this.phase === 'return') return null;
+    return 0;
+  }
   aim(open: boolean) {
     const closing = this.phase === 'return' || this.phase === 'absorb' || this.phase === 'settle';
     if ((open && !closing && this.phase !== 'closed') || (!open && (closing || this.phase === 'closed'))) return;

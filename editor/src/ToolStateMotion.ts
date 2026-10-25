@@ -24,11 +24,15 @@ export class ToolStateMotion {
   private recoil=new MotionSpring();
   // 只保留最新一次三态重排的释放，旧过渡不能延迟补弹。
   private landing:{direction:number;age:number}|null=null;
+  // 上次布局时看到的离散重排序号。
+  private layoutToken='';
   constructor(private rail:HTMLElement,private clock:MotionClock){}
   /** 由主轨唯一的布局读取阶段喂入，避免独立观察器用两次测量重复补偿位置。 */
   layout(bounds:MotionRect,slots:Slot[]){
     const changing=slots.some(({element})=>this.states.has(element)&&this.states.get(element)!.mode!==(element.dataset.toolState??''));
-    const animate=!this.rebase&&!this.clock.reduced&&!this.rail.closest('[inert],[data-motion-dragging],[data-motion-hidden=true],.is-suspended,.is-awaiting')&&(changing||this.moving);
+    // 组件主动声明的离散重排（如翻译分裂占位）同样用槽位弹簧补偿，但不释放落位冲量。
+    const token=this.rail.dataset.layoutMotion??'',reflowing=token!==this.layoutToken;this.layoutToken=token;
+    const animate=!this.rebase&&!this.clock.reduced&&!this.rail.closest('[inert],[data-motion-dragging],[data-motion-hidden=true],.is-suspended,.is-awaiting')&&(changing||reflowing||this.moving);
     this.frame??=geometry(bounds);
     // 轨道变宽先向外伸、变窄先向内收；宽度不变的换位仍释放一次外伸力。
     if(animate&&changing)this.landing={direction:Math.sign(bounds.width-this.frame.width.x)||1,age:0};

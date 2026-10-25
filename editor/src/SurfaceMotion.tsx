@@ -65,12 +65,15 @@ export function useSurfaceMotion(open: boolean, element: RefObject<HTMLElement |
       skin.style.transform = 'none'; skin.style.opacity = content.style.opacity = open ? '1' : '0';
       content.style.transform='none';content.style.clipPath='none';
     };
+    // 真实槽位只在布局变化时测量：位置随 geometry 依赖重跑本 effect，尺寸由 ResizeObserver 更新；
+    // 逐帧只消费缓存，避免在其它表面写入样式后强制同步布局。材质变换不影响节点自身矩形。
+    let actual = target;
+    const closingTarget = anchor ? { x: anchor.left, y: anchor.top, width: anchor.width, height: anchor.height } : null;
     const run = () => {
       node.dataset.motionPhase = open ? 'entering' : 'closing';
       const advance = (elapsed: number, finish: boolean) => {
-        const actual = box();
         if (open) surface.redirect(actual);
-        else if(origin?.isConnected){const anchor=origin.getBoundingClientRect();surface.redirect({x:anchor.x,y:anchor.y,width:anchor.width,height:anchor.height});}
+        else if (closingTarget && origin?.isConnected) surface.redirect(closingTarget);
         if (finish) surface.finish(); else surface.step(elapsed);
         paint(actual); return surface.moving;
       };
@@ -96,7 +99,7 @@ export function useSurfaceMotion(open: boolean, element: RefObject<HTMLElement |
       if (!open) return;
       if (manualPlacement.current) settled();
       else {
-        const actual = box(); surface.redirect(actual); paint(actual);
+        actual = box(); surface.redirect(actual); paint(actual);
         if (!clock.has(key) && surface.moving) run();
       }
     });

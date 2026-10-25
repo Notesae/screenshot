@@ -221,7 +221,8 @@ internal static class SoftClayMotion
     {
         public readonly FrameworkElement Owner;
         public readonly SpringState X = new(), Y = new(), ScaleX = new(1), ScaleY = new(1);
-        public readonly DisclosureTransition Chevron = new();
+        // 箭头翻转带一次衰减回弹，与网页折叠标识共用 panel 弹簧。
+        public readonly DisclosureTransition Chevron = new("panel", false);
         public readonly TranslateTransform Shift = new();
         private readonly ScaleTransform _scale = new(1, 1);
         private readonly TranslateTransform _glyphShift = new();

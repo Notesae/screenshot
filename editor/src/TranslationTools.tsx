@@ -35,7 +35,14 @@ export function TranslationTools(props: Props) {
       node.style.setProperty('--split-offset', `${pose.distance - splitGeometry.distance}px`);
       node.style.setProperty('--split-alpha', String(pose.glyph));
       if (slot.current) {
-        slot.current.style.width = `${pose.layout}px`;
+        // 占位宽度只在阶段切换时变化一次；邻近按钮由轨道的同一弹簧补偿滑到新槽位，
+        // 不再逐帧改布局而触发整条轨道同步测量与 React 重排。
+        const width = state.layoutTarget;
+        if (width !== null && slot.current.style.width !== width + 'px') {
+          const rail = node.closest<HTMLElement>('.liquid-rail');
+          if (rail) rail.dataset.layoutMotion = String(Number(rail.dataset.layoutMotion ?? 0) + 1);
+          slot.current.style.width = width + 'px';
+        }
         // 吸收后仍保留槽位到母体停稳，隐藏子控件，防止材质交还时再次露出底色。
         slot.current.style.visibility = pose.size > .001 ? 'visible' : 'hidden';
       }
