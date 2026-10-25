@@ -7,6 +7,10 @@ $work = Join-Path $root 'artifacts/launcher-build'
 New-Item -ItemType Directory -Force $work | Out-Null
 if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+    if (-not (Test-Path -LiteralPath $vswhere)) { throw 'Visual Studio Installer (vswhere.exe) is required to locate MSVC.' }
+    # VsDevCmd 的子脚本按名字调用 vswhere.exe；安装器目录不在 PATH 时会向 stderr 报「无法识别」，
+    # Windows PowerShell 5.1 会把这行 stderr 当作终止错误，导致环境其实已初始化成功却中断打包。
+    $env:Path = (Split-Path -Parent $vswhere) + [IO.Path]::PathSeparator + $env:Path
     $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
     if (-not $installation) { throw 'Existing MSVC x64 tools are required to build the launcher.' }
     $developerCommand = Join-Path $installation 'Common7/Tools/VsDevCmd.bat'
