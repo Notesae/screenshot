@@ -13,8 +13,12 @@ export function paintPanel(body:HTMLElement,current:MotionRect,actual:MotionRect
   const y=current.y-actual.y+(current.height-h*sy)/2;
   body.style.transform=`matrix(${sx},0,${shear*sy},${sy},${x},${y})`;
   body.style.opacity=String(alpha);
-  body.style.willChange=moving?'transform, opacity':'auto';
-  body.dataset.motionRunning=String(moving);
+  // 滚动条只需在形变起止时隐藏/恢复，重复写同一状态会重新唤醒它的观察器。
+  const motionRunning=String(moving);
+  if(body.dataset.motionRunning!==motionRunning){
+    body.style.willChange=moving?'transform, opacity':'auto';
+    body.dataset.motionRunning=motionRunning;
+  }
   // 圆角以显示像素计量，回到按钮大小时仍保持圆润；四角差异表现前后端受力。
   const bend=clamp((strain.x+strain.y)*.16,-5,5),radii=[12+bend,12-bend,12+bend,12-bend];
   body.style.borderRadius=radii.map(r=>r/sx+'px').join(' ')+' / '+radii.map(r=>r/sy+'px').join(' ');

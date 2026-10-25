@@ -49,6 +49,8 @@ export class LiquidMotion {
   // 轮廓引用只在布局阶段刷新；一帧只写一条共享路径，停止后不重复提交相同几何。
   private outline: SVGPathElement | null = null;
   private outlinePath = '';
+  // 仅轮廓的真实输入改变时重建贝塞尔路径；其它控件余振不重复生成相同几何。
+  private outlineInputs: number[] | null = null;
   private body: HTMLElement | null = null;
   private bodyLightNode: Element | null = null;
   private indicatorNode: HTMLElement | null = null;
@@ -91,7 +93,7 @@ export class LiquidMotion {
     root.dataset.motionHidden = String(document.hidden); this.clock.setSuspended(true);
     this.clock.onIdle = () => { root.dataset.motionState = 'sleep'; };
     this.toolModes=new ToolStateMotion(rail,this.clock);
-    this.icons=new RailIconMotion(rail,this.clock,()=>!this.active||document.hidden||this.toolsTransitioning||this.entrance.moving||Boolean(this.root.dataset.motionDragging),owner=>this.toolModes.pose(owner)?.iconForce??0);
+    this.icons=new RailIconMotion(rail,this.clock,()=>!this.active||document.hidden||this.toolsTransitioning||this.entrance.moving||Boolean(this.root.dataset.motionDragging),owner=>this.toolModes.iconForce(owner));
     this.clock.listen((dt, time) => this.paint(dt, time));
     this.controls = new ControlFeedback(root, this.clock);
     const invalidate = () => this.invalidate();
@@ -228,6 +230,7 @@ export class LiquidMotion {
     this.bulge.snap(0); this.bodyLight.snap(this.rr.width / 2);
     const body = this.rail.querySelector<HTMLElement>('.liquid-rail-body');
     this.outlinePath = railOutline(this.rr.width, this.rr.height, Array(4).fill(this.railRadius), this.entrance.frame);
+    this.outlineInputs = null;
     this.outline?.setAttribute('d', this.outlinePath);
     if (body) { body.style.transform = 'none'; body.style.opacity = '1'; body.style.borderRadius = this.railRadius + 'px'; body.style.setProperty('--liquid-body-light', '0'); }
     for (const spring of Object.values(this.indicator)) spring.snap(0);
@@ -254,7 +257,7 @@ export class LiquidMotion {
     this.indicatorNode = this.rail.querySelector<HTMLElement>('.liquid-active');
     this.railRadius = parseFloat(railStyle.borderTopLeftRadius) || 0;
     const outline = this.rail.querySelector<SVGPathElement>('.liquid-rail-outline');
-    if (outline !== this.outline) { this.outline = outline; this.outlinePath = ''; }
+    if (outline !== this.outline) { this.outline = outline; this.outlinePath = ''; this.outlineInputs = null; }
     this.rail.querySelector('.liquid-rail-contour')?.setAttribute('viewBox', '0 0 ' + this.rr.width + ' ' + this.rr.height);
     // 投影边界随真实尺寸缓存，覆盖弯曲和原有阴影，不随逐帧形变触发布局测量。
     const shadow = this.rail.querySelector('.liquid-rail-shadow');
@@ -453,8 +456,12 @@ export class LiquidMotion {
     // 圆角抵消整体缩放，小团才是圆润软泥；前后端的曲率随错开的受力回摆。
     const radii = [this.railRadius+Math.max(0,-this.bulge.x),this.railRadius+Math.max(0,this.bulge.x),this.railRadius,this.railRadius].map((value, corner) => Math.max(4, value + (1 - toss.unfold) * 18 + (((corner === 0 || corner === 3 ? -1 : 1) === toss.direction) ? toss.lead : toss.tail) * 9));
     body.style.borderRadius = radii.map(value => value / toss.scaleX + 'px').join(' ') + ' / ' + radii.map(value => value / toss.scaleY + 'px').join(' ');
-    const outline = railOutline(this.rr.width, this.rr.height, radii, toss);
-    if (outline !== this.outlinePath) { this.outline?.setAttribute('d', outline); this.outlinePath = outline; }
+    const outlineInputs = [this.rr.width, this.rr.height, ...radii, toss.scaleX, toss.scaleY, toss.bend, toss.waist, toss.taper, toss.direction];
+    if (!this.outlineInputs || outlineInputs.some((value, index) => value !== this.outlineInputs![index])) {
+      const outline = railOutline(this.rr.width, this.rr.height, radii, toss);
+      if (outline !== this.outlinePath) { this.outline?.setAttribute('d', outline); this.outlinePath = outline; }
+      this.outlineInputs = outlineInputs;
+    }
     if (this.grip) {
       const localX = this.grip.rect.x + this.grip.rect.width / 2 - this.rr.width / 2, localY = this.grip.rect.y + this.grip.rect.height / 2 - this.rr.height / 2;
       const warpedY = railWarp(localX + this.rr.width / 2, localY + this.rr.height / 2, this.rr.width, this.rr.height, toss).y - this.rr.height / 2;
@@ -548,8 +555,8 @@ export class LiquidMotion {
         if(anchor&&!this.clock.reduced&&!this.economy&&!this.root.dataset.motionDragging&&surface.moving&&this.panelMaterial<.995){
           d=panelBridge(anchor,box,1-this.panelMaterial);
         }
-        link.setAttribute('d',d);
-        link.style.opacity=String(this.panelMaterial);
+        attribute(link,'d',d);
+        property(link.style,'opacity',String(this.panelMaterial));
       }
       return surface.moving;
     };

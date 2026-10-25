@@ -8,6 +8,7 @@ const axes=['x','y','width','height'] as const;
 // 槽位弹簧顺序固定，逐帧复用键名，避免每个按钮反复分配临时数组。
 const stateAxes=[...axes,'draw','edit'] as const;
 const stateMoving=(s:State)=>stateAxes.some(axis=>s[axis].moving)||s.recoil.moving||s.landing!==null;
+const stateIconForce=(s:State)=>clamp(s.width.v/440+(s.draw.v-s.edit.v)/30+s.recoil.x/12,-1,1);
 
 /** 底座和局部槽位共用同一弹簧参数；只有工具三态重排保留速度，整体搬动重建坐标基准。 */
 export class ToolStateMotion {
@@ -56,13 +57,18 @@ export class ToolStateMotion {
     const b=this.bounds,f=this.frame;
     return b&&f?{x:f.x.x-b.x,y:f.y.x-b.y,width:f.width.x,height:f.height.x}:null;
   }
+  /** 图标只消费这一轴外力，避免为每个 SVG 另建底座与完整姿态对象。 */
+  iconForce(element:HTMLElement){
+    const s=this.states.get(element);
+    return s&&this.bounds&&this.frame?stateIconForce(s):0;
+  }
   /** 所有坐标相对当前轨道；宽度补偿与底座同相，不能把上次截图的屏幕坐标带进来。 */
   pose(element:HTMLElement){
     const s=this.states.get(element),body=this.body;
     if(!s||!body)return null;
     return {x:s.x.x-s.box.x+body.x,y:s.y.x-s.box.y+body.y,width:s.width.x,height:s.height.x,
       strain:clamp(s.recoil.x/100,-.1,.1),lift:-s.recoil.x*.12,
-      iconForce:clamp(s.width.v/440+(s.draw.v-s.edit.v)/30+s.recoil.x/12,-1,1)};
+      iconForce:stateIconForce(s)};
   }
   step(dt:number){
     if(this.frame)for(const axis of axes){const spring=this.frame[axis];if(this.clock.reduced)spring.snap(spring.to);else spring.step(dt,'toolLayout');}
