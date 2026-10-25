@@ -43,12 +43,15 @@ export class RailIconMotion {
       const kind=owner.dataset.iconMotion??owner.dataset.annotationKind??owner.dataset.motionAction??owner.dataset.panelTrigger??'grip';
       const nodes=[...owner.querySelectorAll<SVGGraphicsElement>(glyphShapes)];
       if(owner.classList.contains('clay-grip'))nodes.push(...owner.querySelectorAll<SVGGraphicsElement>(gripShapes));
+      const elements=nodes.filter(node=>!node.closest('defs'));
       let icon=this.icons.get(owner);
+      // 每次仍确认当前节点；种类与部件顺序完全一致时复用已有状态，避免重建 Map 和数组。
+      if(icon&&icon.kind===kind&&elements.length===icon.parts.length&&elements.every((element,index)=>element===icon!.parts[index].element))continue;
       if(!icon){icon={owner,kind,parts:[],force:new MotionSpring(),tail:new MotionSpring(),pulse:0,held:false,painted:'',paintedForce:NaN,paintedTail:NaN};this.icons.set(owner,icon);}
       // 翻译衍生按钮会复用 DOM 切换取消/阅读，不能沿用旧笔画的构造和受力方向。
       if(icon.kind!==kind){for(const part of icon.parts)this.restore(part);icon.kind=kind;icon.parts=[];icon.painted='';}
       const old=new Map(icon.parts.map(part=>[part.element,part]));
-      icon.parts=nodes.filter(node=>!node.closest('defs')).map((element,index)=>{
+      icon.parts=elements.map((element,index)=>{
         const prior=old.get(element);if(prior){old.delete(element);return prior;}
         const box=element.getBBox(),view=element.ownerSVGElement!.viewBox.baseVal;
         const part:Part={element,index,x:clamp((box.x+box.width/2-view.x)/Math.max(1,view.width)*2-1,-1,1),y:clamp((box.y+box.height/2-view.y)/Math.max(1,view.height)*2-1,-1,1),original:[element.style.transform,element.style.transformOrigin,element.style.transformBox]};

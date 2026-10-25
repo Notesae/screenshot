@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { AnnotationKind } from './document';
 
 const outlines: Record<AnnotationKind, string[]> = {
@@ -12,8 +13,8 @@ const outlines: Record<AnnotationKind, string[]> = {
 };
 
 /** 图标线条由主轨统一施力；标题中的静态实例不挂载独立动画。 */
-export function ToolGlyph({ kind }: { kind: AnnotationKind }) {
+export const ToolGlyph = memo(function ToolGlyph({ kind }: { kind: AnnotationKind }) {
   return <svg className="annotation-tool-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     {outlines[kind].map((d,i)=><path key={i} d={d}/>)}
   </svg>;
-}
+});

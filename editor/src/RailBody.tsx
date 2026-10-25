@@ -1,8 +1,8 @@
-import { useId } from 'react';
+import { memo, useId } from 'react';
 import tokens from '../../design/soft-clay.tokens.json';
 
 /** 轨道的渐变、追光与投影共用弯曲路径；不叠加硬质描边，不碰按钮或截图纹理。 */
-export function RailBody() {
+export const RailBody = memo(function RailBody() {
   // 实例独立的引用避免热更新或多个编辑外壳共用错误的轮廓；几何由共享动效时钟写入。
   const id = 'rail-' + useId().replace(/:/g, ''), outline = id + '-outline';
   return <span className="liquid-rail-body" aria-hidden="true">
@@ -28,4 +28,4 @@ export function RailBody() {
       <use href={'#' + outline} fill={'url(#' + id + '-light)'} style={{opacity:'var(--liquid-body-light,0)'}}/>
     </svg>
   </span>;
-}
+});

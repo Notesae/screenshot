@@ -47,7 +47,8 @@ export function useSurfaceMotion(open: boolean, element: RefObject<HTMLElement |
     const target = box();
     if (wasOpen.current !== open) manualPlacement.current = false;
     wasOpen.current = open;
-    const anchor = origin?.getBoundingClientRect();
+    // 已有表面展开后只消费目标几何；初始化和收回仍实时测量来源。
+    const anchor = !open || !transition.current ? origin?.getBoundingClientRect() : undefined;
     const first = anchor ? { x: anchor.left, y: anchor.top, width: anchor.width, height: anchor.height } : { ...target, y: target.y - 6, width: target.width * .96, height: target.height * .94 };
     const surface = transition.current ??= new SurfaceTransition(first);
     if (open) surface.open(target);

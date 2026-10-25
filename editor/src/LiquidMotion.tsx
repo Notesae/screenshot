@@ -103,7 +103,7 @@ export class LiquidMotion {
         const target = rect(this.panelElement.getBoundingClientRect()), previous = this.panelLayout?.actual;
         // 首次观察通常仍是已测量的尺寸；只有几何真的变化才续接，避免重复启动同一入场。
         if (!previous || target.x !== previous.x || target.y !== previous.y || target.width !== previous.width || target.height !== previous.height) {
-          void this.panel(this.panelElement, this.panelSource, true, this.panelContent);
+          void this.panel(this.panelElement, this.panelSource, true, this.panelContent, target);
         }
       }
       invalidate();
@@ -258,10 +258,11 @@ export class LiquidMotion {
     this.railRadius = parseFloat(railStyle.borderTopLeftRadius) || 0;
     const outline = this.rail.querySelector<SVGPathElement>('.liquid-rail-outline');
     if (outline !== this.outline) { this.outline = outline; this.outlinePath = ''; this.outlineInputs = null; }
-    this.rail.querySelector('.liquid-rail-contour')?.setAttribute('viewBox', '0 0 ' + this.rr.width + ' ' + this.rr.height);
+    const contour = this.rail.querySelector('.liquid-rail-contour');
+    if (contour) attribute(contour, 'viewBox', '0 0 ' + this.rr.width + ' ' + this.rr.height);
     // 投影边界随真实尺寸缓存，覆盖弯曲和原有阴影，不随逐帧形变触发布局测量。
     const shadow = this.rail.querySelector('.liquid-rail-shadow');
-    if (shadow) for (const [key, value] of Object.entries({ x: -80, y: -96, width: this.rr.width + 160, height: this.rr.height + 216 })) shadow.setAttribute(key, String(value));
+    if (shadow) for (const [key, value] of Object.entries({ x: -80, y: -96, width: this.rr.width + 160, height: this.rr.height + 216 })) attribute(shadow, key, String(value));
     const existing = new Map(this.nodes.map(node => [node.el, node]));
     this.nodes = [...this.rail.querySelectorAll<HTMLButtonElement>('[data-motion-button]')].map(el => {
       const box = el.getBoundingClientRect();
@@ -280,7 +281,7 @@ export class LiquidMotion {
     const { scrollLeft, scrollTop, clientWidth, clientHeight } = this.rail;
     const paddingRight = parseFloat(railStyle.paddingRight) || 0, paddingBottom = parseFloat(railStyle.paddingBottom) || 0;
     const overflow = this.nodes.some(({ rect: r }) => r.width > 0 && r.height > 0 && (r.x + scrollLeft < -1 || r.y + scrollTop < -1 || r.x + scrollLeft + r.width + paddingRight > clientWidth + 1 || r.y + scrollTop + r.height + paddingBottom > clientHeight + 1));
-    this.rail.dataset.motionScroll = String(overflow);
+    attribute(this.rail, 'data-motion-scroll', String(overflow));
     this.dirty = false;
   }
   selection(box: MotionRect | null) {
@@ -520,7 +521,7 @@ export class LiquidMotion {
     return moving;
   }
   /** 浮卡与正文整体形变；快速切换从当前几何、受力和速度续接。 */
-  panel(element: HTMLElement, source: HTMLElement | null, open: boolean, contentKey: string) {
+  panel(element: HTMLElement, source: HTMLElement | null, open: boolean, contentKey: string, measuredTarget?: MotionRect) {
     // 点击另一种工具可能先关闭旧卡；旧卡仍回到自己的按钮，新卡再接入新来源。
     if(!open&&this.panelSource?.isConnected)source=this.panelSource;
     this.panelSource = source;
@@ -531,7 +532,8 @@ export class LiquidMotion {
     const version=++this.panelVersion;
     const link=this.root.querySelector<SVGPathElement>('.liquid-panel-bridge path');
     const sourceRect=source?rect(source.getBoundingClientRect()):null;
-    const target = rect(element.getBoundingClientRect()), body = element.querySelector<HTMLElement>('.liquid-panel-body')!;
+    // ResizeObserver 刚量过同一节点，期间没有布局写入；其它入口仍读取当前真实矩形。
+    const target = measuredTarget ?? rect(element.getBoundingClientRect()), body = element.querySelector<HTMLElement>('.liquid-panel-body')!;
     this.panelLayout = { actual: target, anchor: sourceRect };
     const origin = this.panelRect ?? sourceRect ?? target;
     // 主浮卡共用一个可见度和合成层，避免内容与外壳分段揭开。

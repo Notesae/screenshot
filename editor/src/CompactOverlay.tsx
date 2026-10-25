@@ -16,7 +16,7 @@ import { TooltipLayer } from './TooltipLayer';
 import { OverlayScrollbars } from './OverlayScrollbars';
 import { flushSync } from 'react-dom';
 import { matchesPresentationViewport, readPresentationViewport } from './presentationViewport';
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type PointerEvent, type KeyboardEvent } from 'react';
+import { lazy, memo, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type PointerEvent, type KeyboardEvent } from 'react';
 import { Check, Copy, FolderOpen, Frame, GripVertical, ImagePlus, MoreHorizontal, Pin, RotateCcw, ScanText, Settings2, Sparkles, X } from 'lucide-react';
 import { StyleTools } from './StyleTools';
 import { TextTools, type TextToolsProps } from './TextTools';
@@ -51,7 +51,15 @@ function usePanelHeight(content:RefObject<HTMLDivElement|null>,panel:Panel|null,
       if(height>0)setMeasured(current=>current?.panel===panel&&current.width===width&&current.height===height?current:{panel,width,height});
     };
     const resize=new ResizeObserver(()=>flushSync(measure));
-    const observe=()=>{resize.disconnect();resize.observe(body);resize.observe(heading);for(const child of body.children)resize.observe(child);measure();};
+    const observed=new Set<Element>();
+    resize.observe(body);resize.observe(heading);
+    const observe=()=>{
+      // 文本和读数更新仍同步测量，只给真实增删的直属子节点调整订阅，避免反复触发初始通知。
+      const children=new Set(body.children);
+      for(const child of observed)if(!children.has(child)){resize.unobserve(child);observed.delete(child);}
+      for(const child of children)if(!observed.has(child)){resize.observe(child);observed.add(child);}
+      measure();
+    };
     const changes=new MutationObserver(observe);changes.observe(body,{childList:true,subtree:true,characterData:true});
     observe();return()=>{resize.disconnect();changes.disconnect();};
   },[content,panel,width,maximum]);
@@ -141,11 +149,14 @@ export function CompactOverlay(props:Props) {
   const screen=mapped?.screen??{x:0,y:0,...viewport};
   const panelWidth=visiblePanel==='text'?420:visiblePanel==='properties'?340:380;
   const panelHeight=usePanelHeight(cardContent,visiblePanel,panelWidth,620);
-  const railBounds=railRef.current?.getBoundingClientRect();
-  const sourceBounds=trigger.current&&railRef.current?.contains(trigger.current)?trigger.current.getBoundingClientRect():null;
-  const sourceOffset=sourceBounds&&railBounds?{x:sourceBounds.x+sourceBounds.width/2-railBounds.x,y:sourceBounds.y+sourceBounds.height/2-railBounds.y}:undefined;
   const following=selectionPreview?followSelection(selectionPreview):null;
-  const tools=placeTools(screen,mapped?.frame??null,railSize,{width:panelWidth,height:panelHeight},following??positions,sourceOffset);
+  const placement=following??positions;
+  // 手动浮卡的坐标不消费来源偏移；仅自动定位且来源有效时读取这两个实时矩形。
+  const source=!placement.card&&trigger.current&&railRef.current?.contains(trigger.current)?trigger.current:null;
+  const railBounds=source?railRef.current!.getBoundingClientRect():null;
+  const sourceBounds=source?.getBoundingClientRect();
+  const sourceOffset=sourceBounds&&railBounds?{x:sourceBounds.x+sourceBounds.width/2-railBounds.x,y:sourceBounds.y+sourceBounds.height/2-railBounds.y}:undefined;
+  const tools=placeTools(screen,mapped?.frame??null,railSize,{width:panelWidth,height:panelHeight},placement,sourceOffset);
   // 胶边使用真实物理选区换算后的矩形，独立于美化留白和画布显示尺寸。
   const captureArea=selectionPreview??metadata?.selection;
   const captureRim=metadata&&captureArea&&!metadata.contentScale?{x:(captureArea.x-metadata.desktopBounds.x)*viewport.width/metadata.desktopBounds.width,y:(captureArea.y-metadata.desktopBounds.y)*viewport.height/metadata.desktopBounds.height,width:captureArea.width*viewport.width/metadata.desktopBounds.width,height:captureArea.height*viewport.height/metadata.desktopBounds.height}:null;
@@ -364,10 +375,10 @@ export function CompactOverlay(props:Props) {
   </div>;
 }
 /** 图片边框与星芒表示外观美化，避免和用于绘制标注的文字 T 图标混淆。 */
-function ImageAppearanceIcon(){
+const ImageAppearanceIcon=memo(function ImageAppearanceIcon(){
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M11 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5"/>
     <circle cx="8" cy="9" r="1.2"/>
     <path d="m3 17 5-5 4 4 3-3 6 6M18 2l1.2 3.8L23 7l-3.8 1.2L18 12l-1.2-3.8L13 7l3.8-1.2Z"/>
   </svg>;
-}
+});
