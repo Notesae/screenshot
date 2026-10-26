@@ -15,6 +15,7 @@
     <Compile Include="../Screenshot.App/BackdropMotion.cs" Link="BackdropMotion.cs"/>
     <Compile Include="../Screenshot.App/FrozenBackdropSurface.cs" Link="FrozenBackdropSurface.cs"/>
     <Compile Include="../Screenshot.App/SoftClayMotion.cs" Link="SoftClayMotion.cs"/>
+    <Compile Include="../Screenshot.App/SoftClayRailButton.cs" Link="SoftClayRailButton.cs"/>
     <Compile Include="../Screenshot.App/SoftClayTheme.cs" Link="SoftClayTheme.cs"/>
     <Compile Include="../Screenshot.App/SoftClaySurface.cs" Link="SoftClaySurface.cs"/>
     <Compile Include="../Screenshot.App/SoftClayPopupSurface.cs" Link="SoftClayPopupSurface.cs"/>

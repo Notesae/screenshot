@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -10,6 +11,12 @@ public enum SoftClayMaterial { Flat, Floating, Raised, Primary, Inset, Pressed }
 
 public sealed class SoftClaySurface : Border
 {
+    // NaN 保持普通原生表面；轨道曲率只重绘局部矢量，不逐帧改 Border 圆角触发布局。
+    public static readonly DependencyProperty RailBendProperty = DependencyProperty.Register(
+        nameof(RailBend), typeof(double), typeof(SoftClaySurface),
+        new FrameworkPropertyMetadata(double.NaN, FrameworkPropertyMetadataOptions.AffectsRender));
+    public double RailBend { get => (double)GetValue(RailBendProperty); set => SetValue(RailBendProperty, value); }
+    private static readonly double[] CornerPull = SoftClayMotion.RailButtonTokens.GetProperty("cornerPull").EnumerateArray().Select(value => value.GetDouble()).ToArray();
     // 附加属性让按钮样式选择材质，模板内的表面只负责绘制。
     public static readonly DependencyProperty MaterialProperty = DependencyProperty.RegisterAttached(
         "Material", typeof(SoftClayMaterial), typeof(SoftClaySurface),
@@ -30,11 +37,14 @@ public sealed class SoftClaySurface : Border
     // 内高光和暗部限制在固定的边缘深度，长表单也不会变成一整块黑色渐变。
     protected override void OnRender(DrawingContext drawing)
     {
-        base.OnRender(drawing);
-        if (Material == SoftClayMaterial.Flat || RenderSize.Width <= 0 || RenderSize.Height <= 0) return;
+        if (RenderSize.Width <= 0 || RenderSize.Height <= 0) return;
         var box = new Rect(RenderSize);
         var radius = Math.Min(CornerRadius.TopLeft, Math.Min(box.Width, box.Height) / 2);
-        drawing.PushClip(new RectangleGeometry(box, radius, radius));
+        var shape = double.IsNaN(RailBend) ? (Geometry)new RectangleGeometry(box, radius, radius) : RailOutline(box, radius, RailBend);
+        if (double.IsNaN(RailBend)) base.OnRender(drawing);
+        else if (Background is not null) drawing.DrawGeometry(Background, null, shape);
+        if (Material == SoftClayMaterial.Flat) return;
+        drawing.PushClip(shape);
         switch (Material)
         {
             case SoftClayMaterial.Floating:
@@ -57,6 +67,29 @@ public sealed class SoftClaySurface : Border
                 break;
         }
         drawing.Pop();
+    }
+
+    // 与轨道四角使用相同拉扯系数；成对限幅保证小按钮的圆弧不会交叉。
+    private static Geometry RailOutline(Rect box, double radius, double bend)
+    {
+        var corners = CornerPull.Select(pull => Math.Max(0, radius + bend * pull)).ToArray();
+        var factor = Math.Min(1, Math.Min(Math.Min(box.Width / Math.Max(.001, corners[0] + corners[1]), box.Width / Math.Max(.001, corners[3] + corners[2])),
+            Math.Min(box.Height / Math.Max(.001, corners[0] + corners[3]), box.Height / Math.Max(.001, corners[1] + corners[2]))));
+        for (var index = 0; index < corners.Length; index++) corners[index] *= factor;
+        var shape = new StreamGeometry();
+        using (var path = shape.Open())
+        {
+            path.BeginFigure(new Point(corners[0], 0), true, true);
+            path.LineTo(new Point(box.Width - corners[1], 0), true, false);
+            path.ArcTo(new Point(box.Width, corners[1]), new Size(corners[1], corners[1]), 0, false, SweepDirection.Clockwise, true, false);
+            path.LineTo(new Point(box.Width, box.Height - corners[2]), true, false);
+            path.ArcTo(new Point(box.Width - corners[2], box.Height), new Size(corners[2], corners[2]), 0, false, SweepDirection.Clockwise, true, false);
+            path.LineTo(new Point(corners[3], box.Height), true, false);
+            path.ArcTo(new Point(0, box.Height - corners[3]), new Size(corners[3], corners[3]), 0, false, SweepDirection.Clockwise, true, false);
+            path.LineTo(new Point(0, corners[0]), true, false);
+            path.ArcTo(new Point(corners[0], 0), new Size(corners[0], corners[0]), 0, false, SweepDirection.Clockwise, true, false);
+        }
+        shape.Freeze(); return shape;
     }
 
     private static void Edge(DrawingContext drawing, Rect box, Brush brush, double depth, bool bottom = false)

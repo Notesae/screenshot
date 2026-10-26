@@ -7,7 +7,6 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Shapes;
 using System.Windows.Threading;
 using Forms = System.Windows.Forms;
 
@@ -20,7 +19,8 @@ internal sealed class PinnedImageWindow : SoftClayWindow
     private const double FrameWidth = 40, FrameHeight = 82;
     private readonly Image _image;
     private readonly ScrollViewer _viewport;
-    private readonly Button _zoomButton, _pinButton;
+    private readonly SoftClayRailButton _zoomButton, _pinButton;
+    private readonly Action _rebaseButtons;
     private readonly int _pixelWidth, _pixelHeight;
     private readonly System.Drawing.Rectangle _initialArea;
     private double _zoom = 1;
@@ -44,15 +44,16 @@ internal sealed class PinnedImageWindow : SoftClayWindow
         toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var grip = new TextBlock { Text = "⠿", FontSize = 22, Foreground = SoftClayTheme.Brush("muted"), VerticalAlignment = VerticalAlignment.Center, Cursor = Cursors.SizeAll, ToolTip = "拖动移动钉图；滚轮缩放，双击图片恢复 100%" };
         toolbar.Children.Add(grip); toolbar.MouseLeftButtonDown += DragImage;
-        var actions = new StackPanel { Orientation = Orientation.Horizontal };
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Background = Brushes.Transparent };
         Grid.SetColumn(actions, 1); toolbar.Children.Add(actions);
-        actions.Children.Add(ImageButton("缩小", "M5 12H19", () => SetZoom(_zoom / 1.2)));
-        _zoomButton = new Button { Content = "100%", Width = 54, Height = 30, MinHeight = 30, Padding = new Thickness(2), Margin = new Thickness(3, 0, 0, 0), Style = SoftClayTheme.ButtonStyle(), ToolTip = "恢复 100%" };
+        actions.Children.Add(ImageButton("缩小", "minus", () => SetZoom(_zoom / 1.2), "M5 12H19"));
+        _zoomButton = new SoftClayRailButton { Content = "100%", Width = 54, Height = 30, MinHeight = 30, Padding = new Thickness(2), Margin = new Thickness(3, 0, 0, 0), Style = (Style)FindResource("ClayRailButton"), ToolTip = "恢复 100%" };
         AutomationProperties.SetName(_zoomButton, "恢复原始大小"); _zoomButton.Click += (_, _) => SetZoom(1); actions.Children.Add(_zoomButton);
-        actions.Children.Add(ImageButton("放大", "M5 12H19 M12 5V19", () => SetZoom(_zoom * 1.2)));
-        _pinButton = ImageButton("取消置顶", "M16 3H8 M9 3V9L5 13V15H19V13L15 9V3 M12 15V22", ToggleTopmost);
+        actions.Children.Add(ImageButton("放大", "plus", () => SetZoom(_zoom * 1.2), "M5 12H19", "M12 5V19"));
+        _pinButton = ImageButton("取消置顶", "pin", ToggleTopmost, "M16 3H8", "M9 3V9L5 13V15H19V13L15 9V3", "M12 15V22");
         actions.Children.Add(_pinButton);
-        actions.Children.Add(ImageButton("关闭钉图", "M6 6L18 18 M18 6L6 18", Close));
+        actions.Children.Add(ImageButton("关闭钉图", "close", Close, "M6 6L18 18", "M18 6L6 18"));
+        _rebaseButtons = SoftClayRailButton.Attach(actions);
         content.Children.Add(toolbar);
         _image = new Image { Source = bitmap, Stretch = Stretch.Fill, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Cursor = Cursors.SizeAll, SnapsToDevicePixels = true };
         RenderOptions.SetBitmapScalingMode(_image, BitmapScalingMode.HighQuality);
@@ -81,12 +82,11 @@ internal sealed class PinnedImageWindow : SoftClayWindow
         };
     }
 
-    /// <summary>图标与其他原生控件共用按压模板，保留清晰的中文可访问名称。</summary>
-    private Button ImageButton(string label, string geometry, Action action)
+    /// <summary>五个操作共用轨道受力模板；图标线条分别承接相同外力，中文可访问名称保持。</summary>
+    private SoftClayRailButton ImageButton(string label, string kind, Action action, params string[] geometries)
     {
-        var path = new Path { Data = Geometry.Parse(geometry), Stroke = SoftClayTheme.Brush("ink"), StrokeThickness = 1.8, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round };
-        var icon = new Canvas { Width = 24, Height = 24 }; icon.Children.Add(path);
-        var button = new Button { Content = new Viewbox { Width = 18, Height = 18, Child = icon }, Width = 30, Height = 30, MinHeight = 30, Padding = new Thickness(4), Margin = new Thickness(3, 0, 0, 0), Style = SoftClayTheme.ButtonStyle(), ToolTip = label };
+        var button = new SoftClayRailButton { Width = 30, Height = 30, MinHeight = 30, Padding = new Thickness(4), Margin = new Thickness(3, 0, 0, 0), Style = (Style)FindResource("ClayRailButton"), ToolTip = label };
+        button.SetIcon(kind, geometries);
         AutomationProperties.SetName(button, label); button.Click += (_, _) => action(); return button;
     }
 
@@ -96,7 +96,7 @@ internal sealed class PinnedImageWindow : SoftClayWindow
         if (args.Handled || args.ChangedButton != MouseButton.Left) return;
         args.Handled = true;
         if (args.ClickCount == 2 && ReferenceEquals(sender, _image)) { SetZoom(1); return; }
-        if (Mouse.LeftButton == MouseButtonState.Pressed) DragMove();
+        if (Mouse.LeftButton == MouseButtonState.Pressed) { _rebaseButtons(); DragMove(); }
     }
 
     /// <summary>缩放只改变显示尺寸；超出屏幕时滚动查看，同时将关闭与置顶控件留在工作区内。</summary>
@@ -108,6 +108,7 @@ internal sealed class PinnedImageWindow : SoftClayWindow
         var dpi = VisualTreeHelper.GetDpi(this);
         // Width/Height 会同步更新 HWND；先保留旧中心，避免放大时窗口只向右下角增长。
         GetWindowRect(handle, out var previous);
+        _rebaseButtons();
         var centerX = (_viewport.HorizontalOffset + _viewport.ViewportWidth / 2) / _zoom;
         var centerY = (_viewport.VerticalOffset + _viewport.ViewportHeight / 2) / _zoom;
         _zoom = Math.Clamp(value, .05, 4);
@@ -129,7 +130,7 @@ internal sealed class PinnedImageWindow : SoftClayWindow
     private void UpdateTopmostState()
     {
         Title = Topmost ? "截图钉图 · 已置顶" : "截图钉图 · 未置顶";
-        _pinButton.Style = Topmost ? (Style)FindResource("ClayPrimaryButton") : SoftClayTheme.ButtonStyle();
+        _pinButton.IsSelected = Topmost;
         _pinButton.ToolTip = Topmost ? "取消置顶（P）" : "置顶到其他窗口上方（P）";
         AutomationProperties.SetName(_pinButton, Topmost ? "取消置顶" : "开启置顶");
     }

@@ -50,6 +50,27 @@
     </ControlTemplate></Setter.Value></Setter>
   </Style>
   <Style TargetType="Button" BasedOn="{StaticResource ClayButton}"/>
+  <!-- 钉图使用轨道的常驻材质层；按压/选中由同一物理进度混合，不触发模板或皮肤替换。 -->
+  <Style x:Key="ClayRailButton" TargetType="local:SoftClayRailButton" BasedOn="{StaticResource ClayControl}">
+    <Setter Property="MinHeight" Value="30"/><Setter Property="Padding" Value="4"/>
+    <Setter Property="HorizontalContentAlignment" Value="Center"/><Setter Property="VerticalContentAlignment" Value="Center"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="local:SoftClayRailButton">
+      <Grid Background="Transparent">
+        <Grid x:Name="RailFace" IsHitTestVisible="False">
+          <local:SoftClaySurface x:Name="RailBase" RailBend="0" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayRaised}"/>
+          <local:SoftClaySurface x:Name="RailRaised" RailBend="0" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayRaised}" Material="Raised" Effect="{DynamicResource ClayButtonShadow}"/>
+          <local:SoftClaySurface x:Name="RailColor" RailBend="0" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayPrimary}" Opacity="0"/>
+          <local:SoftClaySurface x:Name="RailPrimary" RailBend="0" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayPrimary}" Material="Primary" Effect="{DynamicResource ClayPrimaryShadow}" Opacity="0"/>
+          <local:SoftClaySurface x:Name="RailDepth" RailBend="0" CornerRadius="{DynamicResource ClayControlRadius}" Material="Pressed" Opacity="0"/>
+          <local:SoftClaySurface x:Name="RailLight" RailBend="0" CornerRadius="{DynamicResource ClayControlRadius}" Opacity="0"/>
+          <local:SoftClaySurface x:Name="RailFocus" RailBend="0" CornerRadius="{DynamicResource ClayControlRadius}" Background="{DynamicResource ClayFocusFill}" Opacity="0"/>
+        </Grid>
+        <ContentPresenter x:Name="RailGlyph" IsHitTestVisible="False" Margin="{TemplateBinding Padding}"
+                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+      </Grid>
+      <ControlTemplate.Triggers><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="{DynamicResource ClayDisabledOpacity}"/></Trigger></ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
   <Style x:Key="ClayPrimaryButton" TargetType="Button" BasedOn="{StaticResource ClayButton}">
     <Setter Property="local:SoftClaySurface.Material" Value="Primary"/>
     <Setter Property="Background" Value="{DynamicResource ClayPrimary}"/><Setter Property="Foreground" Value="{DynamicResource ClayOnAccent}"/><Setter Property="Effect" Value="{DynamicResource ClayPrimaryShadow}"/>

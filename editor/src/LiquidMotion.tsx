@@ -350,8 +350,8 @@ export class LiquidMotion {
     if (!near || near.group !== a.group || this.clock.reduced || this.economy || !this.usable(a) || !this.usable(b) || age >= T.contact.duration) { this.contact = null; return; }
     const direction = Math.sign(b.rect.x - a.rect.x);
     // 以前一帧未压缩的材质边缘估算压力，避免挤压后缩小的轮廓反复打开、闭合接触。
-    const widthA = a.rect.width * (1 + T.field.stretch * a.attention.x * .6 + (T.press.x - 1) * a.press.x);
-    const widthB = b.rect.width * (1 + T.field.stretch * b.attention.x * .6 + (T.press.x - 1) * b.press.x);
+    const widthA = a.rect.width * (1 + T.field.stretch * a.attention.x * T.railButton.stretchX + (T.press.x - 1) * a.press.x);
+    const widthB = b.rect.width * (1 + T.field.stretch * b.attention.x * T.railButton.stretchX + (T.press.x - 1) * b.press.x);
     const gap = direction * (b.rect.x + b.rect.width / 2 + b.faceX - a.rect.x - a.rect.width / 2 - a.faceX) - (widthA + widthB) / 2;
     const pressure = clamp((1.5 - gap) / 5);
     const lead = Math.sin(Math.PI * clamp(age / T.contact.duration));
@@ -435,8 +435,8 @@ export class LiquidMotion {
       const localX = node.rect.x + node.rect.width / 2 - this.rr.width / 2, localY = node.rect.y + node.rect.height / 2 - this.rr.height / 2;
       const warp = railWarp(localX + this.rr.width / 2, localY + this.rr.height / 2, this.rr.width, this.rr.height, toss), warpedY = warp.y - this.rr.height / 2;
       const entryX = toss.x + localX * (toss.scaleX - 1) + shear * warpedY * toss.scaleY, entryY = toss.y + warpedY * toss.scaleY - localY;
-      node.skin.style.transform = 'translate(' + (x + entryX) + 'px,' + (y + entryY) + 'px) skewX(' + toss.shear + 'deg) scale(' + toss.scaleX + ',' + toss.scaleY + ') skewY(' + Math.atan(warp.slope) * 180 / Math.PI + 'deg) scale(' + (1 + T.field.stretch * a * .6 + (T.press.x - 1) * p - T.contact.squash * contact) + ',' + (warp.stretch * (1 + T.field.stretch * (bendY - .3 * a) + (T.press.y - 1) * p + T.contact.bulge * contact)) + ')';
-      node.glyph.style.transform = 'translate(' + (x * T.field.iconRatio + entryX) + 'px,' + (y * T.field.iconRatio + entryY + p * 1.2) + 'px)';
+      node.skin.style.transform = 'translate(' + (x + entryX) + 'px,' + (y + entryY) + 'px) skewX(' + toss.shear + 'deg) scale(' + toss.scaleX + ',' + toss.scaleY + ') skewY(' + Math.atan(warp.slope) * 180 / Math.PI + 'deg) scale(' + (1 + T.field.stretch * a * T.railButton.stretchX + (T.press.x - 1) * p - T.contact.squash * contact) + ',' + (warp.stretch * (1 + T.field.stretch * (bendY - T.railButton.stretchY * a) + (T.press.y - 1) * p + T.contact.bulge * contact)) + ')';
+      node.glyph.style.transform = 'translate(' + (x * T.field.iconRatio + entryX) + 'px,' + (y * T.field.iconRatio + entryY + p * T.railButton.pressDepth) + 'px)';
       const mode=this.toolModes.pose(node.el);
       if(mode){
         const ratio=mode.width/Math.max(1,node.rect.width);
@@ -448,7 +448,7 @@ export class LiquidMotion {
       // 受压侧略变平、外侧鼓起；图文只跟随平移，始终不参与软体挤压。
       // 圆角按显示像素计算，再除以入场与三态宽度的缩放，宽窄过渡时四角仍保持圆润而非椭圆。
       const radiusX = toss.scaleX * (mode ? mode.width / Math.max(1, node.rect.width) * (1 + mode.strain) : 1), radiusY = toss.scaleY * (mode ? 1 / (1 + mode.strain) : 1);
-      const radii = [node.radius + bendX*3,node.radius - bendX*2,node.radius + bendX*2,node.radius - bendX*3].map((value, corner) => Math.max(0, value + contact * T.contact.flatten * ((corner === 1 || corner === 2 ? 1 : -1) === node.contactSide ? -1 : .35)));
+      const radii = T.railButton.cornerPull.map((pull, corner) => Math.max(0, node.radius + bendX * pull + contact * T.contact.flatten * ((corner === 1 || corner === 2 ? 1 : -1) === node.contactSide ? -1 : .35)));
       node.skin.style.borderRadius = radii.map(value => value / radiusX + 'px').join(' ') + ' / ' + radii.map(value => value / radiusY + 'px').join(' ');
       property(node.skin.style, '--liquid-light', String(this.economy ? 0 : clamp(a * .95, 0, .8)));
       property(node.skin.style, '--liquid-light-y', clamp((pointer.y - this.rr.y - node.rect.y) / node.rect.height * 100, 0, 100) + '%');

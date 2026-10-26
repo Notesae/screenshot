@@ -27,6 +27,9 @@ internal static class SoftClayMotion
     private static readonly double VelocityEpsilon = Solver.GetProperty("velocityEpsilon").GetDouble();
     // 首次框选与网页移动框选共用软边幅度和显现参数。
     internal static JsonElement SelectionTokens => Motion.GetProperty("selection");
+    internal static JsonElement RailButtonTokens => Motion.GetProperty("railButton");
+    internal static JsonElement FieldTokens => Motion.GetProperty("field");
+    internal static JsonElement PressTokens => Motion.GetProperty("press");
     // 弱表保留重定向状态；只有尚未停稳的控件进入活动帧列表。
     private static readonly ConditionalWeakTable<ButtonBase, SurfaceState> Buttons = new();
     private static readonly ConditionalWeakTable<FrameworkElement, FloatingSurface> Surfaces = new();
@@ -60,6 +63,7 @@ internal static class SoftClayMotion
     // 每个按钮只创建一组独立表面变换，弱引用不会阻止窗口释放。
     private static SurfaceState? State(ButtonBase owner)
     {
+        if (owner is SoftClayRailButton) return null; // 轨道适配已有同钟受力，不能再叠一层普通按钮变换。
         if (Buttons.TryGetValue(owner, out var existing)) return existing;
         owner.ApplyTemplate();
         var face = owner.Template?.FindName("Face", owner) as FrameworkElement;

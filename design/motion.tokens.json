@@ -155,6 +155,29 @@
       "y": 0.855,
       "neighborImpulse": 19
     },
+    "railButton": {
+      "stretchX": 0.6,
+      "stretchY": 0.3,
+      "pressDepth": 1.2,
+      "cornerPull": [3, -2, 2, -3],
+      "icon": {
+        "hover": 180,
+        "focus": 200,
+        "click": 140,
+        "pressed": -0.9,
+        "forceLimit": 1.45,
+        "lagLimit": 1.2,
+        "shiftX": 2,
+        "shiftY": 1.4,
+        "turn": 7,
+        "skew": 7,
+        "stretch": 0.22,
+        "crossStretch": 0.18,
+        "pinTurn": 14,
+        "bendShift": 1.6,
+        "crossTurn": 14
+      }
+    },
     "duration": {
       "bridge": 210,
       "bridgeCooldown": 90,

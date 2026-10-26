@@ -1,4 +1,4 @@
-import { clamp, MotionClock, MotionSpring } from './motion';
+import { clamp, motionTokens, MotionClock, MotionSpring } from './motion';
 
 type Part={element:SVGGraphicsElement;x:number;y:number;index:number;original:[string,string,string]};
 type Icon={owner:HTMLElement;kind:string;parts:Part[];force:MotionSpring;tail:MotionSpring;pulse:number;held:boolean;painted:string;paintedForce:number;paintedTail:number};
@@ -6,7 +6,9 @@ const ownerSelector='[data-motion-button],.clay-grip';
 const shapes='path,rect,line,polyline,polygon,circle,ellipse';
 const glyphShapes='.liquid-glyph svg '+shapes.split(',').join(', .liquid-glyph svg '),gripShapes='svg '+shapes.split(',').join(', svg ');
 const splitKinds=new Set(['more','mosaic','grip','scan']),pairedKinds=new Set(['translate','read']),bendKinds=new Set(['arrow','brush','highlight','pin']);
-const historyKinds=new Set(['undo','redo']),crossKinds=new Set(['close','cancel']),outlineKinds=new Set(['rect','ellipse','text']);
+const historyKinds=new Set(['undo','redo']),crossKinds=new Set(['close','cancel','plus']),outlineKinds=new Set(['rect','ellipse','text']);
+// 钉图的原生按钮读取同一份受力参数，避免两端另调一套手感。
+const T=motionTokens.railButton.icon;
 
 /** 仅形变 SVG 线条和部件；不移动按钮、文案或图标占位，共用主轨时钟并保留中断速度。 */
 export class RailIconMotion {
@@ -21,16 +23,16 @@ export class RailIconMotion {
       if(event.pointerType!=='mouse'||Math.hypot(event.clientX-this.pointer.x,event.clientY-this.pointer.y)<.75)return;
       this.pointer={x:event.clientX,y:event.clientY};
       const target=owner(event);
-      if(target!==this.hovered){this.hovered=target;if(!this.blocked())this.pulse(target,.18);}
+      if(target!==this.hovered){this.hovered=target;if(!this.blocked())this.pulse(target,T.hover/1000);}
     }) as EventListener);
     listen(rail,'pointerleave',()=>{this.hovered=null;});
-    listen(rail,'focusin',event=>{const target=owner(event);if(target?.matches(':focus-visible')&&!this.blocked())this.pulse(target,.2);});
+    listen(rail,'focusin',event=>{const target=owner(event);if(target?.matches(':focus-visible')&&!this.blocked())this.pulse(target,T.focus/1000);});
     const press=(target:HTMLElement|null)=>{if(this.blocked())return;const icon=target&&this.icons.get(target);if(icon&&this.usable(icon)){icon.held=true;this.clock.wake();}};
     const release=()=>{for(const icon of this.icons.values())if(icon.held){icon.held=false;this.clock.wake();}};
     listen(rail,'pointerdown',((event:PointerEvent)=>{if(event.button===0)press(owner(event));}) as EventListener);
     listen(rail,'keydown',((event:KeyboardEvent)=>{if(!event.repeat&&(event.key==='Enter'||event.key===' '||owner(event)?.classList.contains('clay-grip')&&event.key.startsWith('Arrow')))press(owner(event));}) as EventListener);
     // 辅助技术的 click 没有前置按压；同样只改变外力，不重置图标形状。
-    listen(rail,'click',event=>{if(!this.blocked())this.pulse(owner(event),.14);});
+    listen(rail,'click',event=>{if(!this.blocked())this.pulse(owner(event),T.click/1000);});
     listen(window,'pointerup',release);listen(window,'pointercancel',release);listen(window,'keyup',release);listen(window,'blur',()=>this.reset());
   }
   private usable(icon:Icon){return icon.owner.isConnected&&!icon.owner.matches(':disabled')&&!icon.owner.closest('[inert]');}
@@ -67,17 +69,17 @@ export class RailIconMotion {
     if(icon.painted&&icon.paintedForce===icon.force.x&&icon.paintedTail===icon.tail.x)return;
     icon.paintedForce=icon.force.x;icon.paintedTail=icon.tail.x;
     // 柔性限幅避免较强受力撞到硬上限后停顿，再反向时仍连续。
-    const f=1.45*Math.tanh(icon.force.x/1.45),lag=1.2*Math.tanh((icon.force.x-icon.tail.x)/1.2),pose=f+':'+lag;
+    const f=T.forceLimit*Math.tanh(icon.force.x/T.forceLimit),lag=T.lagLimit*Math.tanh((icon.force.x-icon.tail.x)/T.lagLimit),pose=f+':'+lag;
     if(icon.painted===pose)return;icon.painted=pose;
     for(const part of icon.parts){
       // 21px 图标需要可辨的横纵形变；面积近似守恒，卸力后按原速度反向回鼓。
-      const {x,y,index}=part;let dx=x*lag*2,dy=y*lag*1.4,turn=lag*7,sx=1+f*.22,sy=1/sx,skew=lag*7;
+      const {x,y,index}=part;let dx=x*lag*T.shiftX,dy=y*lag*T.shiftY,turn=lag*T.turn,sx=1+f*T.stretch,sy=1/sx,skew=lag*T.skew;
       // 不同构造按部件受力：括角/点阵分开合拢，箭杆/笔尖弯转，书页和译文笔画相向牵拉。
       if(splitKinds.has(icon.kind)){dx+=x*f*3;dy+=y*f*2;turn=lag*3;}
       else if(pairedKinds.has(icon.kind)){dx+=x*f*2.4;turn+=x*f*16;}
-      else if(bendKinds.has(icon.kind)){turn+=f*(icon.kind==='pin'?14:-16);dx+=y*lag*1.6;}
+      else if(bendKinds.has(icon.kind)){turn+=f*(icon.kind==='pin'?T.pinTurn:-16);dx+=y*lag*T.bendShift;}
       else if(historyKinds.has(icon.kind)){turn+=f*(icon.kind==='undo'?-23:23);skew=0;}
-      else if(crossKinds.has(icon.kind)){turn+=(index%2?1:-1)*f*14;sx=1+f*.18;sy=1/sx;}
+      else if(crossKinds.has(icon.kind)){turn+=(index%2?1:-1)*f*T.crossTurn;sx=1+f*T.crossStretch;sy=1/sx;}
       else if(icon.kind==='done'){turn-=f*12;skew+=f*8;}
       else if(icon.kind==='appearance'){turn+=x*f*15;dx+=x*f*1.7;}
       else if(outlineKinds.has(icon.kind)){skew+=f*9;}
@@ -90,7 +92,7 @@ export class RailIconMotion {
       if(this.clock.reduced||!this.usable(icon)){this.clear(icon);continue;}
       if(blocked){icon.pulse=0;icon.held=false;}
       else icon.pulse=Math.max(0,icon.pulse-dt);
-      icon.force.to=this.modeForce(icon.owner)*1.6+(blocked?0:icon.held?-.9:icon.pulse>0?1:0);
+      icon.force.to=this.modeForce(icon.owner)*1.6+(blocked?0:icon.held?T.pressed:icon.pulse>0?1:0);
       icon.force.step(dt,icon.held?'press':'toolRecoil');
       icon.tail.to=icon.force.x;icon.tail.step(dt,'selection');
       this.paint(icon);moving=icon.force.moving||icon.tail.moving||icon.pulse>0||moving;
