@@ -56,7 +56,7 @@ internal sealed class CaptureDiagnostics
             }
             // 只在短锁内复制元数据；反射、JSON 编码和磁盘 I/O 不占用 UI 线程的阶段锁。
             var json = JsonSerializer.Serialize(new {
-                build = "capture-ready-r6", version = typeof(CaptureDiagnostics).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion,
+                build = "capture-ready-r7", version = typeof(CaptureDiagnostics).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion,
                 startedUtc = _started, captureId = CaptureId, failure, failedUtc,
                 outcome = completed ? (failure is null ? "ready" : "recovered") : failure is null ? "pending" : "failed", phases
             });

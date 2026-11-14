@@ -357,7 +357,18 @@ public partial class MainWindow : Window
             if(result!="true")throw new InvalidOperationException("截图呈现已失效。");
             trace?.Mark("frame_script_confirmed");
         }
-        try{await CompositionFrameWaiter.WaitAsync(image,Invalidate,_lifetime.Token,probe.Accept);trace?.Mark("frame_validated");}
+        try
+        {
+            try { await CompositionFrameWaiter.WaitAsync(image,Invalidate,_lifetime.Token,probe.Accept); }
+            catch (TimeoutException) when (probe.LastResult is "transparent" or "empty")
+            {
+                // 重复读取同一张透明纹理不会产生新帧；恢复可见性后重新订阅，并要求网页再次真实重绘。
+                trace?.Mark("composition_frame_stalled",probe.RejectedFrames,new{result=probe.LastResult,mismatch=probe.LastMismatch});
+                if (!await RecoverCaptureCompositionAsync(captureId)) throw;
+                await CompositionFrameWaiter.WaitAsync(image,Invalidate,_lifetime.Token,probe.Accept);
+            }
+            trace?.Mark("frame_validated");
+        }
         finally{trace?.Mark("frame_probe_"+probe.LastResult,probe.RejectedFrames,new{mismatch=probe.LastMismatch});trace?.Flush();}
     }
     // 获取 Win32 的当前 DPI，而非仍在异步追赶的 Chromium/WPF 缩放快照。

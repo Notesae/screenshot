@@ -1,6 +1,8 @@
 using System;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Threading;
 
 namespace Screenshot.App;
 
@@ -8,7 +10,24 @@ public partial class MainWindow
 {
     private string? _paintCaptureId;
     private Task<object>? _paintInFlight;
+    private string? _compositionRecoveryCaptureId; // 同一捕获最多重新激活一次合成，避免失败时反复隐藏控件。
     private bool IsCaptureReady(string id) => _presentation.Mode == PresentationMode.Overlay && _presentation.Matches(id) && _presentation.PendingCaptureId is null;
+
+    // 全透明帧超时才重新激活 SDK 的可见性路径；原生遮挡仍在，WebView 和内存文档不重载。
+    private async Task<bool> RecoverCaptureCompositionAsync(string captureId)
+    {
+        if (_compositionRecoveryCaptureId == captureId || !_presentation.IsPrepared(captureId) || _captureHandoff.IsCancelled(captureId)
+            || _lifetime.IsCancellationRequested || !IsVisible || Editor.Visibility != Visibility.Visible) return false;
+        _compositionRecoveryCaptureId = captureId;
+        var trace = _captureDiagnostics?.CaptureId == captureId ? _captureDiagnostics : null;
+        trace?.Mark("composition_recovery_started");
+        Editor.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Hidden);
+        try { await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded, _lifetime.Token); }
+        finally { Editor.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Visible); }
+        if (!_presentation.IsPrepared(captureId) || _captureHandoff.IsCancelled(captureId)) return false;
+        trace?.Mark("composition_recovery_requested");
+        return true;
+    }
 
     // 相同捕获的重试共享一次验帧，避免丢失回执后并行创建多个合成确认器。
     private Task<object> PaintedPresentationAsync(string captureId, PresentationViewport viewport)

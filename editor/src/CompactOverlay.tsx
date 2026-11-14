@@ -226,11 +226,23 @@ export function CompactOverlay(props:Props) {
     const observer=new ResizeObserver(()=>flushSync(measure));if(railRef.current)observer.observe(railRef.current);
     return()=>{window.removeEventListener('resize',resize);observer.disconnect();};
   },[]);
-  // 只有当前捕获能让静态选区进入宿主合成；迟到的旧回调不能解开新截图的遮挡。
+  // 只有当前捕获能让静态选区进入宿主合成；每次请求都重绘，不能只重复设置已为 true 的状态。
   useLayoutEffect(()=>{
-    window.screenshotPresentCapture=id=>{if(id!==metadata?.captureId)return false;flushSync(()=>setPreparing(true));return true;};
-    return()=>{delete window.screenshotPresentCapture;};
-  },[metadata?.captureId]);
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    const stop=()=>clearTimeout(timer);
+    window.screenshotPresentCapture=id=>{
+      if(id!==metadata?.captureId||props.suspended)return false;
+      stop();flushSync(()=>setPreparing(true));
+      if(!chromeVisible){
+        // SDK 恢复合成可能晚于静态首帧；只在本轮验帧窗口内补绘，揭示/替换/隐藏立即停止。
+        const deadline=performance.now()+1800;
+        const repaint=()=>{canvasRef.current?.repaint();if(performance.now()<deadline)timer=setTimeout(repaint,100);};
+        repaint();
+      }
+      return true;
+    };
+    return()=>{stop();delete window.screenshotPresentCapture;};
+  },[metadata?.captureId,props.suspended,chromeVisible,canvasRef]);
   // 一次捕获使用一条持续确认链；画布/DPI 更新只唤醒等待，不取消回执后把流程锁死。
   useEffect(()=>{
     const id=metadata?.captureId;if(props.skipReady||!id)return;

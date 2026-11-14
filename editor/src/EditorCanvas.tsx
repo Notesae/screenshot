@@ -16,7 +16,7 @@ import { canvasToPngDataUrl } from './png';
 // 属性浮卡只接收可编辑的样式，不复制画笔轨迹或马赛克采样图。
 export type CanvasSelection = Pick<Annotation, 'id' | 'type' | 'color' | 'fontSize' | 'strokeWidth' | 'blockSize'>;
 export type CanvasRenderStatus = 'loading' | 'ready' | 'error';
-export type CanvasHandle = { exportPng: (scale: number) => Promise<string>; add: (type: AnnotationKind) => void; remove: () => void; patchSelection: (change: AnnotationChange, group?:string) => boolean; toolStyle: (type: AnnotationKind) => CanvasSelection; patchTool: (type: AnnotationKind, change: AnnotationChange) => boolean; interactionState: () => { editing: boolean; selected: boolean }; exitSelection: (clearAll?: boolean) => void; hasAnnotationAt: (event:PointerEvent) => boolean; getDisplayScale?: () => number };
+export type CanvasHandle = { exportPng: (scale: number) => Promise<string>; repaint: () => void; add: (type: AnnotationKind) => void; remove: () => void; patchSelection: (change: AnnotationChange, group?:string) => boolean; toolStyle: (type: AnnotationKind) => CanvasSelection; patchTool: (type: AnnotationKind, change: AnnotationChange) => boolean; interactionState: () => { editing: boolean; selected: boolean }; exitSelection: (clearAll?: boolean) => void; hasAnnotationAt: (event:PointerEvent) => boolean; getDisplayScale?: () => number };
 // 设置与历史面板可隐藏视图工具，不卸载画布或影响文档。
 type Props = { compareRaw?:boolean;onCompareError?:(error:unknown)=>void; showViewControls?:boolean; document: ProjectDocument; onAnnotations: (objects: Annotation[], group?: string) => void; onError: (error: unknown) => void; fixedDisplayScale?: { x: number; y: number }; onReady?: () => void; onRenderStatus?: (status: CanvasRenderStatus) => void; onSelection?: (selection:CanvasSelection|null)=>void; onDrawingToolChange?: (tool:AnnotationKind|null)=>void };
 // 每个底图都是renderBase私有canvas；替换/卸载时归零背板，避免等待GC回收大图像素。
@@ -224,6 +224,11 @@ export const EditorCanvas = forwardRef<CanvasHandle, Props>(function EditorCanva
     if (loaded.current && rendered.current?.image === current.current.image && rendered.current?.properties === latestProperties.current) onReady?.();
   }, [displayScale.x, displayScale.y, size]);
   useImperativeHandle(ref, () => ({
+    // 只重绘当前已提交的画布，唤醒闲置后的合成输出；不重建底图或修改文档。
+    repaint() {
+      const canvas = fabric.current;
+      if (canvas && loaded.current && rendered.current?.image === current.current.image && rendered.current?.properties === latestProperties.current) canvas.renderAll();
+    },
     toolStyle: type => ({ id:'tool-'+type,type,...styleFor(type) }),
     patchTool(type,change) {if(!validStyle(change))return false;toolStyles.current[type]={...styleFor(type),...change};return true;},
     getDisplayScale: () => Math.min(displayScaleRef.current.x, displayScaleRef.current.y),
